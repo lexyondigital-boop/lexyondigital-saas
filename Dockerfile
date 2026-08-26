@@ -7,6 +7,13 @@ FROM node:24-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Next.js inlínea las NEXT_PUBLIC_* en el bundle durante `next build`, no en
+# runtime -- por eso hacen falta como build args aquí, aunque el contenedor
+# ya las reciba también como env vars normales para el código de servidor.
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
 RUN npm run build
 
 FROM node:24-alpine AS runner
