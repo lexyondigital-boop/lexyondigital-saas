@@ -1,0 +1,323 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { Badge } from "@/components/Badge";
+
+type ConversacionCruda = {
+  id: string;
+  telefono: string;
+  status: "abierta" | "cerrada";
+  agente_ia_activo: boolean;
+  contacto_id: string;
+  created_at: string;
+  contactos: { nombre: string | null } | { nombre: string | null }[] | null;
+};
+
+type Conversacion = {
+  id: string;
+  telefono: string;
+  status: "abierta" | "cerrada";
+  agente_ia_activo: boolean;
+  contacto_id: string;
+  created_at: string;
+  nombreContacto: string | null;
+};
+
+type Mensaje = {
+  id: string;
+  direccion: "entrante" | "saliente";
+  tipo: string;
+  contenido: string | null;
+  template_nombre: string | null;
+  status: string;
+  created_at: string;
+};
+
+function nombreDe(c: ConversacionCruda): string | null {
+  const rel = Array.isArray(c.contactos) ? c.contactos[0] : c.contactos;
+  return rel?.nombre ?? null;
+}
+
+export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
+  const supabase = useMemo(() => createClient(), []);
+  const [conversaciones, setConversaciones] = useState<Conversacion[]>([]);
+  const [previews, setPrevious] = useState<Record<string, { contenido: string | null; created_at: string }>>({});
+  const [cargando, setCargando] = useState(true);
+  const [busqueda, setBusqueda] = useState("");
+  const [seleccionada, setSeleccionada] = useState<string | null>(null);
+
+  async function cargarLista() {
+    setCargando(true);
+    const { data } = await supabase
+      .from("conversaciones")
+      .select("id, telefono, status, agente_ia_activo, contacto_id, created_at, contactos(nombre)")
+      .order("created_at", { ascending: false });
+
+    const lista: Conversacion[] = ((data as ConversacionCruda[]) ?? []).map((c) => ({
+      id: c.id,
+      telefono: c.telefono,
+      status: c.status,
+      agente_ia_activo: c.agente_ia_activo,
+      contacto_id: c.contacto_id,
+      created_at: c.created_at,
+      nombreContacto: nombreDe(c),
+    }));
+    setConversaciones(lista);
+
+    const { data: mensajesRecientes } = await supabase
+      .from("mensajes")
+      .select("conversacion_id, contenido, created_at")
+      .not("conversacion_id", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(300);
+
+    const mapa: Record<string, { contenido: string | null; created_at: string }> = {};
+    for (const m of mensajesRecientes ?? []) {
+      if (m.conversacion_id && !mapa[m.conversacion_id]) {
+        mapa[m.conversacion_id] = { contenido: m.contenido, created_at: m.created_at };
+      }
+    }
+    setPrevious(mapa);
+    setCargando(false);
+  }
+
+  useEffect(() => {
+    cargarLista();
+
+    const canal = supabase
+      .channel(`mensajes-cuenta-${cuentaId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "mensajes", filter: `cuenta_id=eq.${cuentaId}` },
+        () => cargarLista(),
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(canal);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cuentaId]);
+
+  const filtradas = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return conversaciones;
+    return conversaciones.filter(
+      (c) => c.nombreContacto?.toLowerCase().includes(q) || c.telefono.includes(q),
+    );
+  }, [conversaciones, busqueda]);
+
+  const conversacionActiva = conversaciones.find((c) => c.id === seleccionada) ?? null;
+
+  return (
+    <div className="flex h-[calc(100vh-6rem)] gap-4">
+      <div className="flex w-80 shrink-0 flex-col rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)]">
+        <div className="border-b border-[var(--color-borde)] p-4">
+          <h1 className="text-base font-bold text-[var(--color-texto)]">Conversaciones</h1>
+          <input
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar…"
+            className="mt-3 w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-1.5 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+          />
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {cargando ? (
+            <p className="p-4 text-sm text-[var(--color-texto-mute)]">Cargando…</p>
+          ) : filtradas.length === 0 ? (
+            <p className="p-4 text-sm text-[var(--color-texto-mute)]">Sin conversaciones.</p>
+          ) : (
+            filtradas.map((c) => {
+              const preview = previews[c.id];
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => setSeleccionada(c.id)}
+                  className="block w-full border-b border-[var(--color-borde)] px-4 py-3 text-left transition-colors last:border-0"
+                  style={seleccionada === c.id ? { background: "color-mix(in srgb, var(--color-marca) 12%, transparent)" } : undefined}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-sm font-medium text-[var(--color-texto)]">
+                      {c.nombreContacto ?? c.telefono}
+                    </span>
+                    <Badge tono={c.status === "abierta" ? "en-vivo" : "mute"}>
+                      {c.status === "abierta" ? "Abierta" : "Cerrada"}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 truncate text-xs text-[var(--color-texto-mute)]">
+                    {preview?.contenido ?? "Sin mensajes"}
+                  </p>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-1 flex-col rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)]">
+        {conversacionActiva ? (
+          <PanelConversacion
+            key={conversacionActiva.id}
+            conversacion={conversacionActiva}
+            onCambio={cargarLista}
+          />
+        ) : (
+          <div className="flex flex-1 items-center justify-center text-sm text-[var(--color-texto-mute)]">
+            Selecciona una conversación.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PanelConversacion({ conversacion, onCambio }: { conversacion: Conversacion; onCambio: () => void }) {
+  const supabase = useMemo(() => createClient(), []);
+  const [mensajes, setMensajes] = useState<Mensaje[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [texto, setTexto] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const finRef = useRef<HTMLDivElement>(null);
+
+  async function cargarMensajes() {
+    setCargando(true);
+    const { data } = await supabase
+      .from("mensajes")
+      .select("id, direccion, tipo, contenido, template_nombre, status, created_at")
+      .eq("conversacion_id", conversacion.id)
+      .order("created_at", { ascending: true });
+    setMensajes(data ?? []);
+    setCargando(false);
+  }
+
+  useEffect(() => {
+    cargarMensajes();
+
+    const canal = supabase
+      .channel(`mensajes-conversacion-${conversacion.id}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "mensajes", filter: `conversacion_id=eq.${conversacion.id}` },
+        (payload) => setMensajes((prev) => [...prev, payload.new as Mensaje]),
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(canal);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversacion.id]);
+
+  useEffect(() => {
+    finRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [mensajes.length]);
+
+  async function alternarAgente() {
+    await supabase
+      .from("conversaciones")
+      .update({ agente_ia_activo: !conversacion.agente_ia_activo })
+      .eq("id", conversacion.id);
+    onCambio();
+  }
+
+  async function alternarStatus() {
+    await supabase
+      .from("conversaciones")
+      .update({ status: conversacion.status === "abierta" ? "cerrada" : "abierta" })
+      .eq("id", conversacion.id);
+    onCambio();
+  }
+
+  async function enviar() {
+    if (!texto.trim()) return;
+    setEnviando(true);
+    const res = await fetch("/api/messages/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversacion_id: conversacion.id, texto: texto.trim() }),
+    });
+    setEnviando(false);
+    if (res.ok) {
+      setTexto("");
+      cargarMensajes();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      alert(data.error ?? "No se pudo enviar el mensaje.");
+    }
+  }
+
+  return (
+    <>
+      <div className="flex items-center justify-between border-b border-[var(--color-borde)] p-4">
+        <div>
+          <p className="text-sm font-semibold text-[var(--color-texto)]">
+            {conversacion.nombreContacto ?? conversacion.telefono}
+          </p>
+          <p className="text-xs text-[var(--color-texto-mute)]">{conversacion.telefono}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={alternarAgente}
+            className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-1.5 text-xs font-medium text-[var(--color-texto)] hover:opacity-80"
+          >
+            Agente IA: {conversacion.agente_ia_activo ? "activo" : "pausado"}
+          </button>
+          <button
+            onClick={alternarStatus}
+            className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-1.5 text-xs font-medium text-[var(--color-texto)] hover:opacity-80"
+          >
+            {conversacion.status === "abierta" ? "Cerrar" : "Reabrir"}
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1 space-y-2 overflow-y-auto p-4">
+        {cargando ? (
+          <p className="text-sm text-[var(--color-texto-mute)]">Cargando…</p>
+        ) : mensajes.length === 0 ? (
+          <p className="text-sm text-[var(--color-texto-mute)]">Todavía no hay mensajes.</p>
+        ) : (
+          mensajes.map((m) => (
+            <div key={m.id} className={`flex ${m.direccion === "saliente" ? "justify-end" : "justify-start"}`}>
+              <div
+                className="max-w-[70%] rounded-2xl px-3.5 py-2 text-sm"
+                style={
+                  m.direccion === "saliente"
+                    ? { background: "var(--color-marca)", color: "var(--color-accion-fg)" }
+                    : { background: "var(--color-bg-elevada)", color: "var(--color-texto)" }
+                }
+              >
+                <p>{m.contenido ?? (m.template_nombre ? `Plantilla: ${m.template_nombre}` : "—")}</p>
+                <p className="mt-1 text-[10px] opacity-70">
+                  {new Date(m.created_at).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
+                </p>
+              </div>
+            </div>
+          ))
+        )}
+        <div ref={finRef} />
+      </div>
+
+      <div className="flex gap-2 border-t border-[var(--color-borde)] p-4">
+        <input
+          value={texto}
+          onChange={(e) => setTexto(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") enviar();
+          }}
+          placeholder="Escribe un mensaje…"
+          className="flex-1 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+        />
+        <button
+          onClick={enviar}
+          disabled={enviando}
+          style={{ boxShadow: "var(--halo-accion)" }}
+          className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
+        >
+          Enviar
+        </button>
+      </div>
+    </>
+  );
+}
