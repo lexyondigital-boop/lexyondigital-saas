@@ -1,26 +1,159 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ============================================================
+   LexyonDigital — tokens de marca
+   Cada tema no es solo una paleta: el rol de cada acento puede
+   cambiar de tratamiento entre temas (ej. el lima es botón de
+   acción en Negro/Tornasol Oscuro, pero baja a solo punto de
+   estado "en vivo" en Tornasol Claro, donde la acción pasa a
+   violeta sólido). Por eso --color-accion y --color-accion-fg
+   se redefinen por tema en vez de mapear un swatch fijo.
+   ============================================================ */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+:root {
+  /* Tornasol · Fondo claro (5B) — default en el primer paint */
+  --color-bg: #f7f3f9;
+  --color-bg-elevada: #ffffff;
+  --color-tarjeta: #ffffff;
+  --color-borde: #e2d7e8;
+  --color-borde-alto: #d3c2dc;
+
+  --color-texto: #1c1123;
+  --color-texto-mute: #6b5b74;
+
+  --color-marca: #a855f7;
+  --color-ia: #d62d8b;
+  --color-datos: #35d6c4;
+  --color-accion: #7c22ce;
+  --color-accion-fg: #ffffff;
+  --color-en-vivo: #7ea616;
+  --color-aviso: #b3690a;
+
+  --gradiente-marca: linear-gradient(90deg, #a855f7, #ec4899, #ffb020, #35d6c4);
+  --halo-accion: none;
+
+  --font-marca: var(--font-geist-sans), "Segoe UI", system-ui, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root:not([data-theme="tornasol-claro"]):not([data-theme="tornasol-oscuro"]) {
+    /* Sistema en oscuro → Negro (8A) */
+    --color-bg: #000000;
+    --color-bg-elevada: #0f0f0f;
+    --color-tarjeta: #1a1a1a;
+    --color-borde: #262626;
+    --color-borde-alto: #333333;
+
+    --color-texto: #f5f5f5;
+    --color-texto-mute: #a3a3a3;
+
+    --color-marca: #a855f7;
+    --color-ia: #ec4899;
+    --color-datos: #35d6c4;
+    --color-accion: #c6ff3d;
+    --color-accion-fg: #10130a;
+    --color-en-vivo: #c6ff3d;
+    --color-aviso: #ffb020;
+
+    --gradiente-marca: linear-gradient(90deg, #a855f7, #ec4899, #ffb020, #35d6c4);
+    --halo-accion: none;
   }
 }
 
+[data-theme="negro"] {
+  --color-bg: #000000;
+  --color-bg-elevada: #0f0f0f;
+  --color-tarjeta: #1a1a1a;
+  --color-borde: #262626;
+  --color-borde-alto: #333333;
+
+  --color-texto: #f5f5f5;
+  --color-texto-mute: #a3a3a3;
+
+  --color-marca: #a855f7;
+  --color-ia: #ec4899;
+  --color-datos: #35d6c4;
+  --color-accion: #c6ff3d;
+  --color-accion-fg: #10130a;
+  --color-en-vivo: #c6ff3d;
+  --color-aviso: #ffb020;
+
+  --gradiente-marca: linear-gradient(90deg, #a855f7, #ec4899, #ffb020, #35d6c4);
+  --halo-accion: none;
+}
+
+[data-theme="tornasol-oscuro"] {
+  --color-bg: #0c0710;
+  --color-bg-elevada: #1c1123;
+  --color-tarjeta: #1c1123;
+  --color-borde: #2a1c31;
+  --color-borde-alto: #3d2a47;
+
+  --color-texto: #f6eefa;
+  --color-texto-mute: #b7a3c2;
+
+  --color-marca: #a855f7;
+  --color-ia: #ec4899;
+  --color-datos: #35d6c4;
+  --color-accion: #c6ff3d;
+  --color-accion-fg: #10130a;
+  --color-en-vivo: #c6ff3d;
+  --color-aviso: #ffb020;
+
+  --gradiente-marca: linear-gradient(90deg, #a855f7, #ec4899, #ffb020, #35d6c4);
+  --halo-accion: 0 0 24px 2px rgb(198 255 61 / 0.35);
+}
+
+[data-theme="tornasol-claro"] {
+  --color-bg: #f7f3f9;
+  --color-bg-elevada: #ffffff;
+  --color-tarjeta: #ffffff;
+  --color-borde: #e2d7e8;
+  --color-borde-alto: #d3c2dc;
+
+  --color-texto: #1c1123;
+  --color-texto-mute: #6b5b74;
+
+  --color-marca: #a855f7;
+  --color-ia: #d62d8b;
+  --color-datos: #35d6c4;
+  --color-accion: #7c22ce;
+  --color-accion-fg: #ffffff;
+  --color-en-vivo: #7ea616;
+  --color-aviso: #b3690a;
+
+  --gradiente-marca: linear-gradient(90deg, #a855f7, #ec4899, #ffb020, #35d6c4);
+  --halo-accion: none;
+}
+
+@theme inline {
+  --color-bg: var(--color-bg);
+  --color-bg-elevada: var(--color-bg-elevada);
+  --color-tarjeta: var(--color-tarjeta);
+  --color-borde: var(--color-borde);
+  --color-borde-alto: var(--color-borde-alto);
+  --color-texto: var(--color-texto);
+  --color-texto-mute: var(--color-texto-mute);
+  --color-marca: var(--color-marca);
+  --color-ia: var(--color-ia);
+  --color-datos: var(--color-datos);
+  --color-accion: var(--color-accion);
+  --color-accion-fg: var(--color-accion-fg);
+  --color-en-vivo: var(--color-en-vivo);
+  --color-aviso: var(--color-aviso);
+  --font-sans: var(--font-marca);
+}
+
+* {
+  border-color: var(--color-borde);
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-texto);
+  font-family: var(--font-marca);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-marca) 35%, transparent);
 }

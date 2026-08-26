@@ -79,6 +79,32 @@ export async function enviarMensajeTexto({
   };
 }
 
+export async function consultarNumero({
+  phoneNumberId,
+  accessToken,
+}: {
+  phoneNumberId: string;
+  accessToken: string;
+}): Promise<{ ok: boolean; numero: string | null; nombreVerificado: string | null; error: string | null }> {
+  const res = await fetch(
+    `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}?fields=display_phone_number,verified_name`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    return { ok: false, numero: null, nombreVerificado: null, error: data?.error?.message ?? "Error desconocido" };
+  }
+
+  return {
+    ok: true,
+    numero: data?.display_phone_number ?? null,
+    nombreVerificado: data?.verified_name ?? null,
+    error: null,
+  };
+}
+
 export async function enviarMensajePlantilla({
   phoneNumberId,
   accessToken,
