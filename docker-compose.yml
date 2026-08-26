@@ -1,0 +1,24 @@
+services:
+  app:
+    build: .
+    restart: always
+    networks:
+      - n8n_default
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=n8n_default
+      - traefik.http.routers.lexyondigital-saas.rule=Host(`${SUBDOMAIN}.${DOMAIN_NAME}`)
+      - traefik.http.routers.lexyondigital-saas.tls=true
+      - traefik.http.routers.lexyondigital-saas.entrypoints=web,websecure
+      - traefik.http.routers.lexyondigital-saas.tls.certresolver=mytlschallenge
+      - traefik.http.services.lexyondigital-saas.loadbalancer.server.port=3000
+    environment:
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - META_WEBHOOK_VERIFY_TOKEN=${META_WEBHOOK_VERIFY_TOKEN}
+      - CRON_SECRET=${CRON_SECRET}
+
+networks:
+  n8n_default:
+    external: true
