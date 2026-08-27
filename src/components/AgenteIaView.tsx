@@ -7,6 +7,9 @@ type Config = {
   nombre: string;
   activo: boolean;
   modo: "sugestivo" | "semi_automatico" | "automatico";
+  proveedor_ia: "openai" | "claude";
+  modo_api: "user_key" | "platform_key";
+  api_key_usuario_cifrada: string | null;
   prompt: string | null;
   tono: string;
   idioma: string;
@@ -23,6 +26,9 @@ const CONFIG_DEFECTO: Config = {
   nombre: "Agente",
   activo: true,
   modo: "sugestivo",
+  proveedor_ia: "openai",
+  modo_api: "platform_key",
+  api_key_usuario_cifrada: null,
   prompt: "",
   tono: "profesional",
   idioma: "es",
@@ -35,7 +41,7 @@ const CONFIG_DEFECTO: Config = {
   seguimiento_horas: 24,
 };
 
-type Tab = "general" | "faqs" | "documentos";
+type Tab = "general" | "faqs" | "documentos" | "estadisticas";
 
 export function AgenteIaView({ cuentaId }: { cuentaId: string }) {
   const [tab, setTab] = useState<Tab>("general");
@@ -52,6 +58,7 @@ export function AgenteIaView({ cuentaId }: { cuentaId: string }) {
           ["general", "General"],
           ["faqs", "Preguntas frecuentes"],
           ["documentos", "Documentos"],
+          ["estadisticas", "Estadísticas"],
         ] as [Tab, string][]).map(([valor, etiqueta]) => (
           <button
             key={valor}
@@ -70,6 +77,7 @@ export function AgenteIaView({ cuentaId }: { cuentaId: string }) {
       {tab === "general" && <PestanaGeneral cuentaId={cuentaId} />}
       {tab === "faqs" && <PestanaFaqs cuentaId={cuentaId} />}
       {tab === "documentos" && <PestanaDocumentos cuentaId={cuentaId} />}
+      {tab === "estadisticas" && <PestanaEstadisticas />}
     </div>
   );
 }
@@ -81,6 +89,9 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState<string | null>(null);
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [guardandoApiKey, setGuardandoApiKey] = useState(false);
+  const [mensajeApiKey, setMensajeApiKey] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -110,6 +121,29 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
 
     setGuardando(false);
     setMensaje(error ? error.message : "Guardado.");
+  }
+
+  async function guardarApiKey() {
+    if (!apiKeyInput.trim()) return;
+    setGuardandoApiKey(true);
+    setMensajeApiKey(null);
+
+    const res = await fetch("/api/agente-ia/api-key", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: apiKeyInput.trim() }),
+    });
+
+    setGuardandoApiKey(false);
+
+    if (res.ok) {
+      setConfig((prev) => ({ ...prev, api_key_usuario_cifrada: "•" }));
+      setApiKeyInput("");
+      setMensajeApiKey("API key guardada.");
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setMensajeApiKey(data.error ?? "No se pudo guardar la API key.");
+    }
   }
 
   if (cargando) return <p className="text-sm text-[var(--color-texto-mute)]">Cargando…</p>;
@@ -145,9 +179,66 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
           >
             <option value="sugestivo">Sugestivo (sugiere, el agente humano aprueba)</option>
             <option value="semi_automatico">Semi-automático</option>
-            <option value="automatico">Automático</option>
+            <option value="automatico">Automático (responde solo, sin revisión)</option>
+          </select>
+          {config.modo !== "sugestivo" && (
+            <span className="mt-1 block text-xs" style={{ color: "var(--color-aviso)" }}>
+              El agente va a contestar directo a clientes reales por WhatsApp, sin que nadie revise antes.
+            </span>
+          )}
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Proveedor de IA</span>
+          <select
+            value={config.proveedor_ia}
+            onChange={(e) => setConfig({ ...config, proveedor_ia: e.target.value as Config["proveedor_ia"] })}
+            className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+          >
+            <option value="openai">OpenAI</option>
+            <option value="claude">Claude (Anthropic)</option>
           </select>
         </label>
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Modo de API</span>
+          <select
+            value={config.modo_api}
+            onChange={(e) => setConfig({ ...config, modo_api: e.target.value as Config["modo_api"] })}
+            className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+          >
+            <option value="platform_key">Platform key (usa la API de Lexyondigital)</option>
+            <option value="user_key">User key (tu propia API key)</option>
+          </select>
+        </label>
+
+        {config.modo_api === "user_key" && (
+          <div className="sm:col-span-2">
+            <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">
+              API key de {config.proveedor_ia === "openai" ? "OpenAI" : "Claude"}
+            </span>
+            <div className="flex gap-2">
+              <input
+                type="password"
+                value={apiKeyInput}
+                onChange={(e) => setApiKeyInput(e.target.value)}
+                placeholder={config.api_key_usuario_cifrada ? "Ya configurada — escribe una nueva para reemplazarla" : "sk-…"}
+                className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+              />
+              <button
+                type="button"
+                onClick={guardarApiKey}
+                disabled={guardandoApiKey || !apiKeyInput.trim()}
+                className="shrink-0 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm font-medium text-[var(--color-texto)] hover:opacity-80 disabled:opacity-50"
+              >
+                {guardandoApiKey ? "Guardando…" : "Guardar key"}
+              </button>
+            </div>
+            {mensajeApiKey && <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">{mensajeApiKey}</span>}
+            <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
+              Se guarda cifrada. Esta pantalla nunca vuelve a mostrarla en texto plano.
+            </span>
+          </div>
+        )}
+
         <label className="block">
           <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Tono</span>
           <input
@@ -421,6 +512,123 @@ function PestanaDocumentos({ cuentaId }: { cuentaId: string }) {
               </button>
             </div>
           ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+type FilaUso = {
+  id: string;
+  created_at: string;
+  proveedor: string;
+  modalidad: string;
+  tokens_total: number;
+  costo_usd: number;
+  contactos: { nombre: string | null } | { nombre: string | null }[] | null;
+};
+
+function nombreContactoDe(fila: FilaUso): string {
+  const rel = Array.isArray(fila.contactos) ? fila.contactos[0] : fila.contactos;
+  return rel?.nombre ?? "—";
+}
+
+function PestanaEstadisticas() {
+  const supabase = createClient();
+  const [filas, setFilas] = useState<FilaUso[]>([]);
+  const [cargando, setCargando] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("agente_uso_ia")
+        .select("id, created_at, proveedor, modalidad, tokens_total, costo_usd, contactos(nombre)")
+        .order("created_at", { ascending: false })
+        .limit(500);
+      setFilas((data as unknown as FilaUso[]) ?? []);
+      setCargando(false);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (cargando) return <p className="text-sm text-[var(--color-texto-mute)]">Cargando…</p>;
+
+  const totalTokens = filas.reduce((s, f) => s + f.tokens_total, 0);
+  const totalCosto = filas.reduce((s, f) => s + f.costo_usd, 0);
+
+  const porDia = new Map<string, number>();
+  for (const f of filas) {
+    const dia = f.created_at.slice(0, 10);
+    porDia.set(dia, (porDia.get(dia) ?? 0) + 1);
+  }
+  const dias = [...porDia.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-14);
+  const maxDia = Math.max(1, ...dias.map(([, n]) => n));
+
+  return (
+    <div>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-5">
+          <p className="text-sm text-[var(--color-texto-mute)]">Mensajes de IA (últimos 500)</p>
+          <p className="mt-2 text-2xl font-bold text-[var(--color-texto)]">{filas.length}</p>
+        </div>
+        <div className="rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-5">
+          <p className="text-sm text-[var(--color-texto-mute)]">Tokens totales</p>
+          <p className="mt-2 text-2xl font-bold text-[var(--color-texto)]">{totalTokens.toLocaleString("es-MX")}</p>
+        </div>
+        <div className="rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-5">
+          <p className="text-sm text-[var(--color-texto-mute)]">Costo estimado</p>
+          <p className="mt-2 text-2xl font-bold text-[var(--color-texto)]">${totalCosto.toFixed(4)} USD</p>
+        </div>
+      </div>
+
+      {dias.length > 0 && (
+        <div className="mt-6 rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-5">
+          <h3 className="mb-3 text-sm font-semibold text-[var(--color-texto)]">Mensajes por día</h3>
+          <div className="space-y-1.5">
+            {dias.map(([dia, n]) => (
+              <div key={dia} className="flex items-center gap-3 text-xs">
+                <span className="w-20 shrink-0 text-[var(--color-texto-mute)]">{dia.slice(5)}</span>
+                <div className="h-3 flex-1 overflow-hidden rounded-full bg-[var(--color-bg-elevada)]">
+                  <div
+                    className="h-full rounded-full"
+                    style={{ width: `${(n / maxDia) * 100}%`, background: "var(--color-ia)" }}
+                  />
+                </div>
+                <span className="w-6 shrink-0 text-right text-[var(--color-texto)]">{n}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-6 overflow-x-auto rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)]">
+        {filas.length === 0 ? (
+          <p className="p-6 text-sm text-[var(--color-texto-mute)]">Todavía no hay uso registrado.</p>
+        ) : (
+          <table className="w-full min-w-[640px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-[var(--color-borde)] text-xs uppercase tracking-wide text-[var(--color-texto-mute)]">
+                <th className="px-5 py-3 font-medium">Fecha</th>
+                <th className="px-5 py-3 font-medium">Contacto</th>
+                <th className="px-5 py-3 font-medium">Modalidad</th>
+                <th className="px-5 py-3 font-medium">Proveedor</th>
+                <th className="px-5 py-3 font-medium">Costo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filas.slice(0, 100).map((f) => (
+                <tr key={f.id} className="border-b border-[var(--color-borde)] last:border-0">
+                  <td className="px-5 py-3.5 text-[var(--color-texto-mute)]">
+                    {new Date(f.created_at).toLocaleString("es-MX", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                  </td>
+                  <td className="px-5 py-3.5 text-[var(--color-texto)]">{nombreContactoDe(f)}</td>
+                  <td className="px-5 py-3.5 text-[var(--color-texto)]">{f.modalidad === "sugestivo" ? "Sugestivo" : "Automático"}</td>
+                  <td className="px-5 py-3.5 text-[var(--color-texto-mute)]">{f.proveedor}</td>
+                  <td className="px-5 py-3.5 text-[var(--color-texto)]">${f.costo_usd.toFixed(4)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </div>

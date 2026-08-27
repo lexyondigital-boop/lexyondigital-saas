@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enviarMensajeTexto, normalizarDestinatario } from "@/lib/meta";
+import { procesarAgenteIA } from "@/lib/agente-ia-runtime";
 
 // Verificación de webhook de Meta. A diferencia del workflow de n8n que
 // reemplaza (que respondía el hub.challenge sin validar nada), aquí sí se
@@ -84,16 +85,22 @@ async function procesarMensajeEntrante(body: unknown) {
     telefono,
   );
 
-  await supabase.from("mensajes").insert({
-    cuenta_id: cuentaWhatsapp.cuenta_id,
-    conversacion_id: conversacion?.id ?? null,
-    contacto_id: contacto.id,
-    direccion: "entrante",
-    tipo: "texto",
-    contenido: mensaje.text?.body ?? "",
-    whatsapp_message_id: mensaje.id,
-    status: "entregado",
-  });
+  const textoEntrante: string = mensaje.text?.body ?? "";
+
+  const { data: mensajeInsertado } = await supabase
+    .from("mensajes")
+    .insert({
+      cuenta_id: cuentaWhatsapp.cuenta_id,
+      conversacion_id: conversacion?.id ?? null,
+      contacto_id: contacto.id,
+      direccion: "entrante",
+      tipo: "texto",
+      contenido: textoEntrante,
+      whatsapp_message_id: mensaje.id,
+      status: "entregado",
+    })
+    .select("id")
+    .single();
 
   if (esContactoNuevo) {
     await enviarSaludoBienvenida({
@@ -104,6 +111,19 @@ async function procesarMensajeEntrante(body: unknown) {
       telefono,
       nombre,
     });
+    // Al primer contacto se le manda el saludo fijo de arriba, no la IA.
+    return;
+  }
+
+  if (conversacion?.id && mensajeInsertado) {
+    await procesarAgenteIA({
+      cuentaId: cuentaWhatsapp.cuenta_id,
+      conversacionId: conversacion.id,
+      contactoId: contacto.id,
+      telefono,
+      mensajeEntranteId: mensajeInsertado.id,
+      textoEntrante,
+    }).catch((error) => console.error(`Cuenta ${cuentaWhatsapp.cuenta_id}: error en el agente IA:`, error));
   }
 }
 

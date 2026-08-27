@@ -32,6 +32,9 @@ type Mensaje = {
   template_nombre: string | null;
   status: string;
   created_at: string;
+  sugerencia_ia: string | null;
+  sugerencia_usada: boolean;
+  feedback_ia: "positivo" | "negativo" | null;
 };
 
 function nombreDe(c: ConversacionCruda): string | null {
@@ -178,13 +181,14 @@ function PanelConversacion({ conversacion, onCambio }: { conversacion: Conversac
   const [cargando, setCargando] = useState(true);
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);
+  const [procesandoSugerencia, setProcesandoSugerencia] = useState<string | null>(null);
   const finRef = useRef<HTMLDivElement>(null);
 
   async function cargarMensajes() {
     setCargando(true);
     const { data } = await supabase
       .from("mensajes")
-      .select("id, direccion, tipo, contenido, template_nombre, status, created_at")
+      .select("id, direccion, tipo, contenido, template_nombre, status, created_at, sugerencia_ia, sugerencia_usada, feedback_ia")
       .eq("conversacion_id", conversacion.id)
       .order("created_at", { ascending: true });
     setMensajes(data ?? []);
@@ -200,6 +204,14 @@ function PanelConversacion({ conversacion, onCambio }: { conversacion: Conversac
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "mensajes", filter: `conversacion_id=eq.${conversacion.id}` },
         (payload) => setMensajes((prev) => [...prev, payload.new as Mensaje]),
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "mensajes", filter: `conversacion_id=eq.${conversacion.id}` },
+        (payload) => {
+          const actualizado = payload.new as Mensaje;
+          setMensajes((prev) => prev.map((m) => (m.id === actualizado.id ? actualizado : m)));
+        },
       )
       .subscribe();
 
@@ -247,6 +259,32 @@ function PanelConversacion({ conversacion, onCambio }: { conversacion: Conversac
     }
   }
 
+  async function usarSugerencia(mensajeId: string, textoAEnviar: string) {
+    setProcesandoSugerencia(mensajeId);
+    const res = await fetch(`/api/mensajes/${mensajeId}/usar-sugerencia`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ texto: textoAEnviar }),
+    });
+    setProcesandoSugerencia(null);
+    if (res.ok) {
+      cargarMensajes();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      alert(data.error ?? "No se pudo enviar la sugerencia.");
+    }
+  }
+
+  async function descartarSugerencia(mensajeId: string) {
+    await supabase.from("mensajes").update({ sugerencia_usada: true }).eq("id", mensajeId);
+    cargarMensajes();
+  }
+
+  async function calificarSugerencia(mensajeId: string, feedback: "positivo" | "negativo") {
+    await supabase.from("mensajes").update({ feedback_ia: feedback }).eq("id", mensajeId);
+    cargarMensajes();
+  }
+
   return (
     <>
       <div className="flex items-center justify-between border-b border-[var(--color-borde)] p-4">
@@ -279,20 +317,32 @@ function PanelConversacion({ conversacion, onCambio }: { conversacion: Conversac
           <p className="text-sm text-[var(--color-texto-mute)]">Todavía no hay mensajes.</p>
         ) : (
           mensajes.map((m) => (
-            <div key={m.id} className={`flex ${m.direccion === "saliente" ? "justify-end" : "justify-start"}`}>
-              <div
-                className="max-w-[70%] rounded-2xl px-3.5 py-2 text-sm"
-                style={
-                  m.direccion === "saliente"
-                    ? { background: "var(--color-marca)", color: "var(--color-accion-fg)" }
-                    : { background: "var(--color-bg-elevada)", color: "var(--color-texto)" }
-                }
-              >
-                <p>{m.contenido ?? (m.template_nombre ? `Plantilla: ${m.template_nombre}` : "—")}</p>
-                <p className="mt-1 text-[10px] opacity-70">
-                  {new Date(m.created_at).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
-                </p>
+            <div key={m.id}>
+              <div className={`flex ${m.direccion === "saliente" ? "justify-end" : "justify-start"}`}>
+                <div
+                  className="max-w-[70%] rounded-2xl px-3.5 py-2 text-sm"
+                  style={
+                    m.direccion === "saliente"
+                      ? { background: "var(--color-marca)", color: "var(--color-accion-fg)" }
+                      : { background: "var(--color-bg-elevada)", color: "var(--color-texto)" }
+                  }
+                >
+                  <p>{m.contenido ?? (m.template_nombre ? `Plantilla: ${m.template_nombre}` : "—")}</p>
+                  <p className="mt-1 text-[10px] opacity-70">
+                    {new Date(m.created_at).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
+                  </p>
+                </div>
               </div>
+
+              {m.sugerencia_ia && (
+                <SugerenciaIA
+                  mensaje={m}
+                  procesando={procesandoSugerencia === m.id}
+                  onUsar={(texto) => usarSugerencia(m.id, texto)}
+                  onDescartar={() => descartarSugerencia(m.id)}
+                  onCalificar={(feedback) => calificarSugerencia(m.id, feedback)}
+                />
+              )}
             </div>
           ))
         )}
@@ -319,5 +369,79 @@ function PanelConversacion({ conversacion, onCambio }: { conversacion: Conversac
         </button>
       </div>
     </>
+  );
+}
+
+function SugerenciaIA({
+  mensaje,
+  procesando,
+  onUsar,
+  onDescartar,
+  onCalificar,
+}: {
+  mensaje: Mensaje;
+  procesando: boolean;
+  onUsar: (texto: string) => void;
+  onDescartar: () => void;
+  onCalificar: (feedback: "positivo" | "negativo") => void;
+}) {
+  const [borrador, setBorrador] = useState(mensaje.sugerencia_ia ?? "");
+
+  return (
+    <div className="mt-1.5 flex justify-start">
+      <div
+        className="max-w-[80%] rounded-2xl border p-3"
+        style={{ borderColor: "var(--color-ia)", background: "color-mix(in srgb, var(--color-ia) 10%, transparent)" }}
+      >
+        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ia)" }}>
+          Sugerencia IA
+        </p>
+
+        {mensaje.sugerencia_usada ? (
+          <p className="text-sm text-[var(--color-texto-mute)]">{borrador}</p>
+        ) : (
+          <textarea
+            value={borrador}
+            onChange={(e) => setBorrador(e.target.value)}
+            rows={2}
+            className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2.5 py-1.5 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+          />
+        )}
+
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          {!mensaje.sugerencia_usada && (
+            <>
+              <button
+                onClick={() => onUsar(borrador)}
+                disabled={procesando}
+                className="text-xs font-semibold hover:underline disabled:opacity-50"
+                style={{ color: "var(--color-marca)" }}
+              >
+                {procesando ? "Enviando…" : "Usar sugerencia"}
+              </button>
+              <button onClick={onDescartar} disabled={procesando} className="text-xs font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
+                Descartar
+              </button>
+            </>
+          )}
+          <button
+            onClick={() => onCalificar("positivo")}
+            title="Me gustó"
+            className="text-sm"
+            style={{ opacity: mensaje.feedback_ia === "positivo" ? 1 : 0.4 }}
+          >
+            👍
+          </button>
+          <button
+            onClick={() => onCalificar("negativo")}
+            title="No me gustó"
+            className="text-sm"
+            style={{ opacity: mensaje.feedback_ia === "negativo" ? 1 : 0.4 }}
+          >
+            👎
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
