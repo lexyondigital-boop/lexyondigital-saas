@@ -16,26 +16,76 @@ type Contacto = {
   created_at: string;
 };
 
+type ColumnaConfig = { id: string; visible: boolean };
+
+const COLUMNAS_BASE: { id: string; etiqueta: string }[] = [
+  { id: "nombre", etiqueta: "Nombre" },
+  { id: "nombre_completo", etiqueta: "Nombre completo" },
+  { id: "telefono", etiqueta: "Teléfono" },
+  { id: "etiquetas", etiqueta: "Etiquetas" },
+  { id: "canal_origen", etiqueta: "Canal" },
+  { id: "status", etiqueta: "Estado" },
+];
+
+function claveColumnas(cuentaId: string) {
+  return `lexyon-columnas-contactos-${cuentaId}`;
+}
+
+function fusionarConfigColumnas(guardada: ColumnaConfig[], disponibles: { id: string }[]): ColumnaConfig[] {
+  const idsDisponibles = new Set(disponibles.map((d) => d.id));
+  const resultado = guardada.filter((g) => idsDisponibles.has(g.id));
+  const yaIncluidos = new Set(resultado.map((r) => r.id));
+  for (const d of disponibles) {
+    if (!yaIncluidos.has(d.id)) {
+      resultado.push({ id: d.id, visible: !d.id.startsWith("campo:") });
+    }
+  }
+  return resultado;
+}
+
+function valorPersonalizadoMostrable(campo: CampoPersonalizado, valor: string | undefined) {
+  if (!valor) return "—";
+  if (campo.tipo === "checkbox") return valor.split(",").filter(Boolean).join(", ") || "—";
+  if (campo.tipo === "date") {
+    const fecha = new Date(valor);
+    return Number.isNaN(fecha.getTime())
+      ? valor
+      : fecha.toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" });
+  }
+  return valor;
+}
+
 export function ContactosView({ cuentaId }: { cuentaId: string }) {
   const supabase = createClient();
   const [contactos, setContactos] = useState<Contacto[]>([]);
   const [etiquetasCatalogo, setEtiquetasCatalogo] = useState<string[]>([]);
   const [camposPersonalizados, setCamposPersonalizados] = useState<CampoPersonalizado[]>([]);
+  const [valoresPorContacto, setValoresPorContacto] = useState<Record<string, Record<string, string>>>({});
+  const [configColumnas, setConfigColumnas] = useState<ColumnaConfig[]>([]);
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState("");
   const [editando, setEditando] = useState<Contacto | null>(null);
   const [mostrarForm, setMostrarForm] = useState(false);
+  const [mostrarColumnas, setMostrarColumnas] = useState(false);
 
   async function cargar() {
     setCargando(true);
-    const [{ data: c }, { data: e }, { data: cp }] = await Promise.all([
+    const [{ data: c }, { data: e }, { data: cp }, { data: vp }] = await Promise.all([
       supabase.from("contactos").select("*").order("created_at", { ascending: false }),
       supabase.from("etiquetas").select("nombre").order("nombre"),
       supabase.from("campos_personalizados").select("*").order("orden"),
+      supabase.from("valores_campos_personalizados").select("contacto_id, campo_id, valor"),
     ]);
     setContactos(c ?? []);
     setEtiquetasCatalogo((e ?? []).map((x) => x.nombre));
     setCamposPersonalizados((cp as CampoPersonalizado[]) ?? []);
+
+    const mapa: Record<string, Record<string, string>> = {};
+    for (const v of vp ?? []) {
+      if (!mapa[v.contacto_id]) mapa[v.contacto_id] = {};
+      mapa[v.contacto_id][v.campo_id] = v.valor ?? "";
+    }
+    setValoresPorContacto(mapa);
     setCargando(false);
   }
 
@@ -43,6 +93,46 @@ export function ContactosView({ cuentaId }: { cuentaId: string }) {
     cargar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const columnasDisponibles = useMemo(
+    () => [...COLUMNAS_BASE, ...camposPersonalizados.map((c) => ({ id: `campo:${c.id}`, etiqueta: c.nombre }))],
+    [camposPersonalizados],
+  );
+
+  useEffect(() => {
+    let guardada: ColumnaConfig[] = [];
+    try {
+      const raw = localStorage.getItem(claveColumnas(cuentaId));
+      if (raw) guardada = JSON.parse(raw);
+    } catch {
+      guardada = [];
+    }
+    setConfigColumnas(fusionarConfigColumnas(guardada, columnasDisponibles));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [columnasDisponibles]);
+
+  useEffect(() => {
+    if (configColumnas.length === 0) return;
+    localStorage.setItem(claveColumnas(cuentaId), JSON.stringify(configColumnas));
+  }, [configColumnas, cuentaId]);
+
+  function alternarVisible(id: string) {
+    setConfigColumnas((prev) => prev.map((c) => (c.id === id ? { ...c, visible: !c.visible } : c)));
+  }
+
+  function moverColumna(id: string, direccion: -1 | 1) {
+    setConfigColumnas((prev) => {
+      const idx = prev.findIndex((c) => c.id === id);
+      const destino = idx + direccion;
+      if (destino < 0 || destino >= prev.length) return prev;
+      const copia = [...prev];
+      [copia[idx], copia[destino]] = [copia[destino], copia[idx]];
+      return copia;
+    });
+  }
+
+  const etiquetaColumna = (id: string) => columnasDisponibles.find((c) => c.id === id)?.etiqueta ?? id;
+  const columnasVisibles = configColumnas.filter((c) => c.visible);
 
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -75,6 +165,12 @@ export function ContactosView({ cuentaId }: { cuentaId: string }) {
             className="w-72 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
           />
           <button
+            onClick={() => setMostrarColumnas((v) => !v)}
+            className="shrink-0 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-4 py-2 text-sm font-medium text-[var(--color-texto)] transition-opacity hover:opacity-80"
+          >
+            Columnas
+          </button>
+          <button
             onClick={() => {
               setEditando(null);
               setMostrarForm((v) => !v);
@@ -86,6 +182,43 @@ export function ContactosView({ cuentaId }: { cuentaId: string }) {
           </button>
         </div>
       </div>
+
+      {mostrarColumnas && (
+        <div className="mb-6 max-w-md rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-5">
+          <h2 className="mb-1 text-sm font-semibold text-[var(--color-texto)]">Columnas de la tabla</h2>
+          <p className="mb-3 text-xs text-[var(--color-texto-mute)]">
+            Marca cuáles mostrar y usa las flechas para acomodar el orden.
+          </p>
+          <div className="space-y-1.5">
+            {configColumnas.map((col, idx) => (
+              <div key={col.id} className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 hover:bg-[var(--color-bg-elevada)]">
+                <label className="flex items-center gap-2 text-sm text-[var(--color-texto)]">
+                  <input type="checkbox" checked={col.visible} onChange={() => alternarVisible(col.id)} />
+                  {etiquetaColumna(col.id)}
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => moverColumna(col.id, -1)}
+                    disabled={idx === 0}
+                    className="text-[var(--color-texto-mute)] hover:text-[var(--color-texto)] disabled:opacity-30"
+                    title="Mover antes"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    onClick={() => moverColumna(col.id, 1)}
+                    disabled={idx === configColumnas.length - 1}
+                    className="text-[var(--color-texto-mute)] hover:text-[var(--color-texto)] disabled:opacity-30"
+                    title="Mover después"
+                  >
+                    ↓
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {(mostrarForm || editando) && (
         <ContactoForm
@@ -114,40 +247,27 @@ export function ContactosView({ cuentaId }: { cuentaId: string }) {
           <table className="w-full min-w-[980px] text-left text-sm">
             <thead>
               <tr className="border-b border-[var(--color-borde)] text-xs uppercase tracking-wide text-[var(--color-texto-mute)]">
-                <th className="px-5 py-3 font-medium">Nombre</th>
-                <th className="px-5 py-3 font-medium">Nombre completo</th>
-                <th className="px-5 py-3 font-medium">Teléfono</th>
-                <th className="px-5 py-3 font-medium">Etiquetas</th>
-                <th className="px-5 py-3 font-medium">Canal</th>
-                <th className="px-5 py-3 font-medium">Estado</th>
+                {columnasVisibles.map((col) => (
+                  <th key={col.id} className="px-5 py-3 font-medium">
+                    {etiquetaColumna(col.id)}
+                  </th>
+                ))}
                 <th className="px-5 py-3" />
               </tr>
             </thead>
             <tbody>
               {filtrados.map((c) => (
                 <tr key={c.id} className="border-b border-[var(--color-borde)] last:border-0">
-                  <td className="px-5 py-3.5 text-[var(--color-texto)]">{c.nombre ?? "—"}</td>
-                  <td className="px-5 py-3.5 text-[var(--color-texto)]">{c.nombre_completo ?? "—"}</td>
-                  <td className="px-5 py-3.5 text-[var(--color-texto)]">{c.telefono}</td>
-                  <td className="px-5 py-3.5">
-                    <div className="flex flex-wrap gap-1">
-                      {c.etiquetas.length === 0 ? (
-                        <span className="text-[var(--color-texto-mute)]">—</span>
-                      ) : (
-                        c.etiquetas.map((et) => (
-                          <Badge key={et} tono="ia">
-                            {et}
-                          </Badge>
-                        ))
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-5 py-3.5 text-[var(--color-texto-mute)]">{c.canal_origen ?? "—"}</td>
-                  <td className="px-5 py-3.5">
-                    <Badge tono={c.status === "activo" ? "en-vivo" : "mute"}>
-                      {c.status === "activo" ? "Activo" : "Inactivo"}
-                    </Badge>
-                  </td>
+                  {columnasVisibles.map((col) => (
+                    <td key={col.id} className="px-5 py-3.5 text-[var(--color-texto)]">
+                      <CeldaContacto
+                        columnaId={col.id}
+                        contacto={c}
+                        camposPersonalizados={camposPersonalizados}
+                        valoresPersonalizados={valoresPorContacto[c.id] ?? {}}
+                      />
+                    </td>
+                  ))}
                   <td className="px-5 py-3.5 text-right">
                     <button
                       onClick={() => {
@@ -173,6 +293,58 @@ export function ContactosView({ cuentaId }: { cuentaId: string }) {
       </div>
     </div>
   );
+}
+
+function CeldaContacto({
+  columnaId,
+  contacto,
+  camposPersonalizados,
+  valoresPersonalizados,
+}: {
+  columnaId: string;
+  contacto: Contacto;
+  camposPersonalizados: CampoPersonalizado[];
+  valoresPersonalizados: Record<string, string>;
+}) {
+  if (columnaId.startsWith("campo:")) {
+    const campoId = columnaId.slice("campo:".length);
+    const campo = camposPersonalizados.find((c) => c.id === campoId);
+    if (!campo) return <span className="text-[var(--color-texto-mute)]">—</span>;
+    return <span>{valorPersonalizadoMostrable(campo, valoresPersonalizados[campoId])}</span>;
+  }
+
+  switch (columnaId) {
+    case "nombre":
+      return <span>{contacto.nombre ?? "—"}</span>;
+    case "nombre_completo":
+      return <span>{contacto.nombre_completo ?? "—"}</span>;
+    case "telefono":
+      return <span>{contacto.telefono}</span>;
+    case "etiquetas":
+      return (
+        <div className="flex flex-wrap gap-1">
+          {contacto.etiquetas.length === 0 ? (
+            <span className="text-[var(--color-texto-mute)]">—</span>
+          ) : (
+            contacto.etiquetas.map((et) => (
+              <Badge key={et} tono="ia">
+                {et}
+              </Badge>
+            ))
+          )}
+        </div>
+      );
+    case "canal_origen":
+      return <span className="text-[var(--color-texto-mute)]">{contacto.canal_origen ?? "—"}</span>;
+    case "status":
+      return (
+        <Badge tono={contacto.status === "activo" ? "en-vivo" : "mute"}>
+          {contacto.status === "activo" ? "Activo" : "Inactivo"}
+        </Badge>
+      );
+    default:
+      return <span className="text-[var(--color-texto-mute)]">—</span>;
+  }
 }
 
 function ContactoForm({
