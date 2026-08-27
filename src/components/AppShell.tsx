@@ -38,7 +38,7 @@ const NAV_TENANT: ItemNav[] = [
   { href: "/calendarios", label: "Calendarios", icon: IconCalendar, disponible: false },
   { href: "/campanas", label: "Campañas", icon: IconMegaphone, disponible: true },
   { href: "/etiquetas", label: "Etiquetas", icon: IconTag, disponible: true },
-  { href: "/variables", label: "Variables", icon: IconBraces, disponible: false },
+  { href: "/variables", label: "Variables", icon: IconBraces, disponible: true },
   { href: "/usuarios", label: "Usuarios", icon: IconUsers, disponible: false },
   { href: "/profesionales", label: "Profesionales", icon: IconBriefcase, disponible: false },
   { href: "/agente-ia", label: "Agente IA", icon: IconRobot, disponible: true },
