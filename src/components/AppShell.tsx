@@ -28,7 +28,10 @@ type ItemNav = {
   disponible: boolean;
 };
 
-const NAV_SUPER_ADMIN: ItemNav[] = [{ href: "/", label: "Sub-cuentas", icon: IconBriefcase, disponible: true }];
+const NAV_SUPER_ADMIN: ItemNav[] = [
+  { href: "/", label: "Sub-cuentas", icon: IconBriefcase, disponible: true },
+  { href: "/configuracion", label: "Configuración", icon: IconGear, disponible: true },
+];
 
 const NAV_TENANT: ItemNav[] = [
   { href: "/dashboard", label: "Dashboard", icon: IconDashboard, disponible: true },

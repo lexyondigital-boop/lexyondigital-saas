@@ -30,6 +30,19 @@ function construirSystemPrompt(config: { prompt: string | null; tono: string; id
   return `${base}\n\nResponde siempre en idioma "${config.idioma}", con un tono ${config.tono}. Sé breve y claro, como en una conversación real de WhatsApp.`;
 }
 
+// El modo "platform_key" prioriza la key guardada en plataforma_secretos
+// (rotable desde /configuracion sin tocar el servidor) y cae al .env del
+// contenedor solo si todavía no se ha configurado ninguna ahí.
+async function resolverLlaveDePlataforma(supabase: AdminClient, proveedor: ProveedorIA): Promise<string | null> {
+  const clave = proveedor === "openai" ? "openai_api_key" : "anthropic_api_key";
+
+  const { data } = await supabase.from("plataforma_secretos").select("valor_cifrado").eq("clave", clave).maybeSingle();
+
+  if (data?.valor_cifrado) return descifrar(data.valor_cifrado);
+
+  return proveedor === "openai" ? process.env.OPENAI_API_KEY ?? null : process.env.ANTHROPIC_API_KEY ?? null;
+}
+
 // Llamado por el webhook de WhatsApp justo después de insertar el mensaje
 // entrante. Decide si el agente responde (horario, palabras de
 // transferencia, tope de turnos), llama al LLM que corresponda según la
@@ -144,7 +157,7 @@ export async function procesarAgenteIA({
     }
     apiKey = descifrar(config.api_key_usuario_cifrada);
   } else {
-    apiKey = proveedor === "openai" ? process.env.OPENAI_API_KEY ?? null : process.env.ANTHROPIC_API_KEY ?? null;
+    apiKey = await resolverLlaveDePlataforma(supabase, proveedor);
     if (!apiKey) {
       console.error(`Cuenta ${cuentaId}: modo platform_key pero falta la API key de plataforma para ${proveedor}.`);
       return;
