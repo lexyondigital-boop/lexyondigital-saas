@@ -8,6 +8,7 @@ export function LogoutButton() {
   const supabase = createClient();
 
   async function cerrarSesion() {
+    await fetch("/api/auditoria/logout", { method: "POST" }).catch(() => {});
     await supabase.auth.signOut();
     router.replace("/login");
     router.refresh();

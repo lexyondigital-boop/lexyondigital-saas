@@ -31,6 +31,8 @@ export default function LoginPage() {
       return;
     }
 
+    fetch("/api/auditoria/login", { method: "POST" }).catch(() => {});
+
     router.replace("/");
     router.refresh();
   }
