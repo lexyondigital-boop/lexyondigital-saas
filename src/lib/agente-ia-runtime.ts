@@ -75,7 +75,10 @@ export async function procesarAgenteIA({
 
   const { data: config } = await supabase.from("agente_config").select("*").eq("cuenta_id", cuentaId).maybeSingle();
 
-  if (!config || !config.activo) return;
+  if (!config || !config.activo) {
+    console.error(`Cuenta ${cuentaId}: agente IA no responde -- agente_config ${config ? "está desactivado" : "no existe para esta cuenta"}.`);
+    return;
+  }
 
   const { data: cuentaWhatsapp } = await supabase
     .from("cuentas_whatsapp")
@@ -84,7 +87,10 @@ export async function procesarAgenteIA({
     .eq("estado", "activo")
     .maybeSingle();
 
-  if (!cuentaWhatsapp) return;
+  if (!cuentaWhatsapp) {
+    console.error(`Cuenta ${cuentaId}: agente IA no responde -- no hay cuentas_whatsapp activa.`);
+    return;
+  }
 
   const { data: credencial } = await supabase
     .from("whatsapp_credenciales")
@@ -92,7 +98,10 @@ export async function procesarAgenteIA({
     .eq("cuenta_whatsapp_id", cuentaWhatsapp.id)
     .maybeSingle();
 
-  if (!credencial) return;
+  if (!credencial) {
+    console.error(`Cuenta ${cuentaId}: agente IA no responde -- falta whatsapp_credenciales para cuenta_whatsapp ${cuentaWhatsapp.id}.`);
+    return;
+  }
 
   async function responderDirecto(texto: string) {
     const resultado = await enviarMensajeTexto({

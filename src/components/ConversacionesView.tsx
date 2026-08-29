@@ -203,7 +203,13 @@ function PanelConversacion({ conversacion, onCambio }: { conversacion: Conversac
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "mensajes", filter: `conversacion_id=eq.${conversacion.id}` },
-        (payload) => setMensajes((prev) => [...prev, payload.new as Mensaje]),
+        (payload) => {
+          const nuevo = payload.new as Mensaje;
+          // El envío manual dispara un refetch completo (cargarMensajes) que
+          // puede ganarle la carrera a este evento de Realtime -- sin este
+          // chequeo, el mismo mensaje termina agregado dos veces.
+          setMensajes((prev) => (prev.some((m) => m.id === nuevo.id) ? prev : [...prev, nuevo]));
+        },
       )
       .on(
         "postgres_changes",

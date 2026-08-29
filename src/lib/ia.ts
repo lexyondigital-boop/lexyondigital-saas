@@ -15,7 +15,7 @@ type ResultadoIA = {
 // usuario a decidir algo que no pidió.
 const MODELO_POR_PROVEEDOR: Record<ProveedorIA, string> = {
   openai: "gpt-4o-mini",
-  claude: "claude-3-5-sonnet-20241022",
+  claude: "claude-sonnet-5",
 };
 
 // Precios aproximados en USD por cada 1M de tokens (publicados por cada
