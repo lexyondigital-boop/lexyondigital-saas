@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Pais = { code: string; nombre: string; bandera: string; prefijo: string };
 
@@ -70,20 +70,25 @@ export function CampoTelefono({
 }) {
   const [paisCode, setPaisCode] = useState(() => dividirTelefono(value).paisCode);
   const [local, setLocal] = useState(() => dividirTelefono(value).local);
+  // El valor completo (prefijo + local) solo existe para guardarlo — es lo
+  // que se manda por onChange. Sin esta referencia, cada tecleo hace ida y
+  // vuelta por `value` y el propio prefijo que acabamos de anteponer se
+  // vuelve a leer como si fuera parte del número local, duplicándose.
+  const ultimoEmitido = useRef<string | null>(null);
 
   useEffect(() => {
+    if (value === ultimoEmitido.current) return;
     const dividido = dividirTelefono(value);
     setPaisCode(dividido.paisCode);
     setLocal(dividido.local);
-    // Solo cuando cambia el valor externo (p. ej. al cargar datos async);
-    // las ediciones del usuario ya emiten hacia afuera, no necesitan volver.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
   function emitir(nuevoPaisCode: string, nuevoLocal: string) {
     const pais = PAISES_TELEFONO.find((p) => p.code === nuevoPaisCode) ?? PAISES_TELEFONO[0];
     const digitos = nuevoLocal.replace(/\D/g, "");
-    onChange(digitos ? `${pais.prefijo}${digitos}` : "");
+    const completo = digitos ? `${pais.prefijo}${digitos}` : "";
+    ultimoEmitido.current = completo;
+    onChange(completo);
   }
 
   return (

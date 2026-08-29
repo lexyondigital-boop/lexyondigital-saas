@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { SelectorContacto, type ContactoSeleccionado } from "@/components/SelectorContacto";
 
 type Profesional = {
@@ -28,9 +28,14 @@ type Cita = {
 
 type Vista = "dia" | "semana" | "mes";
 
-const HORA_INICIO_GRID = 7;
-const HORA_FIN_GRID = 21;
+const HORA_INICIO_GRID = 0;
+const HORA_FIN_GRID = 24;
 const ALTURA_HORA = 56;
+// Alto visible por default: 14h (7am-9pm, el rango de trabajo típico) — el
+// resto de las 24h queda arriba/abajo con scroll para horarios fuera de lo
+// común (ej. citas a las 11pm si así lo configuró el profesional).
+const ALTO_VISIBLE_GRID = 14 * ALTURA_HORA;
+const HORA_SCROLL_INICIAL = 7;
 const DIAS_SEMANA_CORTO = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
 function iso(d: Date) {
@@ -267,26 +272,36 @@ function VistaGrid({
   onClickSlot?: (info: { fecha: string; hora: string }) => void;
 }) {
   const horas = Array.from({ length: HORA_FIN_GRID - HORA_INICIO_GRID }, (_, i) => HORA_INICIO_GRID + i);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = HORA_SCROLL_INICIAL * ALTURA_HORA;
+  }, []);
 
   return (
-    <div className="flex min-w-[600px]">
-      <div className="w-14 shrink-0 border-r border-[var(--color-borde)] pt-8">
-        {horas.map((h) => (
-          <div key={h} style={{ height: ALTURA_HORA }} className="pr-2 text-right text-xs text-[var(--color-texto-mute)]">
-            {h.toString().padStart(2, "0")}:00
+    <div className="min-w-[600px]">
+      <div className="flex">
+        <div className="w-14 shrink-0 border-r border-[var(--color-borde)]" />
+        {dias.map((dia) => (
+          <div key={iso(dia)} className="min-w-[140px] flex-1 border-b border-r border-[var(--color-borde)] p-2 text-center last:border-r-0">
+            <p className="text-xs uppercase text-[var(--color-texto-mute)]">{DIAS_SEMANA_CORTO[dia.getDay()]}</p>
+            <p className="text-sm font-semibold text-[var(--color-texto)]">{dia.getDate()}</p>
           </div>
         ))}
       </div>
-      {dias.map((dia) => {
-        const f = iso(dia);
-        const citasDelDia = citas.filter((c) => c.fecha === f);
-        return (
-          <div key={f} className="min-w-[140px] flex-1 border-r border-[var(--color-borde)] last:border-0">
-            <div className="border-b border-[var(--color-borde)] p-2 text-center">
-              <p className="text-xs uppercase text-[var(--color-texto-mute)]">{DIAS_SEMANA_CORTO[dia.getDay()]}</p>
-              <p className="text-sm font-semibold text-[var(--color-texto)]">{dia.getDate()}</p>
+      <div ref={scrollRef} className="flex overflow-y-auto" style={{ maxHeight: ALTO_VISIBLE_GRID }}>
+        <div className="w-14 shrink-0 border-r border-[var(--color-borde)]">
+          {horas.map((h) => (
+            <div key={h} style={{ height: ALTURA_HORA }} className="pr-2 text-right text-xs text-[var(--color-texto-mute)]">
+              {h.toString().padStart(2, "0")}:00
             </div>
-            <div className="relative" style={{ height: (HORA_FIN_GRID - HORA_INICIO_GRID) * ALTURA_HORA }}>
+          ))}
+        </div>
+        {dias.map((dia) => {
+          const f = iso(dia);
+          const citasDelDia = citas.filter((c) => c.fecha === f);
+          return (
+            <div key={f} className="relative min-w-[140px] flex-1 border-r border-[var(--color-borde)] last:border-0" style={{ height: (HORA_FIN_GRID - HORA_INICIO_GRID) * ALTURA_HORA }}>
               {horas.map((h) => (
                 <div
                   key={h}
@@ -317,9 +332,9 @@ function VistaGrid({
                 );
               })}
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
