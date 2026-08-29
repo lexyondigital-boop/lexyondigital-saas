@@ -31,6 +31,7 @@ export const LABEL_ACCION: Record<string, string> = {
   disconnect_google_calendar: "Desconectó Google Calendar",
   resend_password_email: "Reenvió el correo de contraseña",
   reschedule_appointment: "Reagendó una cita",
+  google_calendar_sync_inbound: "Google Calendar movió/canceló una cita",
 };
 
 export function agruparPorCategoria(permisos: Permiso[]): Record<string, Permiso[]> {

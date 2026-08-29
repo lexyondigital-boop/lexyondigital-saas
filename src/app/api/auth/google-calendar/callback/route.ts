@@ -22,9 +22,10 @@ export async function GET(request: NextRequest) {
   }
 
   const redirectUri = `${origen}/api/auth/google-calendar/callback`;
+  const webhookUrl = `${origen}/api/webhooks/google-calendar`;
 
   try {
-    await conectarGoogleCalendar({ profesionalId: estado.profesionalId, code, redirectUri });
+    await conectarGoogleCalendar({ profesionalId: estado.profesionalId, code, redirectUri, webhookUrl });
   } catch (e) {
     const mensaje = e instanceof Error ? e.message : "No se pudo conectar Google Calendar";
     return NextResponse.redirect(new URL(`${estado.volverA}?google=error&mensaje=${encodeURIComponent(mensaje)}`, origen));

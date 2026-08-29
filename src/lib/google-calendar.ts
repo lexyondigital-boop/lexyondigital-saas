@@ -1,3 +1,4 @@
+import { randomBytes, randomUUID } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { cifrar, descifrar } from "@/lib/cifrado";
 
@@ -106,10 +107,12 @@ export async function conectarGoogleCalendar({
   profesionalId,
   code,
   redirectUri,
+  webhookUrl,
 }: {
   profesionalId: string;
   code: string;
   redirectUri: string;
+  webhookUrl: string;
 }) {
   const tokens = await intercambiarCodigoPorTokens({ code, redirectUri });
   if (!tokens.refresh_token) {
@@ -136,10 +139,47 @@ export async function conectarGoogleCalendar({
       last_token_refresh: new Date().toISOString(),
     })
     .eq("id", profesionalId);
+
+  // Se suscribe a notificaciones push de Google apenas se conecta, para que
+  // mover/cancelar un evento directo en Google Calendar se refleje aquí solo
+  // (ver activarNotificacionesGoogle más abajo).
+  const { data: profesionalActualizado } = await admin
+    .from("profesionales")
+    .select("id, google_calendar_id, google_oauth_token_cifrado, google_oauth_expires_at")
+    .eq("id", profesionalId)
+    .single();
+
+  if (profesionalActualizado) {
+    const canal = await activarNotificacionesGoogle({ profesional: profesionalActualizado, webhookUrl });
+    if (canal) {
+      await admin
+        .from("profesionales")
+        .update({
+          google_channel_id: canal.channelId,
+          google_channel_resource_id: canal.resourceId,
+          google_channel_token: canal.token,
+          google_channel_expira_at: canal.expiracion.toISOString(),
+        })
+        .eq("id", profesionalId);
+    }
+  }
 }
 
 export async function desconectarGoogleCalendar(profesionalId: string) {
   const admin = createAdminClient();
+
+  const { data: profesional } = await admin
+    .from("profesionales")
+    .select(
+      "id, google_calendar_id, google_oauth_token_cifrado, google_oauth_expires_at, google_channel_id, google_channel_resource_id",
+    )
+    .eq("id", profesionalId)
+    .single();
+
+  if (profesional?.google_channel_id && profesional.google_channel_resource_id) {
+    await detenerNotificacionesGoogle({ profesional });
+  }
+
   await admin
     .from("profesionales")
     .update({
@@ -150,6 +190,11 @@ export async function desconectarGoogleCalendar(profesionalId: string) {
       google_oauth_expires_at: null,
       google_oauth_connected_at: null,
       last_token_refresh: null,
+      google_channel_id: null,
+      google_channel_resource_id: null,
+      google_channel_token: null,
+      google_channel_expira_at: null,
+      google_sync_token: null,
     })
     .eq("id", profesionalId);
 }
@@ -292,4 +337,127 @@ export async function eliminarEventoGoogle({
     method: "DELETE",
     headers: { Authorization: `Bearer ${accessToken}` },
   });
+}
+
+// ============================================================
+// NOTIFICACIONES PUSH (Google -> nosotros)
+// ============================================================
+// Para que mover/cancelar un evento directo en Google Calendar se refleje
+// aquí sin que el usuario tenga que hacer nada: nos suscribimos a un canal
+// (events.watch) que Google llama a nuestro webhook cada vez que algo
+// cambia. El canal expira (~1 semana) y lo renueva un cron
+// (/api/cron/google-calendar-canales) antes de que caduque.
+
+export async function activarNotificacionesGoogle({
+  profesional,
+  webhookUrl,
+}: {
+  profesional: ProfesionalGoogle;
+  webhookUrl: string;
+}): Promise<{ channelId: string; resourceId: string; expiracion: Date; token: string } | null> {
+  if (!profesional.google_oauth_token_cifrado || !profesional.google_calendar_id) return null;
+
+  const accessToken = await obtenerAccessTokenVigente(profesional);
+  if (!accessToken) return null;
+
+  const channelId = randomUUID();
+  const token = randomBytes(24).toString("hex");
+
+  const res = await fetch(`${CALENDAR_API}/calendars/${encodeURIComponent(profesional.google_calendar_id)}/events/watch`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ id: channelId, type: "web_hook", address: webhookUrl, token }),
+  });
+
+  if (!res.ok) return null;
+  const data = await res.json();
+  const resourceId = data?.resourceId as string | undefined;
+  if (!resourceId) return null;
+
+  const expiracionMs = Number(data?.expiration);
+  const expiracion = Number.isFinite(expiracionMs) ? new Date(expiracionMs) : new Date(Date.now() + 6 * 24 * 60 * 60 * 1000);
+
+  return { channelId, resourceId, expiracion, token };
+}
+
+type ProfesionalCanal = ProfesionalGoogle & {
+  google_channel_id?: string | null;
+  google_channel_resource_id?: string | null;
+};
+
+export async function detenerNotificacionesGoogle({ profesional }: { profesional: ProfesionalCanal }): Promise<void> {
+  if (!profesional.google_oauth_token_cifrado || !profesional.google_channel_id || !profesional.google_channel_resource_id) return;
+
+  const accessToken = await obtenerAccessTokenVigente(profesional);
+  if (!accessToken) return;
+
+  await fetch(`${CALENDAR_API}/channels/stop`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ id: profesional.google_channel_id, resourceId: profesional.google_channel_resource_id }),
+  }).catch(() => {});
+}
+
+export type EventoGoogle = {
+  id: string;
+  status: string;
+  start?: { dateTime?: string; date?: string; timeZone?: string };
+  end?: { dateTime?: string; date?: string; timeZone?: string };
+};
+
+type ProfesionalSync = ProfesionalGoogle & { google_sync_token?: string | null };
+
+// Trae solo lo que cambió desde la última vez (sync token incremental de la
+// Calendar API). Si el token ya no es válido (410), Google obliga a reiniciar
+// con un sync completo -- se maneja automáticamente, una sola vez.
+export async function obtenerCambiosGoogle({
+  profesional,
+}: {
+  profesional: ProfesionalSync;
+}): Promise<{ eventos: EventoGoogle[]; nuevoSyncToken: string | null }> {
+  if (!profesional.google_oauth_token_cifrado || !profesional.google_calendar_id) {
+    return { eventos: [], nuevoSyncToken: null };
+  }
+
+  const accessToken = await obtenerAccessTokenVigente(profesional);
+  if (!accessToken) return { eventos: [], nuevoSyncToken: null };
+
+  const eventos: EventoGoogle[] = [];
+  let pageToken: string | undefined;
+  let syncToken = profesional.google_sync_token ?? undefined;
+  let nuevoSyncToken: string | null = null;
+  let yaReintentoCompleto = false;
+
+  for (let vueltas = 0; vueltas < 20; vueltas++) {
+    const params = new URLSearchParams({ singleEvents: "true" });
+    if (pageToken) params.set("pageToken", pageToken);
+    else if (syncToken) params.set("syncToken", syncToken);
+    else params.set("timeMin", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+
+    const res = await fetch(
+      `${CALENDAR_API}/calendars/${encodeURIComponent(profesional.google_calendar_id)}/events?${params.toString()}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+
+    if (res.status === 410 && !yaReintentoCompleto) {
+      syncToken = undefined;
+      pageToken = undefined;
+      yaReintentoCompleto = true;
+      continue;
+    }
+
+    if (!res.ok) break;
+
+    const data = await res.json();
+    eventos.push(...(data.items ?? []));
+
+    if (data.nextPageToken) {
+      pageToken = data.nextPageToken;
+      continue;
+    }
+    nuevoSyncToken = data.nextSyncToken ?? null;
+    break;
+  }
+
+  return { eventos, nuevoSyncToken };
 }
