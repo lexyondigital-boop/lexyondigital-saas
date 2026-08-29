@@ -183,9 +183,9 @@ export function CalendariosView({ cuentaId, puedeGestionar }: { cuentaId: string
         </div>
       </div>
 
-      <div className="flex gap-5">
-        <aside className="w-48 shrink-0 space-y-1.5">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-texto-mute)]">Profesionales</p>
+      <div className="flex flex-col gap-5 md:flex-row">
+        <aside className="flex flex-wrap gap-x-4 gap-y-1.5 md:w-48 md:shrink-0 md:flex-col md:flex-nowrap">
+          <p className="mb-1 w-full text-xs font-semibold uppercase tracking-wide text-[var(--color-texto-mute)] md:mb-2">Profesionales</p>
           {profesionales.map((p) => (
             <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1 text-sm text-[var(--color-texto)] hover:bg-[var(--color-bg-elevada)]">
               <input type="checkbox" checked={visibles.has(p.id)} onChange={() => alternarVisible(p.id)} />

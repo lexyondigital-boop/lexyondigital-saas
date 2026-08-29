@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { construirBloqueAgenda, type ProfesionalParaPrompt } from "@/lib/agente-prompt-agenda";
 
 type Config = {
   nombre: string;
@@ -20,6 +21,7 @@ type Config = {
   mensaje_transferencia: string | null;
   trigger_palabras: string[];
   seguimiento_horas: number;
+  profesionales_ids: string[] | null;
 };
 
 const CONFIG_DEFECTO: Config = {
@@ -39,6 +41,7 @@ const CONFIG_DEFECTO: Config = {
   mensaje_transferencia: "",
   trigger_palabras: [],
   seguimiento_horas: 24,
+  profesionales_ids: null,
 };
 
 type Tab = "general" | "faqs" | "documentos" | "estadisticas";
@@ -86,6 +89,8 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
   const supabase = createClient();
   const [config, setConfig] = useState<Config>(CONFIG_DEFECTO);
   const [triggerTexto, setTriggerTexto] = useState("");
+  const [profesionales, setProfesionales] = useState<ProfesionalParaPrompt[]>([]);
+  const [profesionalesSeleccionados, setProfesionalesSeleccionados] = useState<Set<string>>(new Set());
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState<string | null>(null);
@@ -95,15 +100,44 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from("agente_config").select("*").eq("cuenta_id", cuentaId).maybeSingle();
-      if (data) {
-        setConfig(data);
-        setTriggerTexto((data.trigger_palabras ?? []).join(", "));
+      const [{ data: configData }, { data: profesionalesData }] = await Promise.all([
+        supabase.from("agente_config").select("*").eq("cuenta_id", cuentaId).maybeSingle(),
+        supabase
+          .from("profesionales")
+          .select("id, nombre, especialidad, horario_inicio, horario_fin, dias_disponibles, duracion_cita_minutos")
+          .eq("cuenta_id", cuentaId)
+          .eq("estado", "activo"),
+      ]);
+
+      const activos = profesionalesData ?? [];
+      setProfesionales(activos);
+
+      if (configData) {
+        setConfig(configData);
+        setTriggerTexto((configData.trigger_palabras ?? []).join(", "));
+        // null = nunca se configuró explícitamente -- se muestra como "todos
+        // marcados" para no dar la impresión de que el agente perdió acceso,
+        // pero al guardar queda un arreglo explícito (ver guardar()).
+        setProfesionalesSeleccionados(
+          configData.profesionales_ids ? new Set(configData.profesionales_ids) : new Set(activos.map((p) => p.id)),
+        );
+      } else {
+        setProfesionalesSeleccionados(new Set(activos.map((p) => p.id)));
       }
+
       setCargando(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function alternarProfesional(id: string) {
+    setProfesionalesSeleccionados((prev) => {
+      const nuevo = new Set(prev);
+      if (nuevo.has(id)) nuevo.delete(id);
+      else nuevo.add(id);
+      return nuevo;
+    });
+  }
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
@@ -115,9 +149,14 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
       .map((p) => p.trim())
       .filter(Boolean);
 
+    // Al guardar siempre queda un arreglo explícito (aunque incluya a todos
+    // los profesionales activos) -- así el selector deja de depender de un
+    // "null implícito" en cuanto el admin lo toca una vez.
+    const profesionales_ids = profesionales.length > 0 ? [...profesionalesSeleccionados] : null;
+
     const { error } = await supabase
       .from("agente_config")
-      .upsert({ ...config, trigger_palabras, cuenta_id: cuentaId }, { onConflict: "cuenta_id" });
+      .upsert({ ...config, trigger_palabras, profesionales_ids, cuenta_id: cuentaId }, { onConflict: "cuenta_id" });
 
     setGuardando(false);
     setMensaje(error ? error.message : "Guardado.");
@@ -304,6 +343,43 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
           className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
         />
       </label>
+
+      {profesionales.length > 0 && (
+        <div className="rounded-xl border border-[var(--color-borde)] p-4">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-sm font-medium text-[var(--color-texto)]">Profesionales que puede consultar y gestionar</span>
+            <div className="flex gap-3 text-xs font-medium text-[var(--color-marca)]">
+              <button type="button" onClick={() => setProfesionalesSeleccionados(new Set(profesionales.map((p) => p.id)))} className="hover:underline">
+                Todos
+              </button>
+              <button type="button" onClick={() => setProfesionalesSeleccionados(new Set())} className="hover:underline">
+                Ninguno
+              </button>
+            </div>
+          </div>
+          <p className="mb-3 text-xs text-[var(--color-texto-mute)]">
+            El agente solo va a poder ver disponibilidad, agendar, reagendar o cancelar citas de los profesionales marcados aquí.
+          </p>
+          <div className="space-y-1.5">
+            {profesionales.map((p) => (
+              <label key={p.id} className="flex cursor-pointer items-center gap-2 text-sm text-[var(--color-texto)]">
+                <input type="checkbox" checked={profesionalesSeleccionados.has(p.id)} onChange={() => alternarProfesional(p.id)} />
+                {p.nombre} — {p.especialidad}
+              </label>
+            ))}
+          </div>
+
+          <div className="mt-4 border-t border-[var(--color-borde)] pt-3">
+            <span className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-[var(--color-texto-mute)]">
+              Vista previa -- esto se agrega automáticamente al prompt, no es editable
+            </span>
+            <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg bg-[var(--color-bg-elevada)] p-3 text-xs text-[var(--color-texto-mute)]">
+              {construirBloqueAgenda(profesionales.filter((p) => profesionalesSeleccionados.has(p.id))) ??
+                "Sin profesionales seleccionados -- el agente no va a poder tocar la agenda."}
+            </pre>
+          </div>
+        </div>
+      )}
 
       <label className="block">
         <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Palabras que disparan transferencia a humano</span>

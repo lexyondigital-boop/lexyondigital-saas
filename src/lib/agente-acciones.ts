@@ -2,11 +2,18 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { crearEventoGoogle, actualizarEventoGoogle, eliminarEventoGoogle, obtenerOcupacionGoogle, fechaHoraMexico } from "@/lib/google-calendar";
 import { calcularSlotsDisponibles } from "@/lib/disponibilidad";
 import { registrarActividad } from "@/lib/auditoria";
+import { construirBloqueAgenda } from "@/lib/agente-prompt-agenda";
 import type { Herramienta } from "@/lib/ia";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
-type ContextoAgente = { cuentaId: string; contactoId: string; conversacionId: string };
+// profesionalesPermitidos null = todos los activos de la cuenta (compatible
+// con cuentas que nunca configuraron el selector); un arreglo (incluido
+// vacío) = restricción explícita elegida en la pantalla de Agente IA. Se
+// aplica tanto al armar el prompt como -- más importante -- adentro de cada
+// herramienta, para que el modelo no pueda tocar un profesional fuera de su
+// alcance así se lo invente en el input de una tool call.
+type ContextoAgente = { cuentaId: string; contactoId: string; conversacionId: string; profesionalesPermitidos: string[] | null };
 
 const DIAS_SEMANA = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
 const ZONA_HORARIA = "America/Mexico_City";
@@ -107,33 +114,33 @@ export function crearEjecutorHerramientas(contexto: ContextoAgente): (nombre: st
 
 // Lista compacta para el prompt del sistema -- así el modelo conoce los ids
 // reales sin necesidad de gastar un turno de herramienta solo para pedirlos.
-export async function listarProfesionalesParaPrompt(cuentaId: string): Promise<string | null> {
+// Respeta el selector de profesionales configurado en Agente IA.
+export async function listarProfesionalesParaPrompt(cuentaId: string, profesionalesIds: string[] | null): Promise<string | null> {
+  if (profesionalesIds !== null && profesionalesIds.length === 0) return null;
+
   const admin = createAdminClient();
-  const { data } = await admin
+  let query = admin
     .from("profesionales")
     .select("id, nombre, especialidad, horario_inicio, horario_fin, dias_disponibles, duracion_cita_minutos")
     .eq("cuenta_id", cuentaId)
     .eq("estado", "activo");
 
-  if (!data || data.length === 0) return null;
+  if (profesionalesIds !== null) query = query.in("id", profesionalesIds);
 
-  const lineas = data.map(
-    (p) =>
-      `- id: ${p.id} | ${p.nombre} | ${p.especialidad} | días: ${(p.dias_disponibles ?? []).join(", ")} | horario: ${p.horario_inicio}-${p.horario_fin} | duración de cita: ${p.duracion_cita_minutos} min`,
-  );
-
-  return `PROFESIONALES DISPONIBLES (usa el "id" exacto en las herramientas, nunca lo inventes):\n${lineas.join("\n")}`;
+  const { data } = await query;
+  return construirBloqueAgenda(data ?? []);
 }
 
-async function obtenerProfesionalDeCuenta(admin: AdminClient, cuentaId: string, profesionalId: string) {
-  const { data } = await admin.from("profesionales").select("*").eq("id", profesionalId).eq("cuenta_id", cuentaId).eq("estado", "activo").maybeSingle();
+async function obtenerProfesionalDeCuenta(admin: AdminClient, contexto: ContextoAgente, profesionalId: string) {
+  if (contexto.profesionalesPermitidos !== null && !contexto.profesionalesPermitidos.includes(profesionalId)) return null;
+  const { data } = await admin.from("profesionales").select("*").eq("id", profesionalId).eq("cuenta_id", contexto.cuentaId).eq("estado", "activo").maybeSingle();
   return data;
 }
 
-async function consultarDisponibilidad(admin: AdminClient, { cuentaId }: ContextoAgente, input: { profesional_id?: string; fecha?: string }) {
+async function consultarDisponibilidad(admin: AdminClient, contexto: ContextoAgente, input: { profesional_id?: string; fecha?: string }) {
   if (!input.profesional_id || !input.fecha) return { error: "Faltan profesional_id o fecha" };
 
-  const profesional = await obtenerProfesionalDeCuenta(admin, cuentaId, input.profesional_id);
+  const profesional = await obtenerProfesionalDeCuenta(admin, contexto, input.profesional_id);
   if (!profesional) return { error: "No existe ese profesional activo en esta cuenta -- usa un id de la lista de PROFESIONALES DISPONIBLES." };
 
   const [{ data: bloques }, { data: citas }] = await Promise.all([
@@ -168,12 +175,12 @@ async function consultarDisponibilidad(admin: AdminClient, { cuentaId }: Context
   return { slots: slots.map((s) => ({ hora_inicio: s.hora_inicio, hora_fin: s.hora_fin })) };
 }
 
-async function listarCitasContacto(admin: AdminClient, { cuentaId, contactoId }: ContextoAgente) {
+async function listarCitasContacto(admin: AdminClient, { cuentaId, contactoId, profesionalesPermitidos }: ContextoAgente) {
   const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: ZONA_HORARIA }).format(new Date());
 
-  const { data } = await admin
+  let query = admin
     .from("citas_agendadas")
-    .select("id, fecha, hora_inicio, hora_fin, estado, tipo_cita, profesionales(nombre, especialidad)")
+    .select("id, fecha, hora_inicio, hora_fin, estado, tipo_cita, profesional_id, profesionales(nombre, especialidad)")
     .eq("cuenta_id", cuentaId)
     .eq("contacto_id", contactoId)
     .neq("estado", "cancelada")
@@ -181,6 +188,11 @@ async function listarCitasContacto(admin: AdminClient, { cuentaId, contactoId }:
     .order("fecha", { ascending: true })
     .order("hora_inicio", { ascending: true });
 
+  // Si este agente solo gestiona ciertos profesionales, no debe listarle (ni
+  // dejarle referenciar) citas de un profesional fuera de su alcance.
+  if (profesionalesPermitidos !== null) query = query.in("profesional_id", profesionalesPermitidos);
+
+  const { data } = await query;
   return { citas: data ?? [] };
 }
 
@@ -200,13 +212,14 @@ async function hayChoque(admin: AdminClient, profesionalId: string, fecha: strin
 
 type ParametrosCrearCita = { profesional_id?: string; fecha?: string; hora_inicio?: string; hora_fin?: string; tipo_cita?: string; notas?: string };
 
-async function crearCita(admin: AdminClient, { cuentaId, contactoId, conversacionId }: ContextoAgente, input: ParametrosCrearCita) {
+async function crearCita(admin: AdminClient, contexto: ContextoAgente, input: ParametrosCrearCita) {
+  const { cuentaId, contactoId, conversacionId } = contexto;
   if (!input.profesional_id || !input.fecha || !input.hora_inicio || !input.hora_fin) {
     return { error: "Faltan profesional_id, fecha, hora_inicio o hora_fin" };
   }
 
-  const profesional = await obtenerProfesionalDeCuenta(admin, cuentaId, input.profesional_id);
-  if (!profesional) return { error: "No existe ese profesional activo en esta cuenta." };
+  const profesional = await obtenerProfesionalDeCuenta(admin, contexto, input.profesional_id);
+  if (!profesional) return { error: "No existe ese profesional activo en esta cuenta -- usa un id de la lista de PROFESIONALES DISPONIBLES." };
 
   if (await hayChoque(admin, input.profesional_id, input.fecha, input.hora_inicio, input.hora_fin)) {
     return { error: "Ese horario ya no está disponible -- consulta disponibilidad de nuevo y ofrece otro horario." };
@@ -255,7 +268,7 @@ async function crearCita(admin: AdminClient, { cuentaId, contactoId, conversacio
 
 type ParametrosReagendarCita = { cita_id?: string; fecha?: string; hora_inicio?: string; hora_fin?: string };
 
-async function reagendarCita(admin: AdminClient, { cuentaId, contactoId, conversacionId }: ContextoAgente, input: ParametrosReagendarCita) {
+async function reagendarCita(admin: AdminClient, { cuentaId, contactoId, conversacionId, profesionalesPermitidos }: ContextoAgente, input: ParametrosReagendarCita) {
   if (!input.cita_id || !input.fecha || !input.hora_inicio || !input.hora_fin) {
     return { error: "Faltan cita_id, fecha, hora_inicio o hora_fin" };
   }
@@ -269,6 +282,10 @@ async function reagendarCita(admin: AdminClient, { cuentaId, contactoId, convers
     .maybeSingle();
 
   if (!cita) return { error: "No encontré esa cita para este paciente -- usa listar_citas_contacto para obtener el id correcto." };
+
+  if (profesionalesPermitidos !== null && !profesionalesPermitidos.includes(cita.profesional_id)) {
+    return { error: "No tienes acceso para gestionar esa cita." };
+  }
 
   if (await hayChoque(admin, cita.profesional_id, input.fecha, input.hora_inicio, input.hora_fin, cita.id)) {
     return { error: "Ese horario ya no está disponible -- consulta disponibilidad de nuevo y ofrece otro horario." };
@@ -302,7 +319,7 @@ async function reagendarCita(admin: AdminClient, { cuentaId, contactoId, convers
   return { ok: true, cita_id: cita.id, fecha: input.fecha, hora_inicio: input.hora_inicio, hora_fin: input.hora_fin };
 }
 
-async function cancelarCita(admin: AdminClient, { cuentaId, contactoId, conversacionId }: ContextoAgente, input: { cita_id?: string }) {
+async function cancelarCita(admin: AdminClient, { cuentaId, contactoId, conversacionId, profesionalesPermitidos }: ContextoAgente, input: { cita_id?: string }) {
   if (!input.cita_id) return { error: "Falta cita_id" };
 
   const { data: cita } = await admin
@@ -314,6 +331,10 @@ async function cancelarCita(admin: AdminClient, { cuentaId, contactoId, conversa
     .maybeSingle();
 
   if (!cita) return { error: "No encontré esa cita para este paciente -- usa listar_citas_contacto para obtener el id correcto." };
+
+  if (profesionalesPermitidos !== null && !profesionalesPermitidos.includes(cita.profesional_id)) {
+    return { error: "No tienes acceso para gestionar esa cita." };
+  }
 
   if (cita.google_event_id && cita.profesionales) {
     await eliminarEventoGoogle({ profesional: cita.profesionales, eventId: cita.google_event_id });

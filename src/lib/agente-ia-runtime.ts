@@ -210,14 +210,17 @@ export async function procesarAgenteIA({
     .map((m) => ({ role: m.direccion === "entrante" ? ("user" as const) : ("assistant" as const), content: m.contenido as string }));
 
   // Las herramientas que modifican datos (crear/reagendar/cancelar) solo se
-  // ofrecen en modo automático -- en "sugestivo" un humano todavía aprueba
-  // el texto antes de mandarlo, así que el modelo no debe poder tocar citas
-  // reales mientras solo está redactando una sugerencia.
-  const profesionalesTexto = await listarProfesionalesParaPrompt(cuentaId);
+  // ofrecen fuera de modo "sugestivo" -- ahí un humano todavía aprueba el
+  // texto antes de mandarlo, así que el modelo no debe poder tocar citas
+  // reales mientras solo está redactando una sugerencia. En automático y
+  // semi_automatico el agente ya manda mensajes por su cuenta (ver más abajo),
+  // así que también puede actuar sobre la agenda por su cuenta.
+  const profesionalesPermitidos: string[] | null = config.profesionales_ids ?? null;
+  const profesionalesTexto = await listarProfesionalesParaPrompt(cuentaId, profesionalesPermitidos);
   const herramientas: Herramienta[] | undefined = profesionalesTexto
-    ? [...HERRAMIENTAS_CONSULTA, ...(config.modo === "automatico" ? HERRAMIENTAS_ACCION : [])]
+    ? [...HERRAMIENTAS_CONSULTA, ...(config.modo !== "sugestivo" ? HERRAMIENTAS_ACCION : [])]
     : undefined;
-  const ejecutarHerramienta = herramientas ? crearEjecutorHerramientas({ cuentaId, contactoId, conversacionId }) : undefined;
+  const ejecutarHerramienta = herramientas ? crearEjecutorHerramientas({ cuentaId, contactoId, conversacionId, profesionalesPermitidos }) : undefined;
 
   const resultado = await generarRespuestaIA({
     proveedor,

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Logo } from "@/components/Logo";
@@ -62,16 +62,51 @@ export function AppShell({
   permisos?: Record<string, boolean>;
 }) {
   const pathname = usePathname();
+  const [menuAbierto, setMenuAbierto] = useState(false);
   const nav = (role === "super_admin" ? NAV_SUPER_ADMIN : NAV_TENANT).filter(
     (item) => !item.requiere || permisos?.[item.requiere],
   );
 
+  // El menú es un cajón deslizable solo en móvil -- en escritorio (md+) el
+  // sidebar sigue fijo como siempre. Se cierra solo al cambiar de página.
+  useEffect(() => {
+    setMenuAbierto(false);
+  }, [pathname]);
+
   return (
     <div className="flex min-h-screen bg-[var(--color-bg)]">
-      <aside className="flex w-64 shrink-0 flex-col border-r border-[var(--color-borde)] bg-[var(--color-bg-elevada)]">
-        <div className="border-b border-[var(--color-borde)] p-5">
-          <Logo tamaño="sm" />
-          <p className="mt-1 text-xs text-[var(--color-texto-mute)]">Administración</p>
+      <div className="flex items-center justify-between border-b border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-4 md:hidden">
+        <Logo tamaño="sm" />
+        <button
+          onClick={() => setMenuAbierto(true)}
+          aria-label="Abrir menú"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--color-borde)] text-[var(--color-texto)]"
+        >
+          <span className="text-lg leading-none">☰</span>
+        </button>
+      </div>
+
+      {menuAbierto && (
+        <div onClick={() => setMenuAbierto(false)} className="fixed inset-0 z-40 bg-black/40 md:hidden" aria-hidden="true" />
+      )}
+
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 -translate-x-full flex-col border-r border-[var(--color-borde)] bg-[var(--color-bg-elevada)] transition-transform duration-200 md:sticky md:top-0 md:h-screen md:w-64 md:shrink-0 md:translate-x-0 ${
+          menuAbierto ? "translate-x-0" : ""
+        }`}
+      >
+        <div className="flex items-center justify-between border-b border-[var(--color-borde)] p-5">
+          <div>
+            <Logo tamaño="sm" />
+            <p className="mt-1 text-xs text-[var(--color-texto-mute)]">Administración</p>
+          </div>
+          <button
+            onClick={() => setMenuAbierto(false)}
+            aria-label="Cerrar menú"
+            className="text-[var(--color-texto-mute)] hover:text-[var(--color-texto)] md:hidden"
+          >
+            ✕
+          </button>
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto p-3">
@@ -127,7 +162,7 @@ export function AppShell({
         </div>
       </aside>
 
-      <main className="flex-1 overflow-x-auto p-8">{children}</main>
+      <main className="min-w-0 flex-1 overflow-x-auto p-4 sm:p-6 md:p-8">{children}</main>
     </div>
   );
 }

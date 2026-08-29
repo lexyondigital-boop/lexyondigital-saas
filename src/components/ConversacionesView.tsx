@@ -115,7 +115,9 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
 
   return (
     <div className="flex h-[calc(100vh-6rem)] gap-4">
-      <div className="flex w-80 shrink-0 flex-col rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)]">
+      <div
+        className={`${seleccionada ? "hidden md:flex" : "flex"} w-full shrink-0 flex-col rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] md:w-80`}
+      >
         <div className="border-b border-[var(--color-borde)] p-4">
           <h1 className="text-base font-bold text-[var(--color-texto)]">Conversaciones</h1>
           <input
@@ -158,12 +160,15 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)]">
+      <div
+        className={`${seleccionada ? "flex" : "hidden md:flex"} flex-1 flex-col rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)]`}
+      >
         {conversacionActiva ? (
           <PanelConversacion
             key={conversacionActiva.id}
             conversacion={conversacionActiva}
             onCambio={cargarLista}
+            onVolver={() => setSeleccionada(null)}
           />
         ) : (
           <div className="flex flex-1 items-center justify-center text-sm text-[var(--color-texto-mute)]">
@@ -175,7 +180,7 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
   );
 }
 
-function PanelConversacion({ conversacion, onCambio }: { conversacion: Conversacion; onCambio: () => void }) {
+function PanelConversacion({ conversacion, onCambio, onVolver }: { conversacion: Conversacion; onCambio: () => void; onVolver: () => void }) {
   const supabase = useMemo(() => createClient(), []);
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -293,14 +298,23 @@ function PanelConversacion({ conversacion, onCambio }: { conversacion: Conversac
 
   return (
     <>
-      <div className="flex items-center justify-between border-b border-[var(--color-borde)] p-4">
-        <div>
-          <p className="text-sm font-semibold text-[var(--color-texto)]">
-            {conversacion.nombreContacto ?? conversacion.telefono}
-          </p>
-          <p className="text-xs text-[var(--color-texto-mute)]">{conversacion.telefono}</p>
+      <div className="flex items-center justify-between gap-2 border-b border-[var(--color-borde)] p-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            onClick={onVolver}
+            aria-label="Volver a la lista"
+            className="shrink-0 rounded-lg p-1 text-[var(--color-texto-mute)] hover:text-[var(--color-texto)] md:hidden"
+          >
+            ←
+          </button>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-[var(--color-texto)]">
+              {conversacion.nombreContacto ?? conversacion.telefono}
+            </p>
+            <p className="truncate text-xs text-[var(--color-texto-mute)]">{conversacion.telefono}</p>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <button
             onClick={alternarAgente}
             className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-1.5 text-xs font-medium text-[var(--color-texto)] hover:opacity-80"
@@ -326,7 +340,7 @@ function PanelConversacion({ conversacion, onCambio }: { conversacion: Conversac
             <div key={m.id}>
               <div className={`flex ${m.direccion === "saliente" ? "justify-end" : "justify-start"}`}>
                 <div
-                  className="max-w-[70%] rounded-2xl px-3.5 py-2 text-sm"
+                  className="max-w-[85%] rounded-2xl px-3.5 py-2 text-sm sm:max-w-[70%]"
                   style={
                     m.direccion === "saliente"
                       ? { background: "var(--color-marca)", color: "var(--color-accion-fg)" }
