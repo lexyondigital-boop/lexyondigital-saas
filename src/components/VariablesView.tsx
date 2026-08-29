@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { LABEL_TIPO, type CampoPersonalizado, type TipoCampo } from "@/lib/campos-personalizados";
+import { LABEL_TIPO, slugificarClaveVariable, type CampoPersonalizado, type TipoCampo } from "@/lib/campos-personalizados";
 
 const TIPOS_CON_OPCIONES: TipoCampo[] = ["select", "checkbox"];
 
@@ -48,7 +48,9 @@ export function VariablesView({ cuentaId }: { cuentaId: string }) {
         <div>
           <h1 className="text-xl font-bold text-[var(--color-texto)]">Variables</h1>
           <p className="mt-1 text-sm text-[var(--color-texto-mute)]">
-            Campos personalizados que se piden al crear/editar un contacto, además de nombre, teléfono y etiquetas.
+            Campos personalizados que se piden al crear/editar un contacto, además de nombre, teléfono y etiquetas. Los
+            que tengan una clave también se pueden usar como <code>{"{{clave}}"}</code> en el prompt del Agente IA para
+            que las pida y las guarde solo.
           </p>
         </div>
         <button
@@ -91,7 +93,7 @@ export function VariablesView({ cuentaId }: { cuentaId: string }) {
               key={c.id}
               className="flex items-center justify-between gap-3 rounded-xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-4"
             >
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm font-medium text-[var(--color-texto)]">
                   {c.nombre} {c.requerido && <span className="text-red-500">*</span>}
                 </p>
@@ -99,6 +101,19 @@ export function VariablesView({ cuentaId }: { cuentaId: string }) {
                   {LABEL_TIPO[c.tipo]}
                   {TIPOS_CON_OPCIONES.includes(c.tipo) && c.opciones.length > 0 && ` — ${c.opciones.join(", ")}`}
                 </p>
+                {c.clave_variable && (
+                  <button
+                    type="button"
+                    onClick={() => navigator.clipboard.writeText(`{{${c.clave_variable}}}`)}
+                    title="Copiar para pegar en el prompt del Agente IA"
+                    className="mt-1.5 rounded-md bg-[var(--color-bg-elevada)] px-2 py-0.5 font-mono text-xs text-[var(--color-marca)] hover:opacity-80"
+                  >
+                    {`{{${c.clave_variable}}}`}
+                    {c.mapea_a_columna_real === "nombre_completo" && (
+                      <span className="ml-1.5 text-[var(--color-texto-mute)]">→ nombre completo del contacto</span>
+                    )}
+                  </button>
+                )}
               </div>
               <div className="flex items-center gap-3">
                 <button
@@ -156,8 +171,21 @@ function CampoForm({
   const [tipo, setTipo] = useState<TipoCampo>(campo?.tipo ?? "text");
   const [requerido, setRequerido] = useState(campo?.requerido ?? false);
   const [opciones, setOpciones] = useState((campo?.opciones ?? []).join(", "));
+  const [claveVariable, setClaveVariable] = useState(campo?.clave_variable ?? "");
+  const [claveEditadaManualmente, setClaveEditadaManualmente] = useState(!!campo?.clave_variable);
+  const [mapeaColumnaReal, setMapeaColumnaReal] = useState<"" | "nombre_completo">(campo?.mapea_a_columna_real ?? "");
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function onNombreChange(valor: string) {
+    setNombre(valor);
+    if (!claveEditadaManualmente) setClaveVariable(slugificarClaveVariable(valor));
+  }
+
+  function onClaveChange(valor: string) {
+    setClaveEditadaManualmente(true);
+    setClaveVariable(slugificarClaveVariable(valor));
+  }
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
@@ -171,7 +199,15 @@ function CampoForm({
           .filter(Boolean)
       : [];
 
-    const payload = { nombre: nombre.trim(), tipo, requerido, opciones: opcionesArray };
+    const claveFinal = claveVariable.trim() || null;
+    const payload = {
+      nombre: nombre.trim(),
+      tipo,
+      requerido,
+      opciones: opcionesArray,
+      clave_variable: claveFinal,
+      mapea_a_columna_real: claveFinal ? mapeaColumnaReal || null : null,
+    };
 
     const { error } = campo
       ? await supabase.from("campos_personalizados").update(payload).eq("id", campo.id)
@@ -180,7 +216,7 @@ function CampoForm({
     setEnviando(false);
 
     if (error) {
-      setError(error.message);
+      setError(error.message.includes("duplicate") ? "Ya existe otra variable con esa clave en esta cuenta." : error.message);
       return;
     }
 
@@ -200,7 +236,7 @@ function CampoForm({
           <input
             required
             value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
+            onChange={(e) => onNombreChange(e.target.value)}
             placeholder="Ej. Profesión"
             className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
           />
@@ -238,6 +274,36 @@ function CampoForm({
         <input type="checkbox" checked={requerido} onChange={(e) => setRequerido(e.target.checked)} />
         Obligatorio al crear un contacto
       </label>
+
+      <div className="rounded-xl border border-[var(--color-borde)] p-4">
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Clave para el prompt del Agente IA (opcional)</span>
+          <input
+            value={claveVariable}
+            onChange={(e) => onClaveChange(e.target.value)}
+            placeholder="ej. telefono_alterno"
+            className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 font-mono text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+          />
+          <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
+            Si la defines, puedes escribir <code>{claveVariable ? `{{${claveVariable}}}` : "{{clave}}"}</code> en el
+            prompt del Agente IA para que se lo pida al cliente y lo guarde solo.
+          </span>
+        </label>
+
+        {claveVariable.trim() && (
+          <label className="mt-3 block">
+            <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Cuando el agente capture este dato, guardarlo en</span>
+            <select
+              value={mapeaColumnaReal}
+              onChange={(e) => setMapeaColumnaReal(e.target.value as "" | "nombre_completo")}
+              className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+            >
+              <option value="">Este campo personalizado (por default)</option>
+              <option value="nombre_completo">Nombre completo del contacto</option>
+            </select>
+          </label>
+        )}
+      </div>
 
       {error && <p className="text-sm text-red-500">{error}</p>}
 

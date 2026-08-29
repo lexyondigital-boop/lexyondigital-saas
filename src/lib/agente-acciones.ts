@@ -3,6 +3,8 @@ import { crearEventoGoogle, actualizarEventoGoogle, eliminarEventoGoogle, obtene
 import { calcularSlotsDisponibles } from "@/lib/disponibilidad";
 import { registrarActividad } from "@/lib/auditoria";
 import { construirBloqueAgenda } from "@/lib/agente-prompt-agenda";
+import { resolverVariablesDelPrompt, validarValorVariable, formatearDatosParaNotas } from "@/lib/agente-prompt-variables";
+import type { CampoPersonalizado } from "@/lib/campos-personalizados";
 import type { Herramienta } from "@/lib/ia";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
@@ -13,7 +15,16 @@ type AdminClient = ReturnType<typeof createAdminClient>;
 // aplica tanto al armar el prompt como -- más importante -- adentro de cada
 // herramienta, para que el modelo no pueda tocar un profesional fuera de su
 // alcance así se lo invente en el input de una tool call.
-type ContextoAgente = { cuentaId: string; contactoId: string; conversacionId: string; profesionalesPermitidos: string[] | null };
+// camposUsados: las variables de la sección Variables que aparecen como
+// {{clave}} en el prompt de este agente -- es contra lo único que se valida
+// guardar_datos_contacto.
+type ContextoAgente = {
+  cuentaId: string;
+  contactoId: string;
+  conversacionId: string;
+  profesionalesPermitidos: string[] | null;
+  camposUsados: CampoPersonalizado[];
+};
 
 const DIAS_SEMANA = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
 const ZONA_HORARIA = "America/Mexico_City";
@@ -106,6 +117,8 @@ export function crearEjecutorHerramientas(contexto: ContextoAgente): (nombre: st
         return reagendarCita(admin, contexto, input as ParametrosReagendarCita);
       case "cancelar_cita":
         return cancelarCita(admin, contexto, input as { cita_id?: string });
+      case "guardar_datos_contacto":
+        return guardarDatosContacto(admin, contexto, input);
       default:
         return { error: `Herramienta desconocida: ${nombre}` };
     }
@@ -226,11 +239,12 @@ async function crearCita(admin: AdminClient, contexto: ContextoAgente, input: Pa
   }
 
   const { data: contacto } = await admin.from("contactos").select("nombre, nombre_completo, telefono").eq("id", contactoId).single();
+  const notasEnriquecidas = await enriquecerNotasCita(admin, cuentaId, contactoId, input.notas ?? null);
 
   const googleEventId = await crearEventoGoogle({
     profesional,
     resumen: `${input.tipo_cita || "Cita"} — ${contacto?.nombre ?? contacto?.nombre_completo ?? contacto?.telefono ?? "Paciente"}`,
-    descripcion: input.notas || "",
+    descripcion: notasEnriquecidas,
     inicio: fechaHoraMexico(input.fecha, input.hora_inicio),
     fin: fechaHoraMexico(input.fecha, input.hora_fin),
   });
@@ -245,7 +259,7 @@ async function crearCita(admin: AdminClient, contexto: ContextoAgente, input: Pa
       hora_inicio: input.hora_inicio,
       hora_fin: input.hora_fin,
       tipo_cita: input.tipo_cita ?? null,
-      notas: input.notas ?? null,
+      notas: notasEnriquecidas || null,
       google_event_id: googleEventId,
       creado_por: "agente_ia",
     })
@@ -353,4 +367,79 @@ async function cancelarCita(admin: AdminClient, { cuentaId, contactoId, conversa
   });
 
   return { ok: true };
+}
+
+// Guarda en el contacto los datos que el agente fue extrayendo de la
+// conversación, según las variables ({{clave}}) que aparecen en el prompt de
+// esta cuenta. Cada clave se valida por su tipo antes de guardar -- si no es
+// válida, el agente recibe el motivo de vuelta y puede volver a pedir el dato.
+async function guardarDatosContacto(admin: AdminClient, { contactoId, camposUsados }: ContextoAgente, input: Record<string, unknown>) {
+  const porClave = new Map(camposUsados.filter((c) => c.clave_variable).map((c) => [c.clave_variable as string, c]));
+
+  const guardados: Record<string, string> = {};
+  const errores: Record<string, string> = {};
+  let nombreCompletoNuevo: string | null = null;
+  const filasCustom: { contacto_id: string; campo_id: string; valor: string }[] = [];
+
+  for (const [clave, valorCrudo] of Object.entries(input)) {
+    const campo = porClave.get(clave);
+    if (!campo) {
+      errores[clave] = "esa clave no es una variable definida para este agente";
+      continue;
+    }
+    const errorValidacion = validarValorVariable(campo.tipo, valorCrudo);
+    if (errorValidacion) {
+      errores[clave] = errorValidacion;
+      continue;
+    }
+    const valor = String(valorCrudo).trim();
+    if (campo.mapea_a_columna_real === "nombre_completo") nombreCompletoNuevo = valor;
+    else filasCustom.push({ contacto_id: contactoId, campo_id: campo.id, valor });
+    guardados[clave] = valor;
+  }
+
+  if (nombreCompletoNuevo !== null) {
+    await admin.from("contactos").update({ nombre_completo: nombreCompletoNuevo }).eq("id", contactoId);
+  }
+  if (filasCustom.length > 0) {
+    await admin.from("valores_campos_personalizados").upsert(filasCustom, { onConflict: "contacto_id,campo_id" });
+  }
+
+  return { guardados, ...(Object.keys(errores).length > 0 ? { errores } : {}) };
+}
+
+// Arma el texto "Etiqueta: valor" con los datos ya capturados de este
+// contacto (según las variables del prompt de esta cuenta) y lo agrega a las
+// notas base -- el mismo texto queda en citas_agendadas.notas Y en la
+// descripción del evento de Google Calendar, para que ambos coincidan
+// siempre. La usan tanto el agente (crearCita) como el flujo de agendado
+// manual del humano (/api/citas/agendar), para que una cita agendada por un
+// admin también muestre los datos que el contacto ya tenga capturados.
+export async function enriquecerNotasCita(
+  admin: AdminClient,
+  cuentaId: string,
+  contactoId: string,
+  notasBase: string | null | undefined,
+): Promise<string> {
+  const base = notasBase?.trim() || "";
+
+  const { data: config } = await admin.from("agente_config").select("prompt").eq("cuenta_id", cuentaId).maybeSingle();
+  if (!config?.prompt) return base;
+
+  const { data: campos } = await admin.from("campos_personalizados").select("*").eq("cuenta_id", cuentaId);
+  const { usadas } = resolverVariablesDelPrompt(config.prompt, (campos ?? []) as CampoPersonalizado[]);
+  if (usadas.length === 0) return base;
+
+  const [{ data: contacto }, { data: valores }] = await Promise.all([
+    admin.from("contactos").select("nombre_completo").eq("id", contactoId).single(),
+    admin.from("valores_campos_personalizados").select("campo_id, valor").eq("contacto_id", contactoId),
+  ]);
+
+  const valoresPorCampoId: Record<string, string> = {};
+  for (const v of valores ?? []) if (v.valor) valoresPorCampoId[v.campo_id] = v.valor;
+
+  const bloque = formatearDatosParaNotas(usadas, contacto?.nombre_completo ?? null, valoresPorCampoId);
+  if (!bloque) return base;
+
+  return [base, bloque].filter(Boolean).join("\n\n");
 }

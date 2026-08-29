@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { crearEventoGoogle, fechaHoraMexico } from "@/lib/google-calendar";
+import { enriquecerNotasCita } from "@/lib/agente-acciones";
 import { registrarActividad } from "@/lib/auditoria";
 
 export async function POST(request: NextRequest) {
@@ -55,10 +57,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const admin = createAdminClient();
+    const notasEnriquecidas = await enriquecerNotasCita(admin, perfil.cuenta_id, contacto_id, notas);
+
     const googleEventId = await crearEventoGoogle({
       profesional,
       resumen: `${tipo_cita || "Cita"} — ${contacto.nombre ?? contacto.nombre_completo ?? contacto.telefono}`,
-      descripcion: notas || "",
+      descripcion: notasEnriquecidas,
       inicio: fechaHoraMexico(fecha, hora_inicio),
       fin: fechaHoraMexico(fecha, hora_fin),
     });
@@ -73,7 +78,7 @@ export async function POST(request: NextRequest) {
         hora_inicio,
         hora_fin,
         tipo_cita: tipo_cita ?? null,
-        notas: notas ?? null,
+        notas: notasEnriquecidas || null,
         google_event_id: googleEventId,
         creado_por: creado_por === "agente_ia" ? "agente_ia" : "usuario_manual",
       })

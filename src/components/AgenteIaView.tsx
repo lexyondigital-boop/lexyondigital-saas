@@ -3,6 +3,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { construirBloqueAgenda, type ProfesionalParaPrompt } from "@/lib/agente-prompt-agenda";
+import { resolverVariablesDelPrompt, construirBloqueVariables } from "@/lib/agente-prompt-variables";
+import type { CampoPersonalizado } from "@/lib/campos-personalizados";
 
 type Config = {
   nombre: string;
@@ -91,6 +93,7 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
   const [triggerTexto, setTriggerTexto] = useState("");
   const [profesionales, setProfesionales] = useState<ProfesionalParaPrompt[]>([]);
   const [profesionalesSeleccionados, setProfesionalesSeleccionados] = useState<Set<string>>(new Set());
+  const [camposPersonalizados, setCamposPersonalizados] = useState<CampoPersonalizado[]>([]);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState<string | null>(null);
@@ -100,17 +103,19 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
 
   useEffect(() => {
     (async () => {
-      const [{ data: configData }, { data: profesionalesData }] = await Promise.all([
+      const [{ data: configData }, { data: profesionalesData }, { data: camposData }] = await Promise.all([
         supabase.from("agente_config").select("*").eq("cuenta_id", cuentaId).maybeSingle(),
         supabase
           .from("profesionales")
           .select("id, nombre, especialidad, horario_inicio, horario_fin, dias_disponibles, duracion_cita_minutos")
           .eq("cuenta_id", cuentaId)
           .eq("estado", "activo"),
+        supabase.from("campos_personalizados").select("*").eq("cuenta_id", cuentaId),
       ]);
 
       const activos = profesionalesData ?? [];
       setProfesionales(activos);
+      setCamposPersonalizados((camposData as CampoPersonalizado[]) ?? []);
 
       if (configData) {
         setConfig(configData);
@@ -380,6 +385,27 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
           </div>
         </div>
       )}
+
+      {(() => {
+        const { usadas, noDefinidas } = resolverVariablesDelPrompt(config.prompt ?? "", camposPersonalizados);
+        if (usadas.length === 0 && noDefinidas.length === 0) return null;
+        return (
+          <div className="rounded-xl border border-[var(--color-borde)] p-4">
+            <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Variables detectadas en el prompt</span>
+            {noDefinidas.length > 0 && (
+              <p className="mb-2 text-xs" style={{ color: "var(--color-aviso)" }}>
+                {`{{${noDefinidas.join("}}, {{")}}}`} — no {noDefinidas.length === 1 ? "está definida" : "están definidas"} en{" "}
+                <span className="font-medium">Variables</span>. El agente no va a poder pedir ni guardar {noDefinidas.length === 1 ? "ese dato" : "esos datos"}.
+              </p>
+            )}
+            {usadas.length > 0 && (
+              <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg bg-[var(--color-bg-elevada)] p-3 text-xs text-[var(--color-texto-mute)]">
+                {construirBloqueVariables(usadas)}
+              </pre>
+            )}
+          </div>
+        );
+      })()}
 
       <label className="block">
         <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Palabras que disparan transferencia a humano</span>
