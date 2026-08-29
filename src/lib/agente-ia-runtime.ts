@@ -25,9 +25,25 @@ function minutosDesdeHora(hora: string): number {
   return h * 60 + m;
 }
 
+// El LLM no trae reloj propio -- sin decirle la fecha actual, no tiene forma
+// de saber qué día es "hoy" o "mañana" para validar horarios de citas.
+function fechaActualLegible(): string {
+  const formato = new Intl.DateTimeFormat("es-MX", {
+    timeZone: ZONA_HORARIA,
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date());
+  return formato;
+}
+
 function construirSystemPrompt(config: { prompt: string | null; tono: string; idioma: string }): string {
   const base = config.prompt?.trim() || "Eres un asistente de atención al cliente por WhatsApp.";
-  return `${base}\n\nResponde siempre en idioma "${config.idioma}", con un tono ${config.tono}. Sé breve y claro, como en una conversación real de WhatsApp.`;
+  return `${base}\n\nFecha y hora actual (zona horaria de México): ${fechaActualLegible()}. Usa este dato como referencia real de "hoy" para calcular cualquier día, fecha u horario que menciones o valides -- nunca lo inventes ni asumas otro.\n\nResponde siempre en idioma "${config.idioma}", con un tono ${config.tono}. Sé breve y claro, como en una conversación real de WhatsApp.`;
 }
 
 // El modo "platform_key" prioriza la key guardada en plataforma_secretos
