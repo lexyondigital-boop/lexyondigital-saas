@@ -12,17 +12,22 @@ export default function RestablecerContrasenaPage() {
   const [listo, setListo] = useState(false);
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
+  const [telefono, setTelefono] = useState("");
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     // El link del correo deja la sesión de recuperación establecida en el
-    // cliente (vía el hash de la URL) antes de que este componente monte.
-    supabase.auth.getSession().then(({ data }) => {
+    // cliente (vía cookies, puestas por /auth/confirm) antes de que este
+    // componente monte.
+    supabase.auth.getSession().then(async ({ data }) => {
       setListo(!!data.session);
       if (!data.session) {
         setError("El link ya expiró o no es válido. Pide uno nuevo.");
+        return;
       }
+      const { data: perfil } = await supabase.from("perfiles").select("telefono").eq("id", data.session.user.id).single();
+      if (perfil?.telefono) setTelefono(perfil.telefono);
     });
   }, [supabase]);
 
@@ -38,13 +43,30 @@ export default function RestablecerContrasenaPage() {
       setError("Las contraseñas no coinciden");
       return;
     }
+    if (!telefono.trim()) {
+      setError("El teléfono es obligatorio");
+      return;
+    }
 
     setCargando(true);
-    const { error } = await supabase.auth.updateUser({ password });
+
+    const { error: passwordError } = await supabase.auth.updateUser({ password });
+    if (passwordError) {
+      setCargando(false);
+      setError(passwordError.message);
+      return;
+    }
+
+    const res = await fetch("/api/mi-perfil", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ telefono: telefono.trim() }),
+    });
     setCargando(false);
 
-    if (error) {
-      setError(error.message);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "Tu contraseña quedó guardada, pero no pudimos guardar el teléfono. Actualízalo después en Mi perfil.");
       return;
     }
 
@@ -87,6 +109,17 @@ export default function RestablecerContrasenaPage() {
                   required
                   value={password2}
                   onChange={(e) => setPassword2(e.target.value)}
+                  className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Teléfono</span>
+                <input
+                  type="tel"
+                  required
+                  value={telefono}
+                  onChange={(e) => setTelefono(e.target.value)}
+                  placeholder="10 dígitos"
                   className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
                 />
               </label>
