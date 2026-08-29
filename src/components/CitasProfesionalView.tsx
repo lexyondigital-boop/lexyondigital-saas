@@ -14,7 +14,7 @@ type Cita = {
   notas: string | null;
   estado: "agendada" | "confirmada" | "cancelada" | "completada";
   creado_por: "agente_ia" | "usuario_manual";
-  contactos: { nombre: string | null; telefono: string } | null;
+  contactos: { nombre: string | null; nombre_completo: string | null; telefono: string } | null;
 };
 
 type Bloque = { id: string; fecha_inicio: string; fecha_fin: string; hora_inicio: string; hora_fin: string; razon: string | null };
@@ -145,7 +145,7 @@ export function CitasProfesionalView({
                         </span>
                         <Badge tono={c.estado === "cancelada" ? "mute" : "en-vivo"}>{c.estado}</Badge>
                       </div>
-                      <p className="mt-1 text-[var(--color-texto)]">{c.contactos?.nombre ?? c.contactos?.telefono ?? "—"}</p>
+                      <p className="mt-1 text-[var(--color-texto)]">{c.contactos?.nombre ?? c.contactos?.nombre_completo ?? c.contactos?.telefono ?? "—"}</p>
                       {c.tipo_cita && <p className="text-[var(--color-texto-mute)]">{c.tipo_cita}</p>}
                       {c.creado_por === "agente_ia" && <p className="text-[var(--color-texto-mute)]">🤖 Agendada por el Agente IA</p>}
                       {c.estado !== "cancelada" && (
@@ -334,7 +334,7 @@ function ModalAgendar({
           </button>
         ) : (
           <div className="flex items-center justify-between rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm">
-            <span className="text-[var(--color-texto)]">{contacto.nombre ?? contacto.telefono}</span>
+            <span className="text-[var(--color-texto)]">{contacto.nombre ?? contacto.nombre_completo ?? contacto.telefono}</span>
             <button type="button" onClick={() => setMostrarSelectorContacto(true)} className="text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
               Cambiar
             </button>

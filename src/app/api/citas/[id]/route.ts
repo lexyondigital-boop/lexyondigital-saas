@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { actualizarEventoGoogle } from "@/lib/google-calendar";
+import { actualizarEventoGoogle, fechaHoraMexico } from "@/lib/google-calendar";
 import { registrarActividad } from "@/lib/auditoria";
 
 // Reagendar: cambia fecha/hora de una cita existente (mismo profesional).
@@ -41,8 +41,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     await actualizarEventoGoogle({
       profesional: cita.profesionales,
       eventId: cita.google_event_id,
-      inicio: new Date(`${fecha}T${hora_inicio}:00`),
-      fin: new Date(`${fecha}T${hora_fin}:00`),
+      inicio: fechaHoraMexico(fecha, hora_inicio),
+      fin: fechaHoraMexico(fecha, hora_fin),
     });
   }
 

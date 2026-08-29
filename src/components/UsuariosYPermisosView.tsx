@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/Badge";
+import { CampoTelefono } from "@/components/CampoTelefono";
 import { LABEL_CATEGORIA, LABEL_ACCION, agruparPorCategoria, type Permiso } from "@/lib/permisos";
 
 type Equipo = { id: string; nombre: string; descripcion: string | null; color: string; created_at: string };
@@ -529,22 +530,12 @@ function FormularioUsuario({
             </span>
           )}
         </label>
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Teléfono</span>
-          <input
-            required={!usuario}
-            type="tel"
-            value={telefono}
-            onChange={(e) => setTelefono(e.target.value)}
-            placeholder="10 dígitos"
-            className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
-          />
-          {!usuario ? null : !telefono && (
-            <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
-              Este usuario todavía no lo ha capturado — puedes escribirlo tú aquí.
-            </span>
-          )}
-        </label>
+        <CampoTelefono
+          required={!usuario}
+          value={telefono}
+          onChange={setTelefono}
+          hint={!usuario || telefono ? undefined : "Este usuario todavía no lo ha capturado — puedes escribirlo tú aquí."}
+        />
         <label className="block">
           <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Rol</span>
           <select

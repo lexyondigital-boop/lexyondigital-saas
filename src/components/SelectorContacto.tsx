@@ -2,8 +2,9 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { CampoTelefono } from "@/components/CampoTelefono";
 
-export type ContactoSeleccionado = { id: string; nombre: string | null; telefono: string };
+export type ContactoSeleccionado = { id: string; nombre: string | null; nombre_completo: string | null; telefono: string };
 
 // Modal de buscar-o-crear contacto: se usa donde haga falta elegir un
 // contacto (agendar cita, etc). Si no existe, se crea ahí mismo -- queda en
@@ -37,8 +38,8 @@ export function SelectorContacto({
     const t = setTimeout(async () => {
       const { data } = await supabase
         .from("contactos")
-        .select("id, nombre, telefono")
-        .or(`nombre.ilike.%${busqueda}%,telefono.ilike.%${busqueda}%`)
+        .select("id, nombre, nombre_completo, telefono")
+        .or(`nombre.ilike.%${busqueda}%,nombre_completo.ilike.%${busqueda}%,telefono.ilike.%${busqueda}%`)
         .limit(8);
       setResultados(data ?? []);
       setBuscando(false);
@@ -60,11 +61,11 @@ export function SelectorContacto({
       .from("contactos")
       .insert({
         cuenta_id: cuentaId,
-        nombre: nombreNuevo.trim() || null,
+        nombre_completo: nombreNuevo.trim() || null,
         telefono: telefonoNuevo.trim(),
         canal_origen: "manual",
       })
-      .select("id, nombre, telefono")
+      .select("id, nombre, nombre_completo, telefono")
       .single();
 
     setCreando(false);
@@ -103,7 +104,7 @@ export function SelectorContacto({
                   onClick={() => onSeleccionar(c)}
                   className="block w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-left text-sm text-[var(--color-texto)] hover:opacity-80"
                 >
-                  {c.nombre ?? "Sin nombre"} — {c.telefono}
+                  {c.nombre ?? c.nombre_completo ?? "Sin nombre"} — {c.telefono}
                 </button>
               ))}
             </div>
@@ -128,13 +129,10 @@ export function SelectorContacto({
         ) : (
           <form onSubmit={crear} className="space-y-3">
             <label className="block text-sm">
-              <span className="mb-1 block text-[var(--color-texto)]">Nombre (opcional)</span>
+              <span className="mb-1 block text-[var(--color-texto)]">Nombre completo (opcional)</span>
               <input value={nombreNuevo} onChange={(e) => setNombreNuevo(e.target.value)} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]" />
             </label>
-            <label className="block text-sm">
-              <span className="mb-1 block text-[var(--color-texto)]">Teléfono</span>
-              <input required value={telefonoNuevo} onChange={(e) => setTelefonoNuevo(e.target.value)} placeholder="10 dígitos" className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]" />
-            </label>
+            <CampoTelefono required value={telefonoNuevo} onChange={setTelefonoNuevo} />
             {error && <p className="text-sm text-red-500">{error}</p>}
             <div className="flex gap-3 border-t border-[var(--color-borde)] pt-4">
               <button type="submit" disabled={creando} style={{ boxShadow: "var(--halo-accion)" }} className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] disabled:opacity-60">

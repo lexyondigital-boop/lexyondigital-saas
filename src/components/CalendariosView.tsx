@@ -22,7 +22,7 @@ type Cita = {
   estado: "agendada" | "confirmada" | "cancelada" | "completada";
   creado_por: "agente_ia" | "usuario_manual";
   profesional_id: string;
-  contactos: { nombre: string | null; telefono: string } | null;
+  contactos: { nombre: string | null; nombre_completo: string | null; telefono: string } | null;
   profesionales: { nombre: string; especialidad: string; color_agenda: string } | null;
 };
 
@@ -311,7 +311,7 @@ function VistaGrid({
                     style={{ top, height: alto, background: color }}
                     className="absolute left-1 right-1 overflow-hidden rounded-md px-1.5 py-0.5 text-left text-[11px] leading-tight text-white shadow-sm"
                   >
-                    <span className="block truncate font-semibold">{c.hora_inicio} {c.contactos?.nombre ?? c.contactos?.telefono}</span>
+                    <span className="block truncate font-semibold">{c.hora_inicio} {c.contactos?.nombre ?? c.contactos?.nombre_completo ?? c.contactos?.telefono}</span>
                     <span className="block truncate opacity-90">{c.profesionales?.nombre}</span>
                   </button>
                 );
@@ -377,7 +377,7 @@ function VistaMes({
                       style={{ background: c.profesionales?.color_agenda ?? "#6b2fa0" }}
                       className="block w-full truncate rounded px-1 py-0.5 text-left text-[10px] text-white"
                     >
-                      {c.hora_inicio} {c.contactos?.nombre ?? c.contactos?.telefono}
+                      {c.hora_inicio} {c.contactos?.nombre ?? c.contactos?.nombre_completo ?? c.contactos?.telefono}
                     </button>
                   ))}
                   {citasDelDia.length > 3 && <p className="text-[10px] text-[var(--color-texto-mute)]">+{citasDelDia.length - 3} más</p>}
@@ -438,7 +438,7 @@ function ModalDetalleCita({
       <div className="w-full max-w-sm space-y-4 rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6">
         <div className="flex items-center gap-2">
           <span className="h-3 w-3 rounded-full" style={{ background: cita.profesionales?.color_agenda ?? "#6b2fa0" }} />
-          <h2 className="text-base font-semibold text-[var(--color-texto)]">{cita.contactos?.nombre ?? cita.contactos?.telefono}</h2>
+          <h2 className="text-base font-semibold text-[var(--color-texto)]">{cita.contactos?.nombre ?? cita.contactos?.nombre_completo ?? cita.contactos?.telefono}</h2>
         </div>
 
         {!reagendando ? (
@@ -628,7 +628,7 @@ function ModalNuevaCita({
           </button>
         ) : (
           <div className="flex items-center justify-between rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm">
-            <span className="text-[var(--color-texto)]">{contacto.nombre ?? contacto.telefono}</span>
+            <span className="text-[var(--color-texto)]">{contacto.nombre ?? contacto.nombre_completo ?? contacto.telefono}</span>
             <button type="button" onClick={() => setMostrarSelectorContacto(true)} className="text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
               Cambiar
             </button>
@@ -653,7 +653,7 @@ function ModalNuevaCita({
 
         {fecha && profesionalId && (
           <div>
-            <span className="mb-1.5 block text-sm text-[var(--color-texto)]">Horarios sugeridos</span>
+            <span className="mb-1.5 block text-sm text-[var(--color-texto)]">Horarios sugeridos (hora de México)</span>
             {slots.length === 0 ? (
               <p className="text-xs text-[var(--color-texto-mute)]">Sin horarios libres calculados ese día — puedes capturar la hora manualmente.</p>
             ) : (

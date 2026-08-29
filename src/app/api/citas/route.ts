@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
 
   let query = supabase
     .from("citas_agendadas")
-    .select("*, contactos(nombre, telefono), profesionales(nombre, especialidad, color_agenda)")
+    .select("*, contactos(nombre, nombre_completo, telefono), profesionales(nombre, especialidad, color_agenda)")
     .order("fecha", { ascending: true })
     .order("hora_inicio", { ascending: true });
 

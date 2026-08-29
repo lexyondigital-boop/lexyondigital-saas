@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import { CampoTelefono } from "@/components/CampoTelefono";
 
 type Integraciones = {
   es_profesional: boolean;
@@ -232,10 +233,7 @@ function PestanaDisponibilidad() {
           <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Especialidad</span>
           <input value={datos.especialidad} onChange={(e) => setDatos({ ...datos, especialidad: e.target.value })} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]" />
         </label>
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Teléfono</span>
-          <input type="tel" value={datos.telefono ?? ""} onChange={(e) => setDatos({ ...datos, telefono: e.target.value })} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]" />
-        </label>
+        <CampoTelefono value={datos.telefono ?? ""} onChange={(v) => setDatos({ ...datos, telefono: v })} />
         <label className="block">
           <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Horario inicio</span>
           <input type="time" value={datos.horario_inicio} onChange={(e) => setDatos({ ...datos, horario_inicio: e.target.value })} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]" />

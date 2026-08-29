@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Logo } from "@/components/Logo";
+import { CampoTelefono } from "@/components/CampoTelefono";
 
 export default function RestablecerContrasenaPage() {
   const router = useRouter();
@@ -112,17 +113,7 @@ export default function RestablecerContrasenaPage() {
                   className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
                 />
               </label>
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Teléfono</span>
-                <input
-                  type="tel"
-                  required
-                  value={telefono}
-                  onChange={(e) => setTelefono(e.target.value)}
-                  placeholder="10 dígitos"
-                  className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
-                />
-              </label>
+              <CampoTelefono required value={telefono} onChange={setTelefono} />
               {error && <p className="text-sm text-red-500">{error}</p>}
               <button
                 type="submit"

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { crearEventoGoogle } from "@/lib/google-calendar";
+import { crearEventoGoogle, fechaHoraMexico } from "@/lib/google-calendar";
 import { registrarActividad } from "@/lib/auditoria";
 
 export async function POST(request: NextRequest) {
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Faltan datos para agendar la cita" }, { status: 400 });
   }
 
-  const { data: contacto } = await supabase.from("contactos").select("nombre, telefono").eq("id", contacto_id).single();
+  const { data: contacto } = await supabase.from("contactos").select("nombre, nombre_completo, telefono").eq("id", contacto_id).single();
   if (!contacto) return NextResponse.json({ error: "Contacto no encontrado" }, { status: 404 });
 
   const citasCreadas = [];
@@ -57,10 +57,10 @@ export async function POST(request: NextRequest) {
 
     const googleEventId = await crearEventoGoogle({
       profesional,
-      resumen: `${tipo_cita || "Cita"} — ${contacto.nombre ?? contacto.telefono}`,
+      resumen: `${tipo_cita || "Cita"} — ${contacto.nombre ?? contacto.nombre_completo ?? contacto.telefono}`,
       descripcion: notas || "",
-      inicio: new Date(`${fecha}T${hora_inicio}:00`),
-      fin: new Date(`${fecha}T${hora_fin}:00`),
+      inicio: fechaHoraMexico(fecha, hora_inicio),
+      fin: fechaHoraMexico(fecha, hora_fin),
     });
 
     const { data: cita, error } = await supabase

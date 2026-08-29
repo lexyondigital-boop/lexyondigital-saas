@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/Badge";
+import { CampoTelefono } from "@/components/CampoTelefono";
 import type { CampoPersonalizado } from "@/lib/campos-personalizados";
 
 type Contacto = {
@@ -487,16 +488,7 @@ function ContactoForm({
             className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
           />
         </label>
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Teléfono</span>
-          <input
-            required
-            value={telefono}
-            onChange={(e) => setTelefono(e.target.value)}
-            placeholder="5215600000000"
-            className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
-          />
-        </label>
+        <CampoTelefono required value={telefono} onChange={setTelefono} />
         <label className="block">
           <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Canal de origen</span>
           <input

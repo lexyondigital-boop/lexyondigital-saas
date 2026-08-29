@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { obtenerOcupacionGoogle } from "@/lib/google-calendar";
+import { obtenerOcupacionGoogle, fechaHoraMexico } from "@/lib/google-calendar";
 import { calcularSlotsDisponibles } from "@/lib/disponibilidad";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -36,8 +36,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       .lte("fecha", fechaFin),
     obtenerOcupacionGoogle({
       profesional,
-      desde: new Date(`${fechaInicio}T00:00:00`),
-      hasta: new Date(`${fechaFin}T23:59:59`),
+      desde: fechaHoraMexico(fechaInicio, "00:00"),
+      hasta: fechaHoraMexico(fechaFin, "23:59"),
     }),
   ]);
 

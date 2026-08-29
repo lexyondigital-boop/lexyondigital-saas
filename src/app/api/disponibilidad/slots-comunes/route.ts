@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { obtenerOcupacionGoogle } from "@/lib/google-calendar";
+import { obtenerOcupacionGoogle, fechaHoraMexico } from "@/lib/google-calendar";
 import { calcularSlotsDisponibles, calcularSlotsComunes } from "@/lib/disponibilidad";
 
 export async function GET(request: NextRequest) {
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
         .neq("estado", "cancelada")
         .gte("fecha", fechaInicio)
         .lte("fecha", fechaFin),
-      obtenerOcupacionGoogle({ profesional, desde: new Date(`${fechaInicio}T00:00:00`), hasta: new Date(`${fechaFin}T23:59:59`) }),
+      obtenerOcupacionGoogle({ profesional, desde: fechaHoraMexico(fechaInicio, "00:00"), hasta: fechaHoraMexico(fechaFin, "23:59") }),
     ]);
 
     slotsPorProfesional[id] = calcularSlotsDisponibles({

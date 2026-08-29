@@ -32,6 +32,17 @@ function fechaISO(fecha: Date): string {
   return fecha.toISOString().slice(0, 10);
 }
 
+// Google Calendar regresa los rangos ocupados en UTC. El servidor corre en
+// UTC, así que un ".getHours()" normal daría la hora UTC, no la hora local
+// de México (fija en UTC-6 desde que el país eliminó el horario de verano) —
+// eso desfasaba 6h las comparaciones contra el horario laboral del profesional.
+function utcAMexico(fechaUTC: Date): { fecha: string; minutos: number } {
+  const desplazado = new Date(fechaUTC.getTime() - 6 * 60 * 60 * 1000);
+  const fecha = `${desplazado.getUTCFullYear()}-${String(desplazado.getUTCMonth() + 1).padStart(2, "0")}-${String(desplazado.getUTCDate()).padStart(2, "0")}`;
+  const minutos = desplazado.getUTCHours() * 60 + desplazado.getUTCMinutes();
+  return { fecha, minutos };
+}
+
 // Calcula los slots libres de un profesional en un rango de fechas,
 // combinando: horario laboral + días disponibles, duración de cita,
 // bloqueos manuales (vacaciones/conferencias), citas ya agendadas, y
@@ -82,12 +93,12 @@ export function calcularSlotsDisponibles({
     }
 
     for (const g of ocupadoGoogle) {
-      const gInicio = new Date(g.inicio);
-      const gFin = new Date(g.fin);
-      if (fechaISO(gInicio) === fecha || fechaISO(gFin) === fecha) {
+      const gInicio = utcAMexico(new Date(g.inicio));
+      const gFin = utcAMexico(new Date(g.fin));
+      if (gInicio.fecha === fecha || gFin.fecha === fecha) {
         ocupadosDelDia.push({
-          inicio: gInicio.getHours() * 60 + gInicio.getMinutes(),
-          fin: gFin.getHours() * 60 + gFin.getMinutes(),
+          inicio: gInicio.fecha === fecha ? gInicio.minutos : 0,
+          fin: gFin.fecha === fecha ? gFin.minutos : 24 * 60,
         });
       }
     }

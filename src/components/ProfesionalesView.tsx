@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Badge } from "@/components/Badge";
+import { CampoTelefono } from "@/components/CampoTelefono";
 
 type Profesional = {
   id: string;
@@ -296,10 +297,7 @@ function FormularioNuevoProfesional({ onGuardado, onCancelar }: { onGuardado: ()
           <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Correo de acceso</span>
           <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]" />
         </label>
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Teléfono</span>
-          <input required type="tel" value={telefono} onChange={(e) => setTelefono(e.target.value)} placeholder="10 dígitos" className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]" />
-        </label>
+        <CampoTelefono required value={telefono} onChange={setTelefono} />
         <label className="block">
           <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Especialidad</span>
           <input required value={especialidad} onChange={(e) => setEspecialidad(e.target.value)} placeholder="Ej. Cardiología" className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]" />
@@ -423,10 +421,7 @@ function FormularioEditarProfesional({ id, onGuardado, onCancelar }: { id: strin
           <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Especialidad</span>
           <input value={detalle.especialidad} onChange={(e) => setDetalle({ ...detalle, especialidad: e.target.value })} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]" />
         </label>
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Teléfono</span>
-          <input value={detalle.telefono ?? ""} onChange={(e) => setDetalle({ ...detalle, telefono: e.target.value })} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]" />
-        </label>
+        <CampoTelefono value={detalle.telefono ?? ""} onChange={(v) => setDetalle({ ...detalle, telefono: v })} />
         <label className="block">
           <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Horario inicio</span>
           <input type="time" value={detalle.horario_inicio} onChange={(e) => setDetalle({ ...detalle, horario_inicio: e.target.value })} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]" />

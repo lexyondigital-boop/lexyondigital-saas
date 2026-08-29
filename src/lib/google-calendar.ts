@@ -21,6 +21,15 @@ export function googleCalendarConfigurado() {
   return Boolean(process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET);
 }
 
+// México eliminó el horario de verano en 2022 (Zona Centro queda fija en
+// UTC-6 todo el año), así que un offset fijo es correcto. Sin esto,
+// `new Date("2026-08-29T10:30:00")` se interpreta con la zona horaria del
+// servidor (UTC en el VPS), no con la hora local de México, y el evento
+// termina apareciendo ~6 horas antes en Google Calendar.
+export function fechaHoraMexico(fecha: string, hora: string): Date {
+  return new Date(`${fecha}T${hora}:00-06:00`);
+}
+
 // El "state" viaja por la redirección de Google, así que va cifrado (mismo
 // AES-256-GCM que las API keys) para que no se pueda falsificar qué
 // profesional/cuenta se está conectando. Expira a los 10 minutos.
