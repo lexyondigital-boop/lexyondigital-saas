@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from("profesionales")
     .select(
-      "id, nombre, especialidad, email, telefono, color_agenda, estado, google_oauth_email, google_calendar_name, google_oauth_connected_at, created_at",
+      "id, perfil_id, nombre, especialidad, email, telefono, color_agenda, estado, google_oauth_email, google_calendar_name, google_oauth_connected_at, created_at",
     )
     .order("nombre");
 

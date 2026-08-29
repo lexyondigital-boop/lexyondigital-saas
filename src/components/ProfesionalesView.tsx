@@ -7,6 +7,7 @@ import { Badge } from "@/components/Badge";
 
 type Profesional = {
   id: string;
+  perfil_id: string;
   nombre: string;
   especialidad: string;
   email: string | null;
@@ -80,6 +81,15 @@ export function ProfesionalesView() {
       body: JSON.stringify({ estado: nuevo }),
     });
     cargar();
+  }
+
+  const [reenviando, setReenviando] = useState<string | null>(null);
+
+  async function reenviarAcceso(p: Profesional) {
+    setReenviando(p.id);
+    await fetch(`/api/usuarios/${p.perfil_id}/reenviar-clave`, { method: "POST" });
+    setReenviando(null);
+    alert(`Le reenviamos el correo para definir su contraseña a ${p.nombre}`);
   }
 
   return (
@@ -191,6 +201,13 @@ export function ProfesionalesView() {
                       Ver citas
                     </Link>
                     <button
+                      onClick={() => reenviarAcceso(p)}
+                      disabled={reenviando === p.id}
+                      className="mr-3 text-sm font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)] disabled:opacity-50"
+                    >
+                      {reenviando === p.id ? "Enviando…" : "Reenviar acceso"}
+                    </button>
+                    <button
                       onClick={() => alternarEstado(p)}
                       className={`text-sm font-medium hover:underline ${p.estado === "activo" ? "text-red-500" : "text-[var(--color-marca)]"}`}
                     >
@@ -223,6 +240,7 @@ const COLORES_PRESET = ["#6b2fa0", "#f97316", "#22c55e", "#0ea5e9", "#ef4444", "
 function FormularioNuevoProfesional({ onGuardado, onCancelar }: { onGuardado: () => void; onCancelar: () => void }) {
   const [nombre, setNombre] = useState("");
   const [email, setEmail] = useState("");
+  const [telefono, setTelefono] = useState("");
   const [especialidad, setEspecialidad] = useState("");
   const [emailGoogle, setEmailGoogle] = useState("");
   const [color, setColor] = useState(COLORES_PRESET[0]);
@@ -240,6 +258,7 @@ function FormularioNuevoProfesional({ onGuardado, onCancelar }: { onGuardado: ()
       body: JSON.stringify({
         nombre,
         email,
+        telefono,
         rol: "agente",
         equipo_id: null,
         permisos: [
@@ -276,6 +295,10 @@ function FormularioNuevoProfesional({ onGuardado, onCancelar }: { onGuardado: ()
         <label className="block">
           <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Correo de acceso</span>
           <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]" />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Teléfono</span>
+          <input required type="tel" value={telefono} onChange={(e) => setTelefono(e.target.value)} placeholder="10 dígitos" className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]" />
         </label>
         <label className="block">
           <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Especialidad</span>

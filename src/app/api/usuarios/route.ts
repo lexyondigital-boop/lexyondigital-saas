@@ -11,10 +11,14 @@ export async function POST(request: NextRequest) {
   const auth = await requireAdminCuenta();
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  const { nombre, email, rol, equipo_id, permisos, es_profesional, profesional } = await request.json();
+  const { nombre, email, telefono, rol, equipo_id, permisos, es_profesional, profesional } = await request.json();
 
   if (!email?.trim() || !nombre?.trim()) {
     return NextResponse.json({ error: "Falta nombre o correo" }, { status: 400 });
+  }
+
+  if (!telefono?.trim()) {
+    return NextResponse.json({ error: "El teléfono es obligatorio" }, { status: 400 });
   }
 
   if (rol !== "admin" && rol !== "agente") {
@@ -40,6 +44,7 @@ export async function POST(request: NextRequest) {
     id: nuevoUsuario.user.id,
     cuenta_id: auth.perfil.cuenta_id,
     nombre: nombre.trim(),
+    telefono: telefono.trim(),
     rol,
     equipo_id: equipo_id || null,
     activo: true,

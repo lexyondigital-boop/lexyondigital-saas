@@ -27,6 +27,7 @@ export const LABEL_ACCION: Record<string, string> = {
   create_appointment: "Agendó una cita",
   cancel_appointment: "Canceló una cita",
   disconnect_google_calendar: "Desconectó Google Calendar",
+  resend_password_email: "Reenvió el correo de contraseña",
 };
 
 export function agruparPorCategoria(permisos: Permiso[]): Record<string, Permiso[]> {

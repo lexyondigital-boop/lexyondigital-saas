@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Logo } from "@/components/Logo";
@@ -12,6 +12,13 @@ export default function RecuperarPage() {
   const [cargando, setCargando] = useState(false);
   const [enviado, setEnviado] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("error") === "link_invalido") {
+      setError("Ese link ya expiró o no es válido. Pide uno nuevo.");
+    }
+  }, []);
 
   async function enviarLink(e: FormEvent) {
     e.preventDefault();

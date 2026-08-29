@@ -11,6 +11,7 @@ type Equipo = { id: string; nombre: string; descripcion: string | null; color: s
 type PerfilUsuario = {
   id: string;
   nombre: string | null;
+  telefono: string | null;
   rol: "super_admin" | "admin" | "agente";
   activo: boolean;
   equipo_id: string | null;
@@ -123,7 +124,7 @@ function TabUsuarios({
     setCargando(true);
     const { data: perfiles } = await supabase
       .from("perfiles")
-      .select("id, nombre, rol, activo, equipo_id, created_at, es_profesional, profesional_id")
+      .select("id, nombre, telefono, rol, activo, equipo_id, created_at, es_profesional, profesional_id")
       .order("created_at", { ascending: false });
 
     const idsUsuarios = (perfiles ?? []).map((p) => p.id);
@@ -198,6 +199,15 @@ function TabUsuarios({
       body: JSON.stringify({ activo: true }),
     });
     cargar();
+  }
+
+  const [reenviando, setReenviando] = useState<string | null>(null);
+
+  async function reenviarAcceso(u: PerfilUsuario) {
+    setReenviando(u.id);
+    await fetch(`/api/usuarios/${u.id}/reenviar-clave`, { method: "POST" });
+    setReenviando(null);
+    alert(`Le reenviamos el correo para definir su contraseña a ${u.email}`);
   }
 
   return (
@@ -333,6 +343,15 @@ function TabUsuarios({
                           Ver en Profesionales
                         </Link>
                       )}
+                      {u.rol !== "super_admin" && (
+                        <button
+                          onClick={() => reenviarAcceso(u)}
+                          disabled={reenviando === u.id}
+                          className="mr-3 text-sm font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)] disabled:opacity-50"
+                        >
+                          {reenviando === u.id ? "Enviando…" : "Reenviar acceso"}
+                        </button>
+                      )}
                       {u.rol !== "super_admin" &&
                         (u.activo ? (
                           <button onClick={() => desactivar(u)} className="text-sm font-medium text-red-500 hover:underline">
@@ -373,6 +392,7 @@ function FormularioUsuario({
   const supabase = createClient();
   const [nombre, setNombre] = useState(usuario?.nombre ?? "");
   const [email, setEmail] = useState(usuario?.email ?? "");
+  const [telefono, setTelefono] = useState(usuario?.telefono ?? "");
   const [rol, setRol] = useState<"admin" | "agente">(usuario?.rol === "admin" ? "admin" : "agente");
   const [equipoId, setEquipoId] = useState(usuario?.equipo_id ?? "");
   const [esProfesional, setEsProfesional] = useState(usuario?.es_profesional ?? false);
@@ -436,6 +456,7 @@ function FormularioUsuario({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nombre,
+          telefono,
           rol,
           equipo_id: equipoId || null,
           permisos: permisosPayload,
@@ -457,6 +478,7 @@ function FormularioUsuario({
         body: JSON.stringify({
           nombre,
           email,
+          telefono,
           rol,
           equipo_id: equipoId || null,
           permisos: permisosPayload,
@@ -506,6 +528,17 @@ function FormularioUsuario({
               Le llega un correo con un link para definir su contraseña.
             </span>
           )}
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Teléfono</span>
+          <input
+            required
+            type="tel"
+            value={telefono}
+            onChange={(e) => setTelefono(e.target.value)}
+            placeholder="10 dígitos"
+            className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+          />
         </label>
         <label className="block">
           <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Rol</span>

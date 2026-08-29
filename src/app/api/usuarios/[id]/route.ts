@@ -24,6 +24,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const cambios: Record<string, unknown> = {};
   if (typeof body.nombre === "string") cambios.nombre = body.nombre.trim() || null;
+  if (typeof body.telefono === "string") cambios.telefono = body.telefono.trim() || null;
   if (body.rol === "admin" || body.rol === "agente") cambios.rol = body.rol;
   if ("equipo_id" in body) cambios.equipo_id = body.equipo_id || null;
   if (typeof body.activo === "boolean") cambios.activo = body.activo;
