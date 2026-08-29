@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireSuperAdmin } from "@/lib/require-super-admin";
+import { origenPublico } from "@/lib/origen-publico";
 
 export async function POST(
   request: NextRequest,
@@ -34,7 +35,7 @@ export async function POST(
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   );
   await clienteAnonimo.auth.resetPasswordForEmail(data.user.email, {
-    redirectTo: `${request.nextUrl.origin}/restablecer-contrasena`,
+    redirectTo: `${origenPublico(request)}/restablecer-contrasena`,
   });
 
   return NextResponse.json({ ok: true });

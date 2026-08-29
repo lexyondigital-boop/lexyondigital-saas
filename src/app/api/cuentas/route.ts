@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { origenPublico } from "@/lib/origen-publico";
 
 function generarSlug(nombre: string) {
   return nombre
@@ -93,7 +94,7 @@ export async function POST(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   );
   await clienteAnonimo.auth.resetPasswordForEmail(email_admin.trim(), {
-    redirectTo: `${request.nextUrl.origin}/restablecer-contrasena`,
+    redirectTo: `${origenPublico(request)}/restablecer-contrasena`,
   });
 
   return NextResponse.json({ ok: true, cuenta, admin_email: email_admin.trim() });

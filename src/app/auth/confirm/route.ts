@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { origenPublico } from "@/lib/origen-publico";
 
 // Ruta propia para verificar los links de correo (reset de contraseña, alta
 // de usuario, etc). En vez de dejar que el enlace del correo apunte directo
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
   const next = searchParams.get("next") ?? "/";
 
   if (tokenHash && type) {
-    const response = NextResponse.redirect(new URL(next, request.url));
+    const response = NextResponse.redirect(new URL(next, origenPublico(request)));
 
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -47,5 +48,5 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.redirect(new URL("/recuperar?error=link_invalido", request.url));
+  return NextResponse.redirect(new URL("/recuperar?error=link_invalido", origenPublico(request)));
 }

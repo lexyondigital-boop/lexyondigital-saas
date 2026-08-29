@@ -3,6 +3,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdminCuenta } from "@/lib/require-admin-cuenta";
 import { registrarActividad, registrarCambioPermiso } from "@/lib/auditoria";
+import { origenPublico } from "@/lib/origen-publico";
 
 // Autoservicio: el admin de una sub-cuenta da de alta gente de su propio
 // equipo. Distinto de /api/cuentas/[id]/usuarios, que es del panel del
@@ -117,7 +118,7 @@ export async function POST(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   );
   await clienteAnonimo.auth.resetPasswordForEmail(email.trim(), {
-    redirectTo: `${request.nextUrl.origin}/restablecer-contrasena`,
+    redirectTo: `${origenPublico(request)}/restablecer-contrasena`,
   });
 
   return NextResponse.json({ ok: true });

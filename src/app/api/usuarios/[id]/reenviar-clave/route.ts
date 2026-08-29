@@ -3,6 +3,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdminCuenta } from "@/lib/require-admin-cuenta";
 import { registrarActividad } from "@/lib/auditoria";
+import { origenPublico } from "@/lib/origen-publico";
 
 // Mismo mecanismo que /api/cuentas/[id]/usuarios/[usuarioId]/reenviar (panel
 // del super admin), pero de autoservicio: el admin de la propia cuenta lo usa
@@ -36,7 +37,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   );
   await clienteAnonimo.auth.resetPasswordForEmail(data.user.email, {
-    redirectTo: `${request.nextUrl.origin}/restablecer-contrasena`,
+    redirectTo: `${origenPublico(request)}/restablecer-contrasena`,
   });
 
   await registrarActividad({

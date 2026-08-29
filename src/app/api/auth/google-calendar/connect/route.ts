@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { construirAuthUrl, googleCalendarConfigurado } from "@/lib/google-calendar";
+import { origenPublico } from "@/lib/origen-publico";
 
 export async function POST(request: NextRequest) {
   if (!googleCalendarConfigurado()) {
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Profesional no encontrado en tu cuenta" }, { status: 404 });
   }
 
-  const redirectUri = `${request.nextUrl.origin}/api/auth/google-calendar/callback`;
+  const redirectUri = `${origenPublico(request)}/api/auth/google-calendar/callback`;
   const url = construirAuthUrl({
     redirectUri,
     estado: {
