@@ -250,6 +250,32 @@ export async function crearEventoGoogle({
   return (data?.id as string) ?? null;
 }
 
+export async function actualizarEventoGoogle({
+  profesional,
+  eventId,
+  inicio,
+  fin,
+}: {
+  profesional: ProfesionalGoogle;
+  eventId: string;
+  inicio: Date;
+  fin: Date;
+}): Promise<void> {
+  if (!profesional.google_oauth_token_cifrado || !profesional.google_calendar_id) return;
+
+  const accessToken = await obtenerAccessTokenVigente(profesional);
+  if (!accessToken) return;
+
+  await fetch(`${CALENDAR_API}/calendars/${encodeURIComponent(profesional.google_calendar_id)}/events/${eventId}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      start: { dateTime: inicio.toISOString(), timeZone: "America/Mexico_City" },
+      end: { dateTime: fin.toISOString(), timeZone: "America/Mexico_City" },
+    }),
+  });
+}
+
 export async function eliminarEventoGoogle({
   profesional,
   eventId,

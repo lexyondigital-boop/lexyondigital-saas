@@ -5,14 +5,12 @@ import { AppShell } from "@/components/AppShell";
 import { ProfesionalesView } from "@/components/ProfesionalesView";
 
 export default async function ProfesionalesPage() {
-  const { user, perfil } = await obtenerSesionApp();
+  const { user, perfil, permisos } = await obtenerSesionApp();
 
-  if (perfil.rol === "agente") {
-    notFound();
-  }
+  if (!permisos.view_professionals) notFound();
 
   return (
-    <AppShell email={user.email} role={perfil.rol}>
+    <AppShell email={user.email} role={perfil.rol} permisos={permisos}>
       <Suspense fallback={null}>
         <ProfesionalesView />
       </Suspense>

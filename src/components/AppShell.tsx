@@ -26,6 +26,7 @@ type ItemNav = {
   label: string;
   icon: (props: { className?: string }) => React.ReactElement;
   disponible: boolean;
+  requiere?: string;
 };
 
 const NAV_SUPER_ADMIN: ItemNav[] = [
@@ -35,16 +36,16 @@ const NAV_SUPER_ADMIN: ItemNav[] = [
 
 const NAV_TENANT: ItemNav[] = [
   { href: "/dashboard", label: "Dashboard", icon: IconDashboard, disponible: true },
-  { href: "/conversaciones", label: "Conversaciones", icon: IconChat, disponible: true },
-  { href: "/contactos", label: "Contactos", icon: IconUser, disponible: true },
-  { href: "/plantillas", label: "Plantillas", icon: IconDoc, disponible: true },
-  { href: "/calendarios", label: "Calendarios", icon: IconCalendar, disponible: false },
-  { href: "/campanas", label: "Campañas", icon: IconMegaphone, disponible: true },
-  { href: "/etiquetas", label: "Etiquetas", icon: IconTag, disponible: true },
-  { href: "/variables", label: "Variables", icon: IconBraces, disponible: true },
-  { href: "/usuarios", label: "Usuarios", icon: IconUsers, disponible: true },
-  { href: "/profesionales", label: "Profesionales", icon: IconBriefcase, disponible: true },
-  { href: "/agente-ia", label: "Agente IA", icon: IconRobot, disponible: true },
+  { href: "/conversaciones", label: "Conversaciones", icon: IconChat, disponible: true, requiere: "view_conversations" },
+  { href: "/contactos", label: "Contactos", icon: IconUser, disponible: true, requiere: "view_contacts" },
+  { href: "/plantillas", label: "Plantillas", icon: IconDoc, disponible: true, requiere: "view_templates" },
+  { href: "/calendarios", label: "Calendarios", icon: IconCalendar, disponible: true, requiere: "view_appointments" },
+  { href: "/campanas", label: "Campañas", icon: IconMegaphone, disponible: true, requiere: "view_campaigns" },
+  { href: "/etiquetas", label: "Etiquetas", icon: IconTag, disponible: true, requiere: "view_tags" },
+  { href: "/variables", label: "Variables", icon: IconBraces, disponible: true, requiere: "view_variables" },
+  { href: "/usuarios", label: "Usuarios", icon: IconUsers, disponible: true, requiere: "manage_users" },
+  { href: "/profesionales", label: "Profesionales", icon: IconBriefcase, disponible: true, requiere: "view_professionals" },
+  { href: "/agente-ia", label: "Agente IA", icon: IconRobot, disponible: true, requiere: "access_agent_ia" },
   { href: "/configuracion", label: "Configuración", icon: IconGear, disponible: false },
   { href: "/mi-perfil", label: "Mi perfil", icon: IconUser, disponible: true },
 ];
@@ -53,13 +54,17 @@ export function AppShell({
   children,
   email,
   role,
+  permisos,
 }: {
   children: ReactNode;
   email?: string;
   role?: "super_admin" | "admin" | "agente";
+  permisos?: Record<string, boolean>;
 }) {
   const pathname = usePathname();
-  const nav = role === "super_admin" ? NAV_SUPER_ADMIN : NAV_TENANT;
+  const nav = (role === "super_admin" ? NAV_SUPER_ADMIN : NAV_TENANT).filter(
+    (item) => !item.requiere || permisos?.[item.requiere],
+  );
 
   return (
     <div className="flex min-h-screen bg-[var(--color-bg)]">

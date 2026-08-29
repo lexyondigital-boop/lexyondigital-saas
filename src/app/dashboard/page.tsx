@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
 
 export default async function DashboardPage() {
-  const { user, perfil } = await obtenerSesionApp();
+  const { user, perfil, permisos } = await obtenerSesionApp();
   const supabase = await createClient();
 
   const inicioHoy = new Date();
@@ -25,7 +25,7 @@ export default async function DashboardPage() {
   ];
 
   return (
-    <AppShell email={user.email} role={perfil.rol}>
+    <AppShell email={user.email} role={perfil.rol} permisos={permisos}>
       <h1 className="text-xl font-bold text-[var(--color-texto)]">
         Bienvenido{perfil.nombre ? `, ${perfil.nombre}` : ""}
       </h1>

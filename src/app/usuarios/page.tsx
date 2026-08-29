@@ -4,14 +4,12 @@ import { AppShell } from "@/components/AppShell";
 import { UsuariosYPermisosView } from "@/components/UsuariosYPermisosView";
 
 export default async function UsuariosPage() {
-  const { user, perfil } = await obtenerSesionApp();
+  const { user, perfil, permisos } = await obtenerSesionApp();
 
-  if (perfil.rol === "agente") {
-    notFound();
-  }
+  if (!permisos.manage_users) notFound();
 
   return (
-    <AppShell email={user.email} role={perfil.rol}>
+    <AppShell email={user.email} role={perfil.rol} permisos={permisos}>
       <UsuariosYPermisosView cuentaId={perfil.cuenta_id} miPerfilId={user.id} />
     </AppShell>
   );

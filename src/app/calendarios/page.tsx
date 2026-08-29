@@ -1,16 +1,16 @@
 import { notFound } from "next/navigation";
 import { obtenerSesionApp } from "@/lib/session";
 import { AppShell } from "@/components/AppShell";
-import { AgenteIaView } from "@/components/AgenteIaView";
+import { CalendariosView } from "@/components/CalendariosView";
 
-export default async function AgenteIaPage() {
+export default async function CalendariosPage() {
   const { user, perfil, permisos } = await obtenerSesionApp();
 
-  if (!permisos.access_agent_ia) notFound();
+  if (!permisos.view_appointments) notFound();
 
   return (
     <AppShell email={user.email} role={perfil.rol} permisos={permisos}>
-      <AgenteIaView cuentaId={perfil.cuenta_id} />
+      <CalendariosView puedeGestionar={!!permisos.manage_appointments} />
     </AppShell>
   );
 }

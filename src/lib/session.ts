@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { obtenerPermisosEfectivos } from "@/lib/permisos-efectivos";
 
 export type Perfil = {
   rol: "super_admin" | "admin" | "agente";
@@ -31,5 +32,7 @@ export async function obtenerSesionApp() {
     redirect("/sin-acceso");
   }
 
-  return { user, perfil };
+  const permisos = await obtenerPermisosEfectivos(user.id, perfil.rol);
+
+  return { user, perfil, permisos };
 }
