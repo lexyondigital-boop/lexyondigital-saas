@@ -1,7 +1,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enviarMensajeTexto, normalizarDestinatario } from "@/lib/meta";
-import { generarRespuestaIA, calcularCostoUsd, type MensajeHistorial, type ProveedorIA } from "@/lib/ia";
+import { generarRespuestaIA, calcularCostoUsd, type MensajeHistorial, type ProveedorIA, type Herramienta } from "@/lib/ia";
 import { descifrar } from "@/lib/cifrado";
+import { HERRAMIENTAS_CONSULTA, HERRAMIENTAS_ACCION, crearEjecutorHerramientas, listarProfesionalesParaPrompt } from "@/lib/agente-acciones";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -41,9 +42,12 @@ function fechaActualLegible(): string {
   return formato;
 }
 
-function construirSystemPrompt(config: { prompt: string | null; tono: string; idioma: string }): string {
+function construirSystemPrompt(config: { prompt: string | null; tono: string; idioma: string }, profesionalesTexto: string | null): string {
   const base = config.prompt?.trim() || "Eres un asistente de atención al cliente por WhatsApp.";
-  return `${base}\n\nFecha y hora actual (zona horaria de México): ${fechaActualLegible()}. Usa este dato como referencia real de "hoy" para calcular cualquier día, fecha u horario que menciones o valides -- nunca lo inventes ni asumas otro.\n\nResponde siempre en idioma "${config.idioma}", con un tono ${config.tono}. Sé breve y claro, como en una conversación real de WhatsApp.`;
+  const bloqueAgenda = profesionalesTexto
+    ? `\n\n${profesionalesTexto}\n\nPara agendar, reagendar, cancelar o consultar horarios usa siempre las herramientas disponibles -- nunca inventes ni asumas disponibilidad, ids de citas o de profesionales.`
+    : "";
+  return `${base}\n\nFecha y hora actual (zona horaria de México): ${fechaActualLegible()}. Usa este dato como referencia real de "hoy" para calcular cualquier día, fecha u horario que menciones o valides -- nunca lo inventes ni asumas otro.${bloqueAgenda}\n\nResponde siempre en idioma "${config.idioma}", con un tono ${config.tono}. Sé breve y claro, como en una conversación real de WhatsApp.`;
 }
 
 // El modo "platform_key" prioriza la key guardada en plataforma_secretos
@@ -205,12 +209,24 @@ export async function procesarAgenteIA({
     .slice(0, -1)
     .map((m) => ({ role: m.direccion === "entrante" ? ("user" as const) : ("assistant" as const), content: m.contenido as string }));
 
+  // Las herramientas que modifican datos (crear/reagendar/cancelar) solo se
+  // ofrecen en modo automático -- en "sugestivo" un humano todavía aprueba
+  // el texto antes de mandarlo, así que el modelo no debe poder tocar citas
+  // reales mientras solo está redactando una sugerencia.
+  const profesionalesTexto = await listarProfesionalesParaPrompt(cuentaId);
+  const herramientas: Herramienta[] | undefined = profesionalesTexto
+    ? [...HERRAMIENTAS_CONSULTA, ...(config.modo === "automatico" ? HERRAMIENTAS_ACCION : [])]
+    : undefined;
+  const ejecutarHerramienta = herramientas ? crearEjecutorHerramientas({ cuentaId, contactoId, conversacionId }) : undefined;
+
   const resultado = await generarRespuestaIA({
     proveedor,
     apiKey,
-    systemPrompt: construirSystemPrompt(config),
+    systemPrompt: construirSystemPrompt(config, profesionalesTexto),
     historial,
     mensajeNuevo: textoEntrante,
+    herramientas,
+    ejecutarHerramienta,
   });
 
   if (!resultado.ok || !resultado.texto) {
