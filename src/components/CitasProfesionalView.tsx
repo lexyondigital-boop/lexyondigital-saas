@@ -285,6 +285,19 @@ function ModalAgendar({
   }
 
   function elegirSlot(s: { hora_inicio: string; hora_fin: string }) {
+    // Si el bloque tocado es contiguo al rango ya elegido, lo extiende en vez
+    // de reemplazarlo -- así se arman citas más largas encadenando varios
+    // bloques sugeridos.
+    if (horaInicio && horaFin) {
+      if (s.hora_inicio === horaFin) {
+        setHoraFin(s.hora_fin);
+        return;
+      }
+      if (s.hora_fin === horaInicio) {
+        setHoraInicio(s.hora_inicio);
+        return;
+      }
+    }
     setHoraInicio(s.hora_inicio);
     setHoraFin(s.hora_fin);
   }
@@ -363,23 +376,31 @@ function ModalAgendar({
             {slots.length === 0 ? (
               <p className="text-xs text-[var(--color-texto-mute)]">Sin horarios libres calculados ese día — puedes capturar la hora manualmente.</p>
             ) : (
+              <>
               <div className="flex flex-wrap gap-1.5">
-                {slots.map((s) => (
+                {slots.map((s) => {
+                  const seleccionado = !!horaInicio && !!horaFin && s.hora_inicio >= horaInicio && s.hora_fin <= horaFin;
+                  return (
                   <button
                     key={s.hora_inicio}
                     type="button"
                     onClick={() => elegirSlot(s)}
                     className="rounded-lg px-2.5 py-1 text-xs font-medium"
                     style={
-                      horaInicio === s.hora_inicio
+                      seleccionado
                         ? { background: "var(--color-marca)", color: "var(--color-accion-fg)" }
                         : { background: "var(--color-bg-elevada)", color: "var(--color-texto)", border: "1px solid var(--color-borde)" }
                     }
                   >
                     {s.hora_inicio}
                   </button>
-                ))}
+                  );
+                })}
               </div>
+              <p className="mt-1 text-xs text-[var(--color-texto-mute)]">
+                ¿La cita dura más? Toca otro bloque seguido al ya elegido para extenderla.
+              </p>
+              </>
             )}
           </div>
         )}

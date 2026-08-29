@@ -580,6 +580,20 @@ function ModalNuevaCita({
   }
 
   function elegirSlot(s: { hora_inicio: string; hora_fin: string }) {
+    // Si el bloque tocado es contiguo al rango ya elegido, lo extiende en vez
+    // de reemplazarlo -- así se arman citas más largas encadenando varios
+    // bloques sugeridos (para pacientes que necesitan más que la duración
+    // default del profesional).
+    if (horaInicio && horaFin) {
+      if (s.hora_inicio === horaFin) {
+        setHoraFin(s.hora_fin);
+        return;
+      }
+      if (s.hora_fin === horaInicio) {
+        setHoraInicio(s.hora_inicio);
+        return;
+      }
+    }
     setHoraInicio(s.hora_inicio);
     setHoraFin(s.hora_fin);
   }
@@ -672,23 +686,31 @@ function ModalNuevaCita({
             {slots.length === 0 ? (
               <p className="text-xs text-[var(--color-texto-mute)]">Sin horarios libres calculados ese día — puedes capturar la hora manualmente.</p>
             ) : (
-              <div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto">
-                {slots.map((s) => (
-                  <button
-                    key={s.hora_inicio}
-                    type="button"
-                    onClick={() => elegirSlot(s)}
-                    className="rounded-lg px-2.5 py-1 text-xs font-medium"
-                    style={
-                      horaInicio === s.hora_inicio
-                        ? { background: "var(--color-marca)", color: "var(--color-accion-fg)" }
-                        : { background: "var(--color-bg-elevada)", color: "var(--color-texto)", border: "1px solid var(--color-borde)" }
-                    }
-                  >
-                    {s.hora_inicio}
-                  </button>
-                ))}
-              </div>
+              <>
+                <div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto">
+                  {slots.map((s) => {
+                    const seleccionado = !!horaInicio && !!horaFin && s.hora_inicio >= horaInicio && s.hora_fin <= horaFin;
+                    return (
+                      <button
+                        key={s.hora_inicio}
+                        type="button"
+                        onClick={() => elegirSlot(s)}
+                        className="rounded-lg px-2.5 py-1 text-xs font-medium"
+                        style={
+                          seleccionado
+                            ? { background: "var(--color-marca)", color: "var(--color-accion-fg)" }
+                            : { background: "var(--color-bg-elevada)", color: "var(--color-texto)", border: "1px solid var(--color-borde)" }
+                        }
+                      >
+                        {s.hora_inicio}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-1 text-xs text-[var(--color-texto-mute)]">
+                  ¿La cita dura más? Toca otro bloque seguido al ya elegido para extenderla.
+                </p>
+              </>
             )}
           </div>
         )}
