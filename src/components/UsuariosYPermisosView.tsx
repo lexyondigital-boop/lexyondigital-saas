@@ -532,13 +532,18 @@ function FormularioUsuario({
         <label className="block">
           <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Teléfono</span>
           <input
-            required
+            required={!usuario}
             type="tel"
             value={telefono}
             onChange={(e) => setTelefono(e.target.value)}
             placeholder="10 dígitos"
             className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
           />
+          {!usuario ? null : !telefono && (
+            <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
+              Este usuario todavía no lo ha capturado — puedes escribirlo tú aquí.
+            </span>
+          )}
         </label>
         <label className="block">
           <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Rol</span>
