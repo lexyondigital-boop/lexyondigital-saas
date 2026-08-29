@@ -1,9 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { SelectorContacto, type ContactoSeleccionado } from "@/components/SelectorContacto";
 
-type Profesional = { id: string; nombre: string; especialidad: string; color_agenda: string; estado: "activo" | "inactivo" };
+type Profesional = {
+  id: string;
+  nombre: string;
+  especialidad: string;
+  color_agenda: string;
+  estado: "activo" | "inactivo";
+  duracion_cita_minutos: number;
+};
 
 type Cita = {
   id: string;
@@ -19,7 +26,6 @@ type Cita = {
   profesionales: { nombre: string; especialidad: string; color_agenda: string } | null;
 };
 
-type Contacto = { id: string; nombre: string | null; telefono: string };
 type Vista = "dia" | "semana" | "mes";
 
 const HORA_INICIO_GRID = 7;
@@ -47,7 +53,7 @@ function horaAMinutos(h: string) {
   return hh * 60 + mm;
 }
 
-export function CalendariosView({ puedeGestionar }: { puedeGestionar: boolean }) {
+export function CalendariosView({ cuentaId, puedeGestionar }: { cuentaId: string; puedeGestionar: boolean }) {
   const [vista, setVista] = useState<Vista>("semana");
   const [fechaRef, setFechaRef] = useState(new Date());
   const [profesionales, setProfesionales] = useState<Profesional[]>([]);
@@ -220,6 +226,7 @@ export function CalendariosView({ puedeGestionar }: { puedeGestionar: boolean })
 
       {mostrarNuevaCita && (
         <ModalNuevaCita
+          cuentaId={cuentaId}
           profesionales={profesionales}
           inicial={mostrarNuevaCita}
           onCerrar={() => setMostrarNuevaCita(null)}
@@ -501,57 +508,70 @@ function ModalDetalleCita({
 // MODAL: NUEVA CITA
 // ============================================================
 
+function sumarMinutos(hora: string, minutos: number): string {
+  const total = horaAMinutos(hora) + minutos;
+  const h = Math.floor(((total % 1440) + 1440) % 1440 / 60).toString().padStart(2, "0");
+  const m = (total % 60 < 0 ? total % 60 + 60 : total % 60).toString().padStart(2, "0");
+  return `${h}:${m}`;
+}
+
 function ModalNuevaCita({
+  cuentaId,
   profesionales,
   inicial,
   onCerrar,
   onGuardada,
 }: {
+  cuentaId: string;
   profesionales: Profesional[];
   inicial: { profesionalId?: string; fecha?: string; hora?: string };
   onCerrar: () => void;
   onGuardada: () => void;
 }) {
-  const supabase = createClient();
   const [profesionalId, setProfesionalId] = useState(inicial.profesionalId ?? profesionales[0]?.id ?? "");
-  const [busqueda, setBusqueda] = useState("");
-  const [resultados, setResultados] = useState<Contacto[]>([]);
-  const [contacto, setContacto] = useState<Contacto | null>(null);
+  const [mostrarSelectorContacto, setMostrarSelectorContacto] = useState(false);
+  const [contacto, setContacto] = useState<ContactoSeleccionado | null>(null);
   const [fecha, setFecha] = useState(inicial.fecha ?? "");
+  const [horaInicio, setHoraInicio] = useState(inicial.hora ?? "");
+  const [horaFin, setHoraFin] = useState("");
   const [slots, setSlots] = useState<{ hora_inicio: string; hora_fin: string }[]>([]);
-  const [slotElegido, setSlotElegido] = useState<{ hora_inicio: string; hora_fin: string } | null>(null);
   const [tipoCita, setTipoCita] = useState("");
   const [notas, setNotas] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
 
-  useEffect(() => {
-    if (busqueda.trim().length < 2) {
-      setResultados([]);
-      return;
-    }
-    const t = setTimeout(async () => {
-      const { data } = await supabase.from("contactos").select("id, nombre, telefono").or(`nombre.ilike.%${busqueda}%,telefono.ilike.%${busqueda}%`).limit(6);
-      setResultados(data ?? []);
-    }, 250);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [busqueda]);
+  const profesional = profesionales.find((p) => p.id === profesionalId) ?? null;
 
   useEffect(() => {
-    if (!fecha || !profesionalId) return;
+    if (!fecha || !profesionalId) {
+      setSlots([]);
+      return;
+    }
     (async () => {
       const res = await fetch(`/api/profesionales/${profesionalId}/disponibilidad?fecha_inicio=${fecha}&fecha_fin=${fecha}`);
       const data = await res.json();
       setSlots(data.slots ?? []);
-      setSlotElegido(inicial.hora ? data.slots?.find((s: { hora_inicio: string }) => s.hora_inicio === inicial.hora) ?? null : null);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fecha, profesionalId]);
+
+  useEffect(() => {
+    if (inicial.hora && profesional) setHoraFin(sumarMinutos(inicial.hora, profesional.duracion_cita_minutos));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profesional?.id]);
+
+  function elegirHoraInicio(valor: string) {
+    setHoraInicio(valor);
+    if (valor && profesional) setHoraFin(sumarMinutos(valor, profesional.duracion_cita_minutos));
+  }
+
+  function elegirSlot(s: { hora_inicio: string; hora_fin: string }) {
+    setHoraInicio(s.hora_inicio);
+    setHoraFin(s.hora_fin);
+  }
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
-    if (!contacto || !fecha || !slotElegido || !profesionalId) {
+    if (!contacto || !fecha || !horaInicio || !horaFin || !profesionalId) {
       setError("Completa profesional, contacto, fecha y horario");
       return;
     }
@@ -564,8 +584,8 @@ function ModalNuevaCita({
         contacto_id: contacto.id,
         profesional_ids: [profesionalId],
         fecha,
-        hora_inicio: slotElegido.hora_inicio,
-        hora_fin: slotElegido.hora_fin,
+        hora_inicio: horaInicio,
+        hora_fin: horaFin,
         tipo_cita: tipoCita || undefined,
         notas: notas || undefined,
       }),
@@ -599,25 +619,17 @@ function ModalNuevaCita({
         </label>
 
         {!contacto ? (
-          <div>
-            <label className="block text-sm">
-              <span className="mb-1 block text-[var(--color-texto)]">Buscar contacto</span>
-              <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Nombre o teléfono" className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)]" />
-            </label>
-            {resultados.length > 0 && (
-              <div className="mt-2 space-y-1 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-1">
-                {resultados.map((c) => (
-                  <button key={c.id} type="button" onClick={() => setContacto(c)} className="block w-full rounded px-2 py-1.5 text-left text-sm text-[var(--color-texto)] hover:bg-[var(--color-tarjeta)]">
-                    {c.nombre ?? "Sin nombre"} — {c.telefono}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={() => setMostrarSelectorContacto(true)}
+            className="w-full rounded-lg border border-dashed border-[var(--color-borde)] px-3 py-2 text-left text-sm text-[var(--color-texto-mute)] hover:opacity-80"
+          >
+            🔍 Buscar o crear contacto…
+          </button>
         ) : (
           <div className="flex items-center justify-between rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm">
             <span className="text-[var(--color-texto)]">{contacto.nombre ?? contacto.telefono}</span>
-            <button type="button" onClick={() => setContacto(null)} className="text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
+            <button type="button" onClick={() => setMostrarSelectorContacto(true)} className="text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
               Cambiar
             </button>
           </div>
@@ -628,21 +640,32 @@ function ModalNuevaCita({
           <input required type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)]" />
         </label>
 
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block text-sm">
+            <span className="mb-1 block text-[var(--color-texto)]">Hora inicio</span>
+            <input required type="time" value={horaInicio} onChange={(e) => elegirHoraInicio(e.target.value)} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)]" />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-[var(--color-texto)]">Hora fin</span>
+            <input required type="time" value={horaFin} onChange={(e) => setHoraFin(e.target.value)} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)]" />
+          </label>
+        </div>
+
         {fecha && profesionalId && (
           <div>
-            <span className="mb-1.5 block text-sm text-[var(--color-texto)]">Horario disponible</span>
+            <span className="mb-1.5 block text-sm text-[var(--color-texto)]">Horarios sugeridos</span>
             {slots.length === 0 ? (
-              <p className="text-xs text-[var(--color-texto-mute)]">Sin horarios libres ese día.</p>
+              <p className="text-xs text-[var(--color-texto-mute)]">Sin horarios libres calculados ese día — puedes capturar la hora manualmente.</p>
             ) : (
               <div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto">
                 {slots.map((s) => (
                   <button
                     key={s.hora_inicio}
                     type="button"
-                    onClick={() => setSlotElegido(s)}
+                    onClick={() => elegirSlot(s)}
                     className="rounded-lg px-2.5 py-1 text-xs font-medium"
                     style={
-                      slotElegido?.hora_inicio === s.hora_inicio
+                      horaInicio === s.hora_inicio
                         ? { background: "var(--color-marca)", color: "var(--color-accion-fg)" }
                         : { background: "var(--color-bg-elevada)", color: "var(--color-texto)", border: "1px solid var(--color-borde)" }
                     }
@@ -675,6 +698,17 @@ function ModalNuevaCita({
           </button>
         </div>
       </form>
+
+      {mostrarSelectorContacto && (
+        <SelectorContacto
+          cuentaId={cuentaId}
+          onCerrar={() => setMostrarSelectorContacto(false)}
+          onSeleccionar={(c) => {
+            setContacto(c);
+            setMostrarSelectorContacto(false);
+          }}
+        />
+      )}
     </div>
   );
 }

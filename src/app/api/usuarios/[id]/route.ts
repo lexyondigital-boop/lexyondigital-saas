@@ -77,6 +77,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  // El teléfono vive también en profesionales (agenda) -- se mantienen
+  // sincronizados en los dos sentidos.
+  if (typeof cambios.telefono !== "undefined" && perfilActual.profesional_id) {
+    await admin.from("profesionales").update({ telefono: cambios.telefono }).eq("id", perfilActual.profesional_id);
+  }
+
   if (typeof cambios.rol === "string" && cambios.rol !== perfilActual.rol) {
     await registrarCambioPermiso({
       cuentaId: auth.perfil.cuenta_id,

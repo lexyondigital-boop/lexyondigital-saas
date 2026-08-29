@@ -19,8 +19,19 @@ export async function PATCH(request: NextRequest) {
   }
 
   const admin = createAdminClient();
-  const { error } = await admin.from("perfiles").update({ telefono: telefono.trim() }).eq("id", user.id);
+  const { data: perfil, error } = await admin
+    .from("perfiles")
+    .update({ telefono: telefono.trim() })
+    .eq("id", user.id)
+    .select("profesional_id")
+    .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // El teléfono vive también en profesionales (agenda) -- se mantienen
+  // sincronizados en los dos sentidos.
+  if (perfil?.profesional_id) {
+    await admin.from("profesionales").update({ telefono: telefono.trim() }).eq("id", perfil.profesional_id);
+  }
 
   return NextResponse.json({ ok: true });
 }

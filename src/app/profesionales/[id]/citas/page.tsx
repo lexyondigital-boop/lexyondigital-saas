@@ -15,7 +15,7 @@ export default async function CitasProfesionalPage({ params }: { params: Promise
 
   return (
     <AppShell email={user.email} role={perfil.rol} permisos={permisos}>
-      <CitasProfesionalView profesionalId={profesional.id} nombreProfesional={profesional.nombre} />
+      <CitasProfesionalView cuentaId={perfil.cuenta_id} profesionalId={profesional.id} nombreProfesional={profesional.nombre} />
     </AppShell>
   );
 }

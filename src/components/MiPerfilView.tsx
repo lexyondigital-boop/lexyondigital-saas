@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 type Integraciones = {
   es_profesional: boolean;
@@ -15,8 +15,29 @@ type Integraciones = {
   };
 };
 
+type ProfesionalPropio = {
+  especialidad: string;
+  telefono: string | null;
+  biografia: string | null;
+  color_agenda: string;
+  horario_inicio: string;
+  horario_fin: string;
+  dias_disponibles: string[];
+  duracion_cita_minutos: number;
+};
+
+const DIAS: { valor: string; etiqueta: string }[] = [
+  { valor: "lunes", etiqueta: "L" },
+  { valor: "martes", etiqueta: "M" },
+  { valor: "miercoles", etiqueta: "Mi" },
+  { valor: "jueves", etiqueta: "J" },
+  { valor: "viernes", etiqueta: "V" },
+  { valor: "sabado", etiqueta: "S" },
+  { valor: "domingo", etiqueta: "D" },
+];
+
 export function MiPerfilView({ nombre, email, rol }: { nombre: string | null; email: string | undefined; rol: string }) {
-  const [tab, setTab] = useState<"info" | "google">("info");
+  const [tab, setTab] = useState<"info" | "disponibilidad" | "google">("info");
   const [integraciones, setIntegraciones] = useState<Integraciones | null>(null);
   const [conectando, setConectando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,12 +94,13 @@ export function MiPerfilView({ nombre, email, rol }: { nombre: string | null; em
         {(
           [
             ["info", "Información personal"],
+            ...(integraciones?.es_profesional ? [["disponibilidad", "Disponibilidad"] as [string, string]] : []),
             ...(integraciones?.es_profesional ? [["google", "Google Calendar"] as [string, string]] : []),
           ] as [string, string][]
         ).map(([valor, etiqueta]) => (
           <button
             key={valor}
-            onClick={() => setTab(valor as "info" | "google")}
+            onClick={() => setTab(valor as "info" | "disponibilidad" | "google")}
             className="border-b-2 pb-2.5 text-sm font-medium transition-colors"
             style={{
               borderColor: tab === valor ? "var(--color-marca)" : "transparent",
@@ -109,6 +131,8 @@ export function MiPerfilView({ nombre, email, rol }: { nombre: string | null; em
           </div>
         </div>
       )}
+
+      {tab === "disponibilidad" && integraciones?.es_profesional && <PestanaDisponibilidad />}
 
       {tab === "google" && integraciones?.es_profesional && (
         <div className="max-w-md rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6">
@@ -150,5 +174,129 @@ export function MiPerfilView({ nombre, email, rol }: { nombre: string | null; em
         </div>
       )}
     </div>
+  );
+}
+
+function PestanaDisponibilidad() {
+  const [datos, setDatos] = useState<ProfesionalPropio | null>(null);
+  const [enviando, setEnviando] = useState(false);
+  const [guardado, setGuardado] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const res = await fetch("/api/mi-profesional");
+      if (res.ok) {
+        const data = await res.json();
+        setDatos(data.profesional);
+      }
+    })();
+  }, []);
+
+  if (!datos) {
+    return <div className="max-w-2xl rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6 text-sm text-[var(--color-texto-mute)]">Cargando…</div>;
+  }
+
+  function alternarDia(dia: string) {
+    setDatos((prev) =>
+      prev ? { ...prev, dias_disponibles: prev.dias_disponibles.includes(dia) ? prev.dias_disponibles.filter((d) => d !== dia) : [...prev.dias_disponibles, dia] } : prev,
+    );
+  }
+
+  async function guardar(e: FormEvent) {
+    e.preventDefault();
+    if (!datos) return;
+    setEnviando(true);
+    setError(null);
+    setGuardado(false);
+
+    const res = await fetch("/api/mi-profesional", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(datos),
+    });
+    setEnviando(false);
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "No se pudo guardar");
+      return;
+    }
+    setGuardado(true);
+  }
+
+  return (
+    <form onSubmit={guardar} className="max-w-2xl space-y-5 rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Especialidad</span>
+          <input value={datos.especialidad} onChange={(e) => setDatos({ ...datos, especialidad: e.target.value })} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]" />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Teléfono</span>
+          <input type="tel" value={datos.telefono ?? ""} onChange={(e) => setDatos({ ...datos, telefono: e.target.value })} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]" />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Horario inicio</span>
+          <input type="time" value={datos.horario_inicio} onChange={(e) => setDatos({ ...datos, horario_inicio: e.target.value })} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]" />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Horario fin</span>
+          <input type="time" value={datos.horario_fin} onChange={(e) => setDatos({ ...datos, horario_fin: e.target.value })} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]" />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Duración de cita</span>
+          <select value={datos.duracion_cita_minutos} onChange={(e) => setDatos({ ...datos, duracion_cita_minutos: Number(e.target.value) })} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]">
+            {[15, 30, 45, 60].map((m) => (
+              <option key={m} value={m}>
+                {m} minutos
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Color en la agenda</span>
+          <input type="color" value={datos.color_agenda} onChange={(e) => setDatos({ ...datos, color_agenda: e.target.value })} className="h-9 w-16 rounded border border-[var(--color-borde)] bg-transparent" />
+        </label>
+      </div>
+
+      <div>
+        <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Días disponibles</span>
+        <div className="flex flex-wrap gap-2">
+          {DIAS.map((d) => (
+            <button
+              key={d.valor}
+              type="button"
+              onClick={() => alternarDia(d.valor)}
+              className="h-8 w-9 rounded-lg text-xs font-semibold"
+              style={
+                datos.dias_disponibles.includes(d.valor)
+                  ? { background: "var(--color-marca)", color: "var(--color-accion-fg)" }
+                  : { background: "var(--color-bg-elevada)", color: "var(--color-texto-mute)", border: "1px solid var(--color-borde)" }
+              }
+            >
+              {d.etiqueta}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <label className="block">
+        <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Biografía (opcional)</span>
+        <textarea value={datos.biografia ?? ""} onChange={(e) => setDatos({ ...datos, biografia: e.target.value })} rows={2} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]" />
+      </label>
+
+      {guardado && <p className="text-sm text-[var(--color-marca)]">Guardado.</p>}
+      {error && <p className="text-sm text-red-500">{error}</p>}
+
+      <button
+        type="submit"
+        disabled={enviando}
+        style={{ boxShadow: "var(--halo-accion)" }}
+        className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
+      >
+        {enviando ? "Guardando…" : "Guardar cambios"}
+      </button>
+    </form>
   );
 }

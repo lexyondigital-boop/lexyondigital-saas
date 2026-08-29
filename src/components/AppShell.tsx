@@ -46,7 +46,7 @@ const NAV_TENANT: ItemNav[] = [
   { href: "/usuarios", label: "Usuarios", icon: IconUsers, disponible: true, requiere: "manage_users" },
   { href: "/profesionales", label: "Profesionales", icon: IconBriefcase, disponible: true, requiere: "view_professionals" },
   { href: "/agente-ia", label: "Agente IA", icon: IconRobot, disponible: true, requiere: "access_agent_ia" },
-  { href: "/configuracion", label: "Configuración", icon: IconGear, disponible: false },
+  { href: "/configuracion", label: "Configuración", icon: IconGear, disponible: true, requiere: "access_configuration" },
   { href: "/mi-perfil", label: "Mi perfil", icon: IconUser, disponible: true },
 ];
 

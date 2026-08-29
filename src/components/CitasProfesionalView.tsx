@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/Badge";
+import { SelectorContacto, type ContactoSeleccionado } from "@/components/SelectorContacto";
 
 type Cita = {
   id: string;
@@ -18,8 +19,6 @@ type Cita = {
 
 type Bloque = { id: string; fecha_inicio: string; fecha_fin: string; hora_inicio: string; hora_fin: string; razon: string | null };
 
-type Contacto = { id: string; nombre: string | null; telefono: string };
-
 function inicioDeSemana(fecha: Date) {
   const d = new Date(fecha);
   const dia = d.getDay();
@@ -32,7 +31,15 @@ function iso(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
-export function CitasProfesionalView({ profesionalId, nombreProfesional }: { profesionalId: string; nombreProfesional: string }) {
+export function CitasProfesionalView({
+  cuentaId,
+  profesionalId,
+  nombreProfesional,
+}: {
+  cuentaId: string;
+  profesionalId: string;
+  nombreProfesional: string;
+}) {
   const supabase = createClient();
   const [semana, setSemana] = useState(() => inicioDeSemana(new Date()));
   const [citas, setCitas] = useState<Cita[]>([]);
@@ -156,7 +163,7 @@ export function CitasProfesionalView({ profesionalId, nombreProfesional }: { pro
       )}
 
       {mostrarBloqueo && <ModalBloqueo profesionalId={profesionalId} onCerrar={() => setMostrarBloqueo(false)} onGuardado={() => { setMostrarBloqueo(false); cargar(); }} />}
-      {mostrarAgendar && <ModalAgendar profesionalId={profesionalId} onCerrar={() => setMostrarAgendar(false)} onGuardado={() => { setMostrarAgendar(false); cargar(); }} />}
+      {mostrarAgendar && <ModalAgendar cuentaId={cuentaId} profesionalId={profesionalId} onCerrar={() => setMostrarAgendar(false)} onGuardado={() => { setMostrarAgendar(false); cargar(); }} />}
     </div>
   );
 }
@@ -220,45 +227,71 @@ function ModalBloqueo({ profesionalId, onCerrar, onGuardado }: { profesionalId: 
   );
 }
 
-function ModalAgendar({ profesionalId, onCerrar, onGuardado }: { profesionalId: string; onCerrar: () => void; onGuardado: () => void }) {
-  const supabase = createClient();
-  const [busqueda, setBusqueda] = useState("");
-  const [resultados, setResultados] = useState<Contacto[]>([]);
-  const [contacto, setContacto] = useState<Contacto | null>(null);
+function horaAMinutosLocal(h: string) {
+  const [hh, mm] = h.split(":").map(Number);
+  return hh * 60 + mm;
+}
+function sumarMinutosLocal(hora: string, minutos: number): string {
+  const total = ((horaAMinutosLocal(hora) + minutos) % 1440 + 1440) % 1440;
+  return `${Math.floor(total / 60).toString().padStart(2, "0")}:${(total % 60).toString().padStart(2, "0")}`;
+}
+
+function ModalAgendar({
+  cuentaId,
+  profesionalId,
+  onCerrar,
+  onGuardado,
+}: {
+  cuentaId: string;
+  profesionalId: string;
+  onCerrar: () => void;
+  onGuardado: () => void;
+}) {
+  const [duracion, setDuracion] = useState(30);
+  const [mostrarSelectorContacto, setMostrarSelectorContacto] = useState(false);
+  const [contacto, setContacto] = useState<ContactoSeleccionado | null>(null);
   const [fecha, setFecha] = useState("");
+  const [horaInicio, setHoraInicio] = useState("");
+  const [horaFin, setHoraFin] = useState("");
   const [slots, setSlots] = useState<{ hora_inicio: string; hora_fin: string }[]>([]);
-  const [slotElegido, setSlotElegido] = useState<{ hora_inicio: string; hora_fin: string } | null>(null);
   const [tipoCita, setTipoCita] = useState("");
   const [notas, setNotas] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
 
   useEffect(() => {
-    if (busqueda.trim().length < 2) {
-      setResultados([]);
-      return;
-    }
-    const t = setTimeout(async () => {
-      const { data } = await supabase.from("contactos").select("id, nombre, telefono").or(`nombre.ilike.%${busqueda}%,telefono.ilike.%${busqueda}%`).limit(6);
-      setResultados(data ?? []);
-    }, 250);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [busqueda]);
+    (async () => {
+      const res = await fetch(`/api/profesionales/${profesionalId}`);
+      const data = await res.json();
+      if (data.profesional?.duracion_cita_minutos) setDuracion(data.profesional.duracion_cita_minutos);
+    })();
+  }, [profesionalId]);
 
   useEffect(() => {
-    if (!fecha) return;
+    if (!fecha) {
+      setSlots([]);
+      return;
+    }
     (async () => {
       const res = await fetch(`/api/profesionales/${profesionalId}/disponibilidad?fecha_inicio=${fecha}&fecha_fin=${fecha}`);
       const data = await res.json();
       setSlots(data.slots ?? []);
-      setSlotElegido(null);
     })();
   }, [fecha, profesionalId]);
 
+  function elegirHoraInicio(valor: string) {
+    setHoraInicio(valor);
+    if (valor) setHoraFin(sumarMinutosLocal(valor, duracion));
+  }
+
+  function elegirSlot(s: { hora_inicio: string; hora_fin: string }) {
+    setHoraInicio(s.hora_inicio);
+    setHoraFin(s.hora_fin);
+  }
+
   async function guardar(e: FormEvent) {
     e.preventDefault();
-    if (!contacto || !fecha || !slotElegido) {
+    if (!contacto || !fecha || !horaInicio || !horaFin) {
       setError("Selecciona contacto, fecha y horario");
       return;
     }
@@ -271,8 +304,8 @@ function ModalAgendar({ profesionalId, onCerrar, onGuardado }: { profesionalId: 
         contacto_id: contacto.id,
         profesional_ids: [profesionalId],
         fecha,
-        hora_inicio: slotElegido.hora_inicio,
-        hora_fin: slotElegido.hora_fin,
+        hora_inicio: horaInicio,
+        hora_fin: horaFin,
         tipo_cita: tipoCita || undefined,
         notas: notas || undefined,
       }),
@@ -292,25 +325,17 @@ function ModalAgendar({ profesionalId, onCerrar, onGuardado }: { profesionalId: 
         <h2 className="text-base font-semibold text-[var(--color-texto)]">Agendar cita</h2>
 
         {!contacto ? (
-          <div>
-            <label className="block text-sm">
-              <span className="mb-1 block text-[var(--color-texto)]">Buscar contacto</span>
-              <input value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Nombre o teléfono" className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)]" />
-            </label>
-            {resultados.length > 0 && (
-              <div className="mt-2 space-y-1 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-1">
-                {resultados.map((c) => (
-                  <button key={c.id} type="button" onClick={() => setContacto(c)} className="block w-full rounded px-2 py-1.5 text-left text-sm text-[var(--color-texto)] hover:bg-[var(--color-tarjeta)]">
-                    {c.nombre ?? "Sin nombre"} — {c.telefono}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={() => setMostrarSelectorContacto(true)}
+            className="w-full rounded-lg border border-dashed border-[var(--color-borde)] px-3 py-2 text-left text-sm text-[var(--color-texto-mute)] hover:opacity-80"
+          >
+            🔍 Buscar o crear contacto…
+          </button>
         ) : (
           <div className="flex items-center justify-between rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm">
             <span className="text-[var(--color-texto)]">{contacto.nombre ?? contacto.telefono}</span>
-            <button type="button" onClick={() => setContacto(null)} className="text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
+            <button type="button" onClick={() => setMostrarSelectorContacto(true)} className="text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
               Cambiar
             </button>
           </div>
@@ -321,21 +346,32 @@ function ModalAgendar({ profesionalId, onCerrar, onGuardado }: { profesionalId: 
           <input required type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)]" />
         </label>
 
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block text-sm">
+            <span className="mb-1 block text-[var(--color-texto)]">Hora inicio</span>
+            <input required type="time" value={horaInicio} onChange={(e) => elegirHoraInicio(e.target.value)} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)]" />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-[var(--color-texto)]">Hora fin</span>
+            <input required type="time" value={horaFin} onChange={(e) => setHoraFin(e.target.value)} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)]" />
+          </label>
+        </div>
+
         {fecha && (
           <div>
-            <span className="mb-1.5 block text-sm text-[var(--color-texto)]">Horario disponible</span>
+            <span className="mb-1.5 block text-sm text-[var(--color-texto)]">Horarios sugeridos</span>
             {slots.length === 0 ? (
-              <p className="text-xs text-[var(--color-texto-mute)]">Sin horarios libres ese día.</p>
+              <p className="text-xs text-[var(--color-texto-mute)]">Sin horarios libres calculados ese día — puedes capturar la hora manualmente.</p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
                 {slots.map((s) => (
                   <button
                     key={s.hora_inicio}
                     type="button"
-                    onClick={() => setSlotElegido(s)}
+                    onClick={() => elegirSlot(s)}
                     className="rounded-lg px-2.5 py-1 text-xs font-medium"
                     style={
-                      slotElegido?.hora_inicio === s.hora_inicio
+                      horaInicio === s.hora_inicio
                         ? { background: "var(--color-marca)", color: "var(--color-accion-fg)" }
                         : { background: "var(--color-bg-elevada)", color: "var(--color-texto)", border: "1px solid var(--color-borde)" }
                     }
@@ -368,6 +404,17 @@ function ModalAgendar({ profesionalId, onCerrar, onGuardado }: { profesionalId: 
           </button>
         </div>
       </form>
+
+      {mostrarSelectorContacto && (
+        <SelectorContacto
+          cuentaId={cuentaId}
+          onCerrar={() => setMostrarSelectorContacto(false)}
+          onSeleccionar={(c) => {
+            setContacto(c);
+            setMostrarSelectorContacto(false);
+          }}
+        />
+      )}
     </div>
   );
 }

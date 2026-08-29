@@ -10,7 +10,7 @@ export default async function CalendariosPage() {
 
   return (
     <AppShell email={user.email} role={perfil.rol} permisos={permisos}>
-      <CalendariosView puedeGestionar={!!permisos.manage_appointments} />
+      <CalendariosView cuentaId={perfil.cuenta_id} puedeGestionar={!!permisos.manage_appointments} />
     </AppShell>
   );
 }

@@ -66,6 +66,7 @@ export async function POST(request: NextRequest) {
         nombre: nombre.trim(),
         especialidad: profesional.especialidad.trim(),
         email: profesional.email_google?.trim() || email.trim(),
+        telefono: telefono.trim(),
         color_agenda: profesional.color_agenda || "#6b2fa0",
       })
       .select("id")
