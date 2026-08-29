@@ -119,11 +119,22 @@ async function llamarClaude({
     return { ok: false, texto: null, tokensEntrada: 0, tokensSalida: 0, error: data?.error?.message ?? "Error de Claude" };
   }
 
+  // El array "content" puede traer más de un bloque (p. ej. uno de
+  // "thinking" antes del de "text") -- leer solo content[0].text rompía en
+  // silencio cuando el primer bloque no era texto.
+  type BloqueContenido = { type: string; text?: string };
+  const texto =
+    ((data?.content as BloqueContenido[] | undefined) ?? [])
+      .filter((bloque) => bloque.type === "text")
+      .map((bloque) => bloque.text ?? "")
+      .join("\n")
+      .trim() || null;
+
   return {
     ok: true,
-    texto: data?.content?.[0]?.text ?? null,
+    texto,
     tokensEntrada: data?.usage?.input_tokens ?? 0,
     tokensSalida: data?.usage?.output_tokens ?? 0,
-    error: null,
+    error: texto ? null : `Respuesta de Claude sin bloque de texto: ${JSON.stringify(data?.content)}`,
   };
 }
