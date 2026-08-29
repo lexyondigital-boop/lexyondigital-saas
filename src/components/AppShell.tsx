@@ -75,17 +75,6 @@ export function AppShell({
 
   return (
     <div className="flex min-h-screen bg-[var(--color-bg)]">
-      <div className="flex items-center justify-between border-b border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-4 md:hidden">
-        <Logo tamaño="sm" />
-        <button
-          onClick={() => setMenuAbierto(true)}
-          aria-label="Abrir menú"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--color-borde)] text-[var(--color-texto)]"
-        >
-          <span className="text-lg leading-none">☰</span>
-        </button>
-      </div>
-
       {menuAbierto && (
         <div onClick={() => setMenuAbierto(false)} className="fixed inset-0 z-40 bg-black/40 md:hidden" aria-hidden="true" />
       )}
@@ -162,7 +151,20 @@ export function AppShell({
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 overflow-x-auto p-4 sm:p-6 md:p-8">{children}</main>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex items-center justify-between border-b border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-4 md:hidden">
+          <Logo tamaño="sm" />
+          <button
+            onClick={() => setMenuAbierto(true)}
+            aria-label="Abrir menú"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--color-borde)] text-[var(--color-texto)]"
+          >
+            <span className="text-lg leading-none">☰</span>
+          </button>
+        </div>
+
+        <main className="min-w-0 flex-1 overflow-x-auto p-4 sm:p-6 md:p-8">{children}</main>
+      </div>
     </div>
   );
 }
