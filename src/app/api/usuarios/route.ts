@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
   const auth = await requireAdminCuenta();
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  const { nombre, email, rol, equipo_id, permisos } = await request.json();
+  const { nombre, email, rol, equipo_id, permisos, es_profesional, profesional } = await request.json();
 
   if (!email?.trim() || !nombre?.trim()) {
     return NextResponse.json({ error: "Falta nombre o correo" }, { status: 400 });
@@ -19,6 +19,10 @@ export async function POST(request: NextRequest) {
 
   if (rol !== "admin" && rol !== "agente") {
     return NextResponse.json({ error: "Rol inválido" }, { status: 400 });
+  }
+
+  if (es_profesional && !profesional?.especialidad?.trim()) {
+    return NextResponse.json({ error: "Falta la especialidad del profesionista" }, { status: 400 });
   }
 
   const admin = createAdminClient();
@@ -39,11 +43,34 @@ export async function POST(request: NextRequest) {
     rol,
     equipo_id: equipo_id || null,
     activo: true,
+    es_profesional: Boolean(es_profesional),
   });
 
   if (perfilError) {
     await admin.auth.admin.deleteUser(nuevoUsuario.user.id);
     return NextResponse.json({ error: perfilError.message }, { status: 500 });
+  }
+
+  if (es_profesional) {
+    const { data: nuevoProfesional, error: profesionalError } = await admin
+      .from("profesionales")
+      .insert({
+        cuenta_id: auth.perfil.cuenta_id,
+        perfil_id: nuevoUsuario.user.id,
+        nombre: nombre.trim(),
+        especialidad: profesional.especialidad.trim(),
+        email: profesional.email_google?.trim() || email.trim(),
+        color_agenda: profesional.color_agenda || "#6b2fa0",
+      })
+      .select("id")
+      .single();
+
+    if (profesionalError) {
+      await admin.auth.admin.deleteUser(nuevoUsuario.user.id);
+      return NextResponse.json({ error: profesionalError.message }, { status: 500 });
+    }
+
+    await admin.from("perfiles").update({ profesional_id: nuevoProfesional.id }).eq("id", nuevoUsuario.user.id);
   }
 
   if (Array.isArray(permisos) && permisos.length > 0) {

@@ -1,0 +1,13 @@
+import { obtenerSesionApp } from "@/lib/session";
+import { AppShell } from "@/components/AppShell";
+import { MiPerfilView } from "@/components/MiPerfilView";
+
+export default async function MiPerfilPage() {
+  const { user, perfil } = await obtenerSesionApp();
+
+  return (
+    <AppShell email={user.email} role={perfil.rol}>
+      <MiPerfilView nombre={perfil.nombre} email={user.email} rol={perfil.rol} />
+    </AppShell>
+  );
+}

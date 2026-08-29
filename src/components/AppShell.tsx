@@ -43,9 +43,10 @@ const NAV_TENANT: ItemNav[] = [
   { href: "/etiquetas", label: "Etiquetas", icon: IconTag, disponible: true },
   { href: "/variables", label: "Variables", icon: IconBraces, disponible: true },
   { href: "/usuarios", label: "Usuarios", icon: IconUsers, disponible: true },
-  { href: "/profesionales", label: "Profesionales", icon: IconBriefcase, disponible: false },
+  { href: "/profesionales", label: "Profesionales", icon: IconBriefcase, disponible: true },
   { href: "/agente-ia", label: "Agente IA", icon: IconRobot, disponible: true },
   { href: "/configuracion", label: "Configuración", icon: IconGear, disponible: false },
+  { href: "/mi-perfil", label: "Mi perfil", icon: IconUser, disponible: true },
 ];
 
 export function AppShell({

@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/Badge";
 import { LABEL_CATEGORIA, LABEL_ACCION, agruparPorCategoria, type Permiso } from "@/lib/permisos";
@@ -15,6 +16,9 @@ type PerfilUsuario = {
   equipo_id: string | null;
   created_at: string;
   email: string | null;
+  es_profesional: boolean;
+  profesional_id: string | null;
+  especialidad?: string | null;
 };
 
 type Tab = "usuarios" | "equipos" | "auditoria";
@@ -111,6 +115,7 @@ function TabUsuarios({
   const [ultimaActividad, setUltimaActividad] = useState<Record<string, string>>({});
   const [cargando, setCargando] = useState(true);
   const [filtroEquipo, setFiltroEquipo] = useState<string>("todos");
+  const [filtroTipo, setFiltroTipo] = useState<"todos" | "admin" | "usuario" | "profesionista">("todos");
   const [mostrarForm, setMostrarForm] = useState(false);
   const [editando, setEditando] = useState<PerfilUsuario | null>(null);
 
@@ -118,7 +123,7 @@ function TabUsuarios({
     setCargando(true);
     const { data: perfiles } = await supabase
       .from("perfiles")
-      .select("id, nombre, rol, activo, equipo_id, created_at")
+      .select("id, nombre, rol, activo, equipo_id, created_at, es_profesional, profesional_id")
       .order("created_at", { ascending: false });
 
     const idsUsuarios = (perfiles ?? []).map((p) => p.id);
@@ -131,7 +136,20 @@ function TabUsuarios({
       }
     }
 
-    setUsuarios((perfiles ?? []).map((p) => ({ ...p, email: emailPorId[p.id] ?? null })));
+    const idsProfesionales = (perfiles ?? []).map((p) => p.profesional_id).filter(Boolean) as string[];
+    const especialidadPorProfesionalId: Record<string, string> = {};
+    if (idsProfesionales.length > 0) {
+      const { data: profesionales } = await supabase.from("profesionales").select("id, especialidad").in("id", idsProfesionales);
+      for (const p of profesionales ?? []) especialidadPorProfesionalId[p.id] = p.especialidad;
+    }
+
+    setUsuarios(
+      (perfiles ?? []).map((p) => ({
+        ...p,
+        email: emailPorId[p.id] ?? null,
+        especialidad: p.profesional_id ? especialidadPorProfesionalId[p.profesional_id] ?? null : null,
+      })),
+    );
 
     const { data: logs } = await supabase
       .from("logs_actividad")
@@ -153,9 +171,13 @@ function TabUsuarios({
   }, []);
 
   const filtrados = useMemo(() => {
-    if (filtroEquipo === "todos") return usuarios;
-    return usuarios.filter((u) => u.equipo_id === filtroEquipo);
-  }, [usuarios, filtroEquipo]);
+    let lista = usuarios;
+    if (filtroEquipo !== "todos") lista = lista.filter((u) => u.equipo_id === filtroEquipo);
+    if (filtroTipo === "admin") lista = lista.filter((u) => u.rol === "admin" || u.rol === "super_admin");
+    if (filtroTipo === "profesionista") lista = lista.filter((u) => u.es_profesional);
+    if (filtroTipo === "usuario") lista = lista.filter((u) => u.rol === "agente" && !u.es_profesional);
+    return lista;
+  }, [usuarios, filtroEquipo, filtroTipo]);
 
   const equipoDe = (id: string | null) => equipos.find((e) => e.id === id) ?? null;
 
@@ -192,6 +214,16 @@ function TabUsuarios({
               {e.nombre}
             </option>
           ))}
+        </select>
+        <select
+          value={filtroTipo}
+          onChange={(e) => setFiltroTipo(e.target.value as typeof filtroTipo)}
+          className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+        >
+          <option value="todos">Todos los tipos</option>
+          <option value="admin">Administradores</option>
+          <option value="usuario">Usuarios</option>
+          <option value="profesionista">Profesionistas</option>
         </select>
         <button
           onClick={() => {
@@ -235,6 +267,7 @@ function TabUsuarios({
                 <th className="px-5 py-3 font-medium">Nombre</th>
                 <th className="px-5 py-3 font-medium">Correo</th>
                 <th className="px-5 py-3 font-medium">Rol</th>
+                <th className="px-5 py-3 font-medium">Tipo</th>
                 <th className="px-5 py-3 font-medium">Equipo</th>
                 <th className="px-5 py-3 font-medium">Estado</th>
                 <th className="px-5 py-3 font-medium">Última actividad</th>
@@ -251,6 +284,16 @@ function TabUsuarios({
                     <td className="px-5 py-3.5 text-[var(--color-texto-mute)]">{u.email ?? "—"}</td>
                     <td className="px-5 py-3.5 text-[var(--color-texto)]">
                       {u.rol === "super_admin" ? "Super admin" : u.rol === "admin" ? "Administrador" : "Agente"}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      {u.es_profesional ? (
+                        <span className="text-[var(--color-texto)]">
+                          🩺 Profesionista
+                          {u.especialidad && <span className="block text-xs text-[var(--color-texto-mute)]">{u.especialidad}</span>}
+                        </span>
+                      ) : (
+                        <span className="text-[var(--color-texto-mute)]">—</span>
+                      )}
                     </td>
                     <td className="px-5 py-3.5">
                       {equipo ? (
@@ -285,6 +328,11 @@ function TabUsuarios({
                       <button onClick={() => onVerLogs(u.id)} className="mr-3 text-sm font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
                         Ver logs
                       </button>
+                      {u.es_profesional && (
+                        <Link href="/profesionales" className="mr-3 text-sm font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
+                          Ver en Profesionales
+                        </Link>
+                      )}
                       {u.rol !== "super_admin" &&
                         (u.activo ? (
                           <button onClick={() => desactivar(u)} className="text-sm font-medium text-red-500 hover:underline">
@@ -327,6 +375,10 @@ function FormularioUsuario({
   const [email, setEmail] = useState(usuario?.email ?? "");
   const [rol, setRol] = useState<"admin" | "agente">(usuario?.rol === "admin" ? "admin" : "agente");
   const [equipoId, setEquipoId] = useState(usuario?.equipo_id ?? "");
+  const [esProfesional, setEsProfesional] = useState(usuario?.es_profesional ?? false);
+  const [especialidad, setEspecialidad] = useState(usuario?.especialidad ?? "");
+  const [colorAgenda, setColorAgenda] = useState("#6b2fa0");
+  const [emailGoogle, setEmailGoogle] = useState("");
   const [permisos, setPermisos] = useState<Record<string, boolean>>({});
   const [cargandoPermisos, setCargandoPermisos] = useState(!!usuario);
   const [historial, setHistorial] = useState<
@@ -376,11 +428,21 @@ function FormularioUsuario({
 
     const permisosPayload = permisosCatalogo.map((p) => ({ clave: p.clave, concedido: tienePermiso(p.clave) }));
 
+    const datosProfesional = esProfesional ? { especialidad, color_agenda: colorAgenda, email_google: emailGoogle } : undefined;
+
     if (usuario) {
       const res = await fetch(`/api/usuarios/${usuario.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nombre, rol, equipo_id: equipoId || null, permisos: permisosPayload, razon: razon.trim() || undefined }),
+        body: JSON.stringify({
+          nombre,
+          rol,
+          equipo_id: equipoId || null,
+          permisos: permisosPayload,
+          razon: razon.trim() || undefined,
+          es_profesional: esProfesional,
+          profesional: datosProfesional,
+        }),
       });
       setEnviando(false);
       if (!res.ok) {
@@ -392,7 +454,15 @@ function FormularioUsuario({
       const res = await fetch("/api/usuarios", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nombre, email, rol, equipo_id: equipoId || null, permisos: permisosPayload }),
+        body: JSON.stringify({
+          nombre,
+          email,
+          rol,
+          equipo_id: equipoId || null,
+          permisos: permisosPayload,
+          es_profesional: esProfesional,
+          profesional: datosProfesional,
+        }),
       });
       setEnviando(false);
       if (!res.ok) {
@@ -463,6 +533,42 @@ function FormularioUsuario({
             ))}
           </select>
         </label>
+      </div>
+
+      <div className="border-t border-[var(--color-borde)] pt-4">
+        <label className="flex items-center gap-2 text-sm font-medium text-[var(--color-texto)]">
+          <input type="checkbox" checked={esProfesional} onChange={(e) => setEsProfesional(e.target.checked)} disabled={!!usuario?.es_profesional} />
+          Es profesionista
+        </label>
+        {usuario?.es_profesional && <p className="mt-1 text-xs text-[var(--color-texto-mute)]">Edita sus datos de agenda desde Profesionales.</p>}
+
+        {esProfesional && !usuario?.es_profesional && (
+          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Especialidad</span>
+              <input
+                required
+                value={especialidad}
+                onChange={(e) => setEspecialidad(e.target.value)}
+                placeholder="Ej. Cardiología"
+                className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Correo de Google (opcional)</span>
+              <input
+                type="email"
+                value={emailGoogle}
+                onChange={(e) => setEmailGoogle(e.target.value)}
+                className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+              />
+            </label>
+            <div>
+              <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Color en la agenda</span>
+              <input type="color" value={colorAgenda} onChange={(e) => setColorAgenda(e.target.value)} className="h-9 w-16 rounded border border-[var(--color-borde)] bg-transparent" />
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="border-t border-[var(--color-borde)] pt-4">

@@ -10,6 +10,8 @@ export const LABEL_CATEGORIA: Record<string, string> = {
   analitica: "Estadísticas",
   usuarios: "Usuarios",
   equipos: "Equipos",
+  profesionales: "Profesionales",
+  citas: "Citas",
 };
 
 export const LABEL_ACCION: Record<string, string> = {
@@ -21,6 +23,10 @@ export const LABEL_ACCION: Record<string, string> = {
   create_team: "Creó un equipo",
   edit_team: "Editó un equipo",
   delete_team: "Eliminó un equipo",
+  edit_professional: "Editó un profesional",
+  create_appointment: "Agendó una cita",
+  cancel_appointment: "Canceló una cita",
+  disconnect_google_calendar: "Desconectó Google Calendar",
 };
 
 export function agruparPorCategoria(permisos: Permiso[]): Record<string, Permiso[]> {
