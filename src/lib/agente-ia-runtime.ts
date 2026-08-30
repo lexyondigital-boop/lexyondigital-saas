@@ -82,7 +82,7 @@ export async function procesarAgenteIA({
 
   const { data: conversacion } = await supabase
     .from("conversaciones")
-    .select("agente_ia_activo")
+    .select("agente_ia_activo, agente_activado_en")
     .eq("id", conversacionId)
     .single();
 
@@ -158,12 +158,17 @@ export async function procesarAgenteIA({
     return;
   }
 
+  // Se cuenta solo desde la última vez que el agente se activó (creación de
+  // la conversación, o reactivación manual tras una transferencia) -- no el
+  // histórico completo, para que una conversación longeva no quede
+  // transfiriendo para siempre aunque un humano la reactive.
   const { count: turnosBot } = await supabase
     .from("mensajes")
     .select("id", { count: "exact", head: true })
     .eq("conversacion_id", conversacionId)
     .eq("direccion", "saliente")
-    .eq("tipo", "texto");
+    .eq("tipo", "texto")
+    .gte("created_at", conversacion.agente_activado_en);
 
   if ((turnosBot ?? 0) >= config.max_mensajes) {
     await supabase.from("conversaciones").update({ agente_ia_activo: false }).eq("id", conversacionId);

@@ -238,9 +238,13 @@ function PanelConversacion({ conversacion, onCambio, onVolver }: { conversacion:
   }, [mensajes.length]);
 
   async function alternarAgente() {
+    const activando = !conversacion.agente_ia_activo;
     await supabase
       .from("conversaciones")
-      .update({ agente_ia_activo: !conversacion.agente_ia_activo })
+      // Al reactivar, se reinicia el contador de "mensajes seguidos" del
+      // agente -- si no, una conversación vieja transferida se transfiere
+      // otra vez en el siguiente mensaje aunque se reactive a mano.
+      .update(activando ? { agente_ia_activo: true, agente_activado_en: new Date().toISOString() } : { agente_ia_activo: false })
       .eq("id", conversacion.id);
     onCambio();
   }
