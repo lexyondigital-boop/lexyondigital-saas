@@ -97,8 +97,14 @@ export function ContactosView({ cuentaId }: { cuentaId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Las variables fijas del sistema (nombre_completo, telefono,
+  // correo_electronico) ya están cubiertas por COLUMNAS_BASE -- se excluyen
+  // acá para no ofrecerlas dos veces en el selector de columnas.
   const columnasDisponibles = useMemo(
-    () => [...COLUMNAS_BASE, ...camposPersonalizados.map((c) => ({ id: `campo:${c.id}`, etiqueta: c.nombre }))],
+    () => [
+      ...COLUMNAS_BASE,
+      ...camposPersonalizados.filter((c) => !c.es_fijo).map((c) => ({ id: `campo:${c.id}`, etiqueta: c.nombre })),
+    ],
     [camposPersonalizados],
   );
 
@@ -569,9 +575,9 @@ function ContactoForm({
       {cargandoValores ? (
         <p className="text-sm text-[var(--color-texto-mute)]">Cargando campos personalizados…</p>
       ) : (
-        camposPersonalizados.length > 0 && (
+        camposPersonalizados.some((c) => !c.es_fijo) && (
           <div className="space-y-4 border-t border-[var(--color-borde)] pt-4">
-            {camposPersonalizados.map((campo) => (
+            {camposPersonalizados.filter((c) => !c.es_fijo).map((campo) => (
               <CampoPersonalizadoInput
                 key={campo.id}
                 campo={campo}

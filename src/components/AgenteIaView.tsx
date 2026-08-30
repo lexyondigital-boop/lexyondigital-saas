@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { construirBloqueAgenda, type ProfesionalParaPrompt } from "@/lib/agente-prompt-agenda";
 import { resolverVariablesDelPrompt, construirBloqueVariables } from "@/lib/agente-prompt-variables";
 import { slugificarClaveVariable, type CampoPersonalizado } from "@/lib/campos-personalizados";
+import { CampoVariableForm } from "@/components/CampoVariableForm";
 
 type Config = {
   nombre: string;
@@ -101,9 +102,16 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
   const [guardandoApiKey, setGuardandoApiKey] = useState(false);
   const [mensajeApiKey, setMensajeApiKey] = useState<string | null>(null);
   const [menuVariableAbierto, setMenuVariableAbierto] = useState(false);
+  const [busquedaVariable, setBusquedaVariable] = useState("");
+  const [mostrarCrearVariable, setMostrarCrearVariable] = useState(false);
   const [mostrarAsistente, setMostrarAsistente] = useState(false);
   const textareaPromptRef = useRef<HTMLTextAreaElement | null>(null);
   const menuVariableRef = useRef<HTMLDivElement | null>(null);
+
+  async function cargarCamposPersonalizados() {
+    const { data } = await supabase.from("campos_personalizados").select("*").eq("cuenta_id", cuentaId);
+    setCamposPersonalizados((data as CampoPersonalizado[]) ?? []);
+  }
 
   useEffect(() => {
     function onClickFuera(e: MouseEvent) {
@@ -233,6 +241,14 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
   }
 
   if (cargando) return <p className="text-sm text-[var(--color-texto-mute)]">Cargando…</p>;
+
+  const busquedaNormalizada = busquedaVariable.trim().toLowerCase();
+  const variablesConClaveDefinida = camposPersonalizados.filter((c) => c.clave_variable);
+  const variablesFiltradas = busquedaNormalizada
+    ? variablesConClaveDefinida.filter(
+        (c) => c.nombre.toLowerCase().includes(busquedaNormalizada) || (c.clave_variable as string).toLowerCase().includes(busquedaNormalizada),
+      )
+    : variablesConClaveDefinida;
 
   return (
     <>
@@ -424,15 +440,26 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
               + Agregar variable
             </button>
             {menuVariableAbierto && (
-              <div className="absolute right-0 z-10 mt-1 max-h-64 w-72 overflow-y-auto rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-1 shadow-lg">
-                {camposPersonalizados.filter((c) => c.clave_variable).length === 0 ? (
-                  <p className="px-2 py-1.5 text-xs text-[var(--color-texto-mute)]">
-                    Todavía no hay variables con clave definida. Créalas en <span className="font-medium">Variables</span>.
-                  </p>
-                ) : (
-                  camposPersonalizados
-                    .filter((c) => c.clave_variable)
-                    .map((c) => (
+              <div className="absolute right-0 z-10 mt-1 w-72 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] shadow-lg">
+                {variablesConClaveDefinida.length > 3 && (
+                  <div className="border-b border-[var(--color-borde)] p-1.5">
+                    <input
+                      autoFocus
+                      value={busquedaVariable}
+                      onChange={(e) => setBusquedaVariable(e.target.value)}
+                      placeholder="Buscar variable…"
+                      className="w-full rounded-md border border-[var(--color-borde)] bg-[var(--color-tarjeta)] px-2 py-1 text-xs text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+                    />
+                  </div>
+                )}
+
+                <div className="max-h-56 overflow-y-auto p-1">
+                  {variablesConClaveDefinida.length === 0 ? (
+                    <p className="px-2 py-1.5 text-xs text-[var(--color-texto-mute)]">Todavía no hay variables con clave definida.</p>
+                  ) : variablesFiltradas.length === 0 ? (
+                    <p className="px-2 py-1.5 text-xs text-[var(--color-texto-mute)]">Sin resultados para &ldquo;{busquedaVariable}&rdquo;.</p>
+                  ) : (
+                    variablesFiltradas.map((c) => (
                       <button
                         key={c.id}
                         type="button"
@@ -443,7 +470,22 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
                         <span className="ml-1.5 text-[var(--color-texto-mute)]">{c.nombre}</span>
                       </button>
                     ))
-                )}
+                  )}
+                </div>
+
+                <div className="border-t border-[var(--color-borde)] p-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuVariableAbierto(false);
+                      setBusquedaVariable("");
+                      setMostrarCrearVariable(true);
+                    }}
+                    className="block w-full rounded-md px-2 py-1.5 text-left text-xs font-medium text-[var(--color-marca)] hover:bg-[var(--color-tarjeta)]"
+                  >
+                    + Crear nueva variable
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -567,6 +609,24 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
         }}
         onCerrar={() => setMostrarAsistente(false)}
       />
+    )}
+
+    {mostrarCrearVariable && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto">
+          <CampoVariableForm
+            cuentaId={cuentaId}
+            campo={null}
+            siguienteOrden={camposPersonalizados.length}
+            onGuardado={async (claveCreada) => {
+              setMostrarCrearVariable(false);
+              await cargarCamposPersonalizados();
+              if (claveCreada) insertarVariable(claveCreada);
+            }}
+            onCancelar={() => setMostrarCrearVariable(false)}
+          />
+        </div>
+      </div>
     )}
     </>
   );
