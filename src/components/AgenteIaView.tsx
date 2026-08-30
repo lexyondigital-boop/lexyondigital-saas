@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { construirBloqueAgenda, type ProfesionalParaPrompt } from "@/lib/agente-prompt-agenda";
 import { resolverVariablesDelPrompt, construirBloqueVariables } from "@/lib/agente-prompt-variables";
-import type { CampoPersonalizado } from "@/lib/campos-personalizados";
+import { slugificarClaveVariable, type CampoPersonalizado } from "@/lib/campos-personalizados";
 
 type Config = {
   nombre: string;
@@ -182,8 +182,7 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
     });
   }
 
-  async function guardar(e: FormEvent) {
-    e.preventDefault();
+  async function guardarConfig() {
     setGuardando(true);
     setMensaje(null);
 
@@ -203,6 +202,11 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
 
     setGuardando(false);
     setMensaje(error ? error.message : "Guardado.");
+  }
+
+  async function guardar(e: FormEvent) {
+    e.preventDefault();
+    await guardarConfig();
   }
 
   async function guardarApiKey() {
@@ -271,58 +275,6 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
           )}
         </label>
         <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Proveedor de IA</span>
-          <select
-            value={config.proveedor_ia}
-            onChange={(e) => setConfig({ ...config, proveedor_ia: e.target.value as Config["proveedor_ia"] })}
-            className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
-          >
-            <option value="openai">OpenAI</option>
-            <option value="claude">Claude (Anthropic)</option>
-          </select>
-        </label>
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Modo de API</span>
-          <select
-            value={config.modo_api}
-            onChange={(e) => setConfig({ ...config, modo_api: e.target.value as Config["modo_api"] })}
-            className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
-          >
-            <option value="platform_key">Platform key (usa la API de Lexyondigital)</option>
-            <option value="user_key">User key (tu propia API key)</option>
-          </select>
-        </label>
-
-        {config.modo_api === "user_key" && (
-          <div className="sm:col-span-2">
-            <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">
-              API key de {config.proveedor_ia === "openai" ? "OpenAI" : "Claude"}
-            </span>
-            <div className="flex gap-2">
-              <input
-                type="password"
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-                placeholder={config.api_key_usuario_cifrada ? "Ya configurada — escribe una nueva para reemplazarla" : "sk-…"}
-                className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
-              />
-              <button
-                type="button"
-                onClick={guardarApiKey}
-                disabled={guardandoApiKey || !apiKeyInput.trim()}
-                className="shrink-0 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm font-medium text-[var(--color-texto)] hover:opacity-80 disabled:opacity-50"
-              >
-                {guardandoApiKey ? "Guardando…" : "Guardar key"}
-              </button>
-            </div>
-            {mensajeApiKey && <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">{mensajeApiKey}</span>}
-            <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
-              Se guarda cifrada. Esta pantalla nunca vuelve a mostrarla en texto plano.
-            </span>
-          </div>
-        )}
-
-        <label className="block">
           <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Tono</span>
           <input
             value={config.tono}
@@ -376,6 +328,80 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
             className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
           />
         </label>
+      </div>
+
+      <div className="rounded-xl border border-[var(--color-borde)] p-4">
+        <span className="mb-1 block text-sm font-medium text-[var(--color-texto)]">Proveedor de IA</span>
+        <p className="mb-3 text-xs text-[var(--color-texto-mute)]">
+          Guarda este bloque en cuanto lo configures -- el asistente de prompt y las respuestas del agente usan lo último
+          guardado aquí, no lo que se ve en la pantalla sin guardar.
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Proveedor de IA</span>
+            <select
+              value={config.proveedor_ia}
+              onChange={(e) => setConfig({ ...config, proveedor_ia: e.target.value as Config["proveedor_ia"] })}
+              className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+            >
+              <option value="openai">OpenAI</option>
+              <option value="claude">Claude (Anthropic)</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Modo de API</span>
+            <select
+              value={config.modo_api}
+              onChange={(e) => setConfig({ ...config, modo_api: e.target.value as Config["modo_api"] })}
+              className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+            >
+              <option value="platform_key">Platform key (usa la API de Lexyondigital)</option>
+              <option value="user_key">User key (tu propia API key)</option>
+            </select>
+          </label>
+
+          {config.modo_api === "user_key" && (
+            <div className="sm:col-span-2">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">
+                API key de {config.proveedor_ia === "openai" ? "OpenAI" : "Claude"}
+              </span>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  placeholder={config.api_key_usuario_cifrada ? "Ya configurada — escribe una nueva para reemplazarla" : "sk-…"}
+                  className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+                />
+                <button
+                  type="button"
+                  onClick={guardarApiKey}
+                  disabled={guardandoApiKey || !apiKeyInput.trim()}
+                  className="shrink-0 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm font-medium text-[var(--color-texto)] hover:opacity-80 disabled:opacity-50"
+                >
+                  {guardandoApiKey ? "Guardando…" : "Guardar key"}
+                </button>
+              </div>
+              {mensajeApiKey && <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">{mensajeApiKey}</span>}
+              <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
+                Se guarda cifrada. Esta pantalla nunca vuelve a mostrarla en texto plano.
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-3 flex items-center gap-3 border-t border-[var(--color-borde)] pt-3">
+          <button
+            type="button"
+            onClick={guardarConfig}
+            disabled={guardando}
+            style={{ boxShadow: "var(--halo-accion)" }}
+            className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
+          >
+            {guardando ? "Guardando…" : "Guardar proveedor y modo de API"}
+          </button>
+          {mensaje && <span className="text-xs text-[var(--color-texto-mute)]">{mensaje}</span>}
+        </div>
       </div>
 
       <div>
@@ -558,22 +584,48 @@ function AsistentePromptModal({
   const [rubro, setRubro] = useState("");
   const [objetivo, setObjetivo] = useState("");
   const [reglas, setReglas] = useState("");
-  const [variablesSeleccionadas, setVariablesSeleccionadas] = useState<Set<string>>(new Set());
-  const [variablesNuevas, setVariablesNuevas] = useState("");
+  const [datos, setDatos] = useState<{ clave: string; etiqueta: string; esNueva: boolean }[]>([]);
+  const [selectorValor, setSelectorValor] = useState("");
+  const [nuevaEtiqueta, setNuevaEtiqueta] = useState("");
   const [generando, setGenerando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [borrador, setBorrador] = useState<string | null>(null);
   const [costo, setCosto] = useState<number | null>(null);
 
   const variablesConClave = camposPersonalizados.filter((c) => c.clave_variable);
+  const variablesDisponibles = variablesConClave.filter(
+    (c) => !datos.some((d) => d.clave === c.clave_variable),
+  );
 
-  function alternarVariable(clave: string) {
-    setVariablesSeleccionadas((prev) => {
-      const nuevo = new Set(prev);
-      if (nuevo.has(clave)) nuevo.delete(clave);
-      else nuevo.add(clave);
-      return nuevo;
-    });
+  function agregarDato() {
+    if (selectorValor === "__nueva__") {
+      const etiqueta = nuevaEtiqueta.trim();
+      if (!etiqueta) return;
+      const clavesOcupadas = new Set([
+        ...camposPersonalizados.map((c) => c.clave_variable).filter(Boolean),
+        ...datos.map((d) => d.clave),
+      ] as string[]);
+      let clave = slugificarClaveVariable(etiqueta);
+      let sufijo = 2;
+      while (!clave || clavesOcupadas.has(clave)) {
+        clave = `${slugificarClaveVariable(etiqueta)}_${sufijo}`;
+        sufijo++;
+      }
+      setDatos((prev) => [...prev, { clave, etiqueta, esNueva: true }]);
+      setNuevaEtiqueta("");
+      setSelectorValor("");
+      return;
+    }
+
+    if (!selectorValor) return;
+    const campo = variablesConClave.find((c) => c.clave_variable === selectorValor);
+    if (!campo) return;
+    setDatos((prev) => [...prev, { clave: campo.clave_variable as string, etiqueta: campo.nombre, esNueva: false }]);
+    setSelectorValor("");
+  }
+
+  function quitarDato(clave: string) {
+    setDatos((prev) => prev.filter((d) => d.clave !== clave));
   }
 
   async function generar(e: FormEvent) {
@@ -588,8 +640,8 @@ function AsistentePromptModal({
         rubro,
         objetivo,
         reglas,
-        claves_variables_existentes: [...variablesSeleccionadas],
-        variables_nuevas: variablesNuevas,
+        claves_variables_existentes: datos.filter((d) => !d.esNueva).map((d) => d.clave),
+        variables_nuevas: datos.filter((d) => d.esNueva).map((d) => d.etiqueta),
       }),
     });
     const data = await res.json();
@@ -638,38 +690,83 @@ function AsistentePromptModal({
               />
             </label>
 
-            {variablesConClave.length > 0 && (
-              <div>
-                <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">¿Qué datos ya definidos debe capturar?</span>
-                <div className="space-y-1">
-                  {variablesConClave.map((c) => (
-                    <label key={c.id} className="flex cursor-pointer items-center gap-2 text-sm text-[var(--color-texto)]">
-                      <input
-                        type="checkbox"
-                        checked={variablesSeleccionadas.has(c.clave_variable as string)}
-                        onChange={() => alternarVariable(c.clave_variable as string)}
-                      />
-                      {c.nombre} <span className="font-mono text-xs text-[var(--color-texto-mute)]">{`{{${c.clave_variable}}}`}</span>
-                    </label>
+            <div>
+              <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">¿Qué datos debe capturar del cliente?</span>
+              <div className="flex gap-2">
+                <select
+                  value={selectorValor}
+                  onChange={(e) => setSelectorValor(e.target.value)}
+                  className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+                >
+                  <option value="">Selecciona un dato…</option>
+                  {variablesDisponibles.map((c) => (
+                    <option key={c.id} value={c.clave_variable as string}>
+                      {c.nombre}
+                    </option>
+                  ))}
+                  <option value="__nueva__">+ Nueva variable (todavía no existe)…</option>
+                </select>
+                {selectorValor !== "__nueva__" && (
+                  <button
+                    type="button"
+                    onClick={agregarDato}
+                    disabled={!selectorValor}
+                    className="shrink-0 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm font-medium text-[var(--color-texto)] hover:opacity-80 disabled:opacity-50"
+                  >
+                    Agregar
+                  </button>
+                )}
+              </div>
+
+              {selectorValor === "__nueva__" && (
+                <div className="mt-2 flex gap-2">
+                  <input
+                    autoFocus
+                    value={nuevaEtiqueta}
+                    onChange={(e) => setNuevaEtiqueta(e.target.value)}
+                    placeholder="Nombre del dato, ej. Correo electrónico"
+                    className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+                  />
+                  <button
+                    type="button"
+                    onClick={agregarDato}
+                    disabled={!nuevaEtiqueta.trim()}
+                    className="shrink-0 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm font-medium text-[var(--color-texto)] hover:opacity-80 disabled:opacity-50"
+                  >
+                    Agregar
+                  </button>
+                </div>
+              )}
+
+              {datos.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {datos.map((d) => (
+                    <span
+                      key={d.clave}
+                      className="flex items-center gap-1.5 rounded-full border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] py-1 pl-3 pr-2 text-xs text-[var(--color-texto)]"
+                    >
+                      {d.etiqueta}
+                      {d.esNueva && <span className="text-[var(--color-texto-mute)]">(nueva)</span>}
+                      <button
+                        type="button"
+                        onClick={() => quitarDato(d.clave)}
+                        className="text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]"
+                        aria-label={`Quitar ${d.etiqueta}`}
+                      >
+                        ✕
+                      </button>
+                    </span>
                   ))}
                 </div>
-              </div>
-            )}
+              )}
 
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">
-                ¿Otros datos que debe pedir pero todavía no existen como Variable?
-              </span>
-              <input
-                value={variablesNuevas}
-                onChange={(e) => setVariablesNuevas(e.target.value)}
-                placeholder="Correo electrónico, dirección de entrega (sepáralos con coma)"
-                className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
-              />
-              <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
-                El asistente los va a usar como marcador en el prompt, pero después vas a tener que crearlos en Variables para que el agente los pueda guardar de verdad.
-              </span>
-            </label>
+              {datos.some((d) => d.esNueva) && (
+                <span className="mt-1.5 block text-xs text-[var(--color-texto-mute)]">
+                  Las marcadas "(nueva)" el asistente las va a usar como marcador en el prompt, pero después vas a tener que
+                  crearlas en Variables para que el agente las pueda guardar de verdad.
+                </span>
+              )}
+            </div>
 
             <label className="block">
               <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Reglas especiales (opcional)</span>

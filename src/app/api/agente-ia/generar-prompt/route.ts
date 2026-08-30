@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
     objetivo?: string;
     reglas?: string;
     claves_variables_existentes?: string[];
-    variables_nuevas?: string;
+    variables_nuevas?: string[];
   };
 
   if (!rubro?.trim() || !objetivo?.trim()) {
@@ -117,8 +117,7 @@ export async function POST(request: NextRequest) {
     .map((c) => ({ clave: c.clave_variable as string, etiqueta: c.nombre }));
 
   const clavesYaUsadas = new Set(campos.map((c) => c.clave_variable).filter(Boolean) as string[]);
-  const variablesNuevas = (variables_nuevas ?? "")
-    .split(/[,\n]/)
+  const variablesNuevas = (variables_nuevas ?? [])
     .map((e) => e.trim())
     .filter(Boolean)
     .map((etiqueta) => {
