@@ -96,6 +96,11 @@ export function VariablesView({ cuentaId }: { cuentaId: string }) {
               <div className="min-w-0">
                 <p className="text-sm font-medium text-[var(--color-texto)]">
                   {c.nombre} {c.requerido && <span className="text-red-500">*</span>}
+                  {c.es_fijo && (
+                    <span className="ml-2 rounded-full bg-[var(--color-bg-elevada)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--color-texto-mute)]">
+                      Fija del sistema
+                    </span>
+                  )}
                 </p>
                 <p className="text-xs text-[var(--color-texto-mute)]">
                   {LABEL_TIPO[c.tipo]}
@@ -112,39 +117,49 @@ export function VariablesView({ cuentaId }: { cuentaId: string }) {
                     {c.mapea_a_columna_real === "nombre_completo" && (
                       <span className="ml-1.5 text-[var(--color-texto-mute)]">→ nombre completo del contacto</span>
                     )}
+                    {c.mapea_a_columna_real === "telefono" && (
+                      <span className="ml-1.5 text-[var(--color-texto-mute)]">→ teléfono del contacto (solo lectura)</span>
+                    )}
+                    {c.mapea_a_columna_real === "correo_electronico" && (
+                      <span className="ml-1.5 text-[var(--color-texto-mute)]">→ correo del contacto</span>
+                    )}
                   </button>
                 )}
               </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => mover(c, -1)}
-                  disabled={idx === 0}
-                  className="text-[var(--color-texto-mute)] hover:text-[var(--color-texto)] disabled:opacity-30"
-                  title="Subir"
-                >
-                  ↑
-                </button>
-                <button
-                  onClick={() => mover(c, 1)}
-                  disabled={idx === campos.length - 1}
-                  className="text-[var(--color-texto-mute)] hover:text-[var(--color-texto)] disabled:opacity-30"
-                  title="Bajar"
-                >
-                  ↓
-                </button>
-                <button
-                  onClick={() => {
-                    setMostrarForm(false);
-                    setEditando(c);
-                  }}
-                  className="text-sm font-medium text-[var(--color-marca)] hover:underline"
-                >
-                  Editar
-                </button>
-                <button onClick={() => eliminar(c.id)} className="text-sm font-medium text-red-500 hover:underline">
-                  Eliminar
-                </button>
-              </div>
+              {c.es_fijo ? (
+                <p className="shrink-0 text-xs text-[var(--color-texto-mute)]">No editable</p>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => mover(c, -1)}
+                    disabled={idx === 0}
+                    className="text-[var(--color-texto-mute)] hover:text-[var(--color-texto)] disabled:opacity-30"
+                    title="Subir"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    onClick={() => mover(c, 1)}
+                    disabled={idx === campos.length - 1}
+                    className="text-[var(--color-texto-mute)] hover:text-[var(--color-texto)] disabled:opacity-30"
+                    title="Bajar"
+                  >
+                    ↓
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMostrarForm(false);
+                      setEditando(c);
+                    }}
+                    className="text-sm font-medium text-[var(--color-marca)] hover:underline"
+                  >
+                    Editar
+                  </button>
+                  <button onClick={() => eliminar(c.id)} className="text-sm font-medium text-red-500 hover:underline">
+                    Eliminar
+                  </button>
+                </div>
+              )}
             </div>
           ))
         )}
@@ -173,7 +188,13 @@ function CampoForm({
   const [opciones, setOpciones] = useState((campo?.opciones ?? []).join(", "));
   const [claveVariable, setClaveVariable] = useState(campo?.clave_variable ?? "");
   const [claveEditadaManualmente, setClaveEditadaManualmente] = useState(!!campo?.clave_variable);
-  const [mapeaColumnaReal, setMapeaColumnaReal] = useState<"" | "nombre_completo">(campo?.mapea_a_columna_real ?? "");
+  // El formulario solo ofrece "nombre_completo" como destino elegible -- las
+  // variables fijas del sistema (telefono, correo_electronico) nunca pasan
+  // por este form (están protegidas contra edición), pero el tipo se
+  // mantiene amplio porque CampoPersonalizado admite esos otros valores.
+  const [mapeaColumnaReal, setMapeaColumnaReal] = useState<Exclude<CampoPersonalizado["mapea_a_columna_real"], null> | "">(
+    campo?.mapea_a_columna_real ?? "",
+  );
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -295,7 +316,7 @@ function CampoForm({
             <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Cuando el agente capture este dato, guardarlo en</span>
             <select
               value={mapeaColumnaReal}
-              onChange={(e) => setMapeaColumnaReal(e.target.value as "" | "nombre_completo")}
+              onChange={(e) => setMapeaColumnaReal(e.target.value as Exclude<CampoPersonalizado["mapea_a_columna_real"], null> | "")}
               className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
             >
               <option value="">Este campo personalizado (por default)</option>

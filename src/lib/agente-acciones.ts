@@ -378,7 +378,7 @@ async function guardarDatosContacto(admin: AdminClient, { contactoId, camposUsad
 
   const guardados: Record<string, string> = {};
   const errores: Record<string, string> = {};
-  let nombreCompletoNuevo: string | null = null;
+  const columnasReales: Record<string, string> = {};
   const filasCustom: { contacto_id: string; campo_id: string; valor: string }[] = [];
 
   for (const [clave, valorCrudo] of Object.entries(input)) {
@@ -387,19 +387,27 @@ async function guardarDatosContacto(admin: AdminClient, { contactoId, camposUsad
       errores[clave] = "esa clave no es una variable definida para este agente";
       continue;
     }
+    // El teléfono es la llave real de enrutamiento de WhatsApp -- nunca se
+    // sobrescribe desde acá, aunque la IA lo intente (ya se excluyó del
+    // esquema de la herramienta, esto es una segunda barrera).
+    if (campo.mapea_a_columna_real === "telefono") {
+      errores[clave] = "el teléfono no se puede modificar por el agente";
+      continue;
+    }
     const errorValidacion = validarValorVariable(campo.tipo, valorCrudo);
     if (errorValidacion) {
       errores[clave] = errorValidacion;
       continue;
     }
     const valor = String(valorCrudo).trim();
-    if (campo.mapea_a_columna_real === "nombre_completo") nombreCompletoNuevo = valor;
+    if (campo.mapea_a_columna_real === "nombre_completo") columnasReales.nombre_completo = valor;
+    else if (campo.mapea_a_columna_real === "correo_electronico") columnasReales.correo_electronico = valor;
     else filasCustom.push({ contacto_id: contactoId, campo_id: campo.id, valor });
     guardados[clave] = valor;
   }
 
-  if (nombreCompletoNuevo !== null) {
-    await admin.from("contactos").update({ nombre_completo: nombreCompletoNuevo }).eq("id", contactoId);
+  if (Object.keys(columnasReales).length > 0) {
+    await admin.from("contactos").update(columnasReales).eq("id", contactoId);
   }
   if (filasCustom.length > 0) {
     await admin.from("valores_campos_personalizados").upsert(filasCustom, { onConflict: "contacto_id,campo_id" });
@@ -431,14 +439,18 @@ export async function enriquecerNotasCita(
   if (usadas.length === 0) return base;
 
   const [{ data: contacto }, { data: valores }] = await Promise.all([
-    admin.from("contactos").select("nombre_completo").eq("id", contactoId).single(),
+    admin.from("contactos").select("nombre_completo, telefono, correo_electronico").eq("id", contactoId).single(),
     admin.from("valores_campos_personalizados").select("campo_id, valor").eq("contacto_id", contactoId),
   ]);
 
   const valoresPorCampoId: Record<string, string> = {};
   for (const v of valores ?? []) if (v.valor) valoresPorCampoId[v.campo_id] = v.valor;
 
-  const bloque = formatearDatosParaNotas(usadas, contacto?.nombre_completo ?? null, valoresPorCampoId);
+  const bloque = formatearDatosParaNotas(
+    usadas,
+    { nombre_completo: contacto?.nombre_completo ?? null, telefono: contacto?.telefono ?? null, correo_electronico: contacto?.correo_electronico ?? null },
+    valoresPorCampoId,
+  );
   if (!bloque) return base;
 
   return [base, bloque].filter(Boolean).join("\n\n");

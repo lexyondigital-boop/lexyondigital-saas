@@ -11,6 +11,7 @@ type Contacto = {
   telefono: string;
   nombre: string | null;
   nombre_completo: string | null;
+  correo_electronico: string | null;
   etiquetas: string[];
   status: "activo" | "inactivo";
   canal_origen: string | null;
@@ -23,6 +24,7 @@ const COLUMNAS_BASE: { id: string; etiqueta: string }[] = [
   { id: "nombre", etiqueta: "Nombre" },
   { id: "nombre_completo", etiqueta: "Nombre completo" },
   { id: "telefono", etiqueta: "Teléfono" },
+  { id: "correo_electronico", etiqueta: "Correo electrónico" },
   { id: "etiquetas", etiqueta: "Etiquetas" },
   { id: "canal_origen", etiqueta: "Canal" },
   { id: "status", etiqueta: "Estado" },
@@ -330,6 +332,8 @@ function CeldaContacto({
       return <span>{contacto.nombre_completo ?? "—"}</span>;
     case "telefono":
       return <span>{contacto.telefono}</span>;
+    case "correo_electronico":
+      return <span>{contacto.correo_electronico ?? "—"}</span>;
     case "etiquetas":
       return (
         <div className="flex flex-wrap gap-1">
@@ -375,6 +379,7 @@ function ContactoForm({
   const supabase = createClient();
   const [nombre, setNombre] = useState(contacto?.nombre ?? "");
   const [nombreCompleto, setNombreCompleto] = useState(contacto?.nombre_completo ?? "");
+  const [correoElectronico, setCorreoElectronico] = useState(contacto?.correo_electronico ?? "");
   const [telefono, setTelefono] = useState(contacto?.telefono ?? "");
   const [canalOrigen, setCanalOrigen] = useState(contacto?.canal_origen ?? "");
   const [status, setStatus] = useState<"activo" | "inactivo">(contacto?.status ?? "activo");
@@ -430,6 +435,7 @@ function ContactoForm({
     const payload = {
       nombre: nombre.trim() || null,
       nombre_completo: nombreCompleto.trim() || null,
+      correo_electronico: correoElectronico.trim() || null,
       telefono: telefono.trim(),
       canal_origen: canalOrigen.trim() || null,
       status,
@@ -498,6 +504,16 @@ function ContactoForm({
           />
         </label>
         <CampoTelefono required value={telefono} onChange={setTelefono} />
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Correo electrónico</span>
+          <input
+            type="email"
+            value={correoElectronico}
+            onChange={(e) => setCorreoElectronico(e.target.value)}
+            placeholder="opcional"
+            className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+          />
+        </label>
         <label className="block">
           <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Canal de origen</span>
           <input

@@ -592,7 +592,10 @@ function AsistentePromptModal({
   const [borrador, setBorrador] = useState<string | null>(null);
   const [costo, setCosto] = useState<number | null>(null);
 
-  const variablesConClave = camposPersonalizados.filter((c) => c.clave_variable);
+  // El teléfono se excluye de "datos a capturar" -- ya se conoce desde que
+  // el cliente escribe por WhatsApp, no tiene sentido pedírselo ni el agente
+  // lo puede sobrescribir (ver agente-prompt-variables.ts).
+  const variablesConClave = camposPersonalizados.filter((c) => c.clave_variable && c.mapea_a_columna_real !== "telefono");
   const variablesDisponibles = variablesConClave.filter(
     (c) => !datos.some((d) => d.clave === c.clave_variable),
   );

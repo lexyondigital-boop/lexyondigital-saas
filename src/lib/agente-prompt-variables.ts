@@ -47,10 +47,19 @@ const ETIQUETA_TIPO: Record<TipoCampo, string> = {
   phone: "teléfono",
 };
 
-export function construirBloqueVariables(usadas: CampoPersonalizado[]): string | null {
-  if (usadas.length === 0) return null;
+// El teléfono nunca se pide ni se captura -- ya se conoce desde que el
+// cliente escribe por WhatsApp (es la llave de enrutamiento real de los
+// mensajes). Se excluye tanto de lo que el agente debe preguntar como de la
+// herramienta que puede escribir, para que nunca lo sobrescriba por error.
+function esCapturable(c: CampoPersonalizado): boolean {
+  return c.mapea_a_columna_real !== "telefono";
+}
 
-  const lineas = usadas.map(
+export function construirBloqueVariables(usadas: CampoPersonalizado[]): string | null {
+  const capturables = usadas.filter(esCapturable);
+  if (capturables.length === 0) return null;
+
+  const lineas = capturables.map(
     (c) => `- ${c.clave_variable} (${ETIQUETA_TIPO[c.tipo]}${c.requerido ? ", obligatorio" : ""}) — ${c.nombre}`,
   );
 
@@ -58,10 +67,11 @@ export function construirBloqueVariables(usadas: CampoPersonalizado[]): string |
 }
 
 export function construirHerramientaGuardarDatos(usadas: CampoPersonalizado[]): Herramienta | null {
-  if (usadas.length === 0) return null;
+  const capturables = usadas.filter(esCapturable);
+  if (capturables.length === 0) return null;
 
   const properties: Record<string, unknown> = {};
-  for (const c of usadas) {
+  for (const c of capturables) {
     properties[c.clave_variable as string] = {
       type: c.tipo === "number" ? "number" : "string",
       description: c.nombre,
@@ -94,12 +104,19 @@ export function validarValorVariable(tipo: TipoCampo, valorCrudo: unknown): stri
 // Google Calendar, así los dos quedan siempre iguales.
 export function formatearDatosParaNotas(
   usadas: CampoPersonalizado[],
-  nombreCompleto: string | null,
+  contacto: { nombre_completo: string | null; telefono: string | null; correo_electronico: string | null },
   valoresPorCampoId: Record<string, string>,
 ): string {
   const lineas: string[] = [];
   for (const c of usadas) {
-    const valor = c.mapea_a_columna_real === "nombre_completo" ? nombreCompleto : valoresPorCampoId[c.id];
+    const valor =
+      c.mapea_a_columna_real === "nombre_completo"
+        ? contacto.nombre_completo
+        : c.mapea_a_columna_real === "telefono"
+          ? contacto.telefono
+          : c.mapea_a_columna_real === "correo_electronico"
+            ? contacto.correo_electronico
+            : valoresPorCampoId[c.id];
     if (valor) lineas.push(`${c.nombre}: ${valor}`);
   }
   return lineas.join("\n");

@@ -9,7 +9,8 @@ export type CampoPersonalizado = {
   orden: number;
   opciones: string[];
   clave_variable: string | null;
-  mapea_a_columna_real: "nombre_completo" | null;
+  mapea_a_columna_real: "nombre_completo" | "telefono" | "correo_electronico" | null;
+  es_fijo: boolean;
 };
 
 export const LABEL_TIPO: Record<TipoCampo, string> = {
