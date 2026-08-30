@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { construirBloqueAgenda, type ProfesionalParaPrompt } from "@/lib/agente-prompt-agenda";
 import { resolverVariablesDelPrompt, construirBloqueVariables } from "@/lib/agente-prompt-variables";
@@ -100,6 +100,19 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [guardandoApiKey, setGuardandoApiKey] = useState(false);
   const [mensajeApiKey, setMensajeApiKey] = useState<string | null>(null);
+  const [menuVariableAbierto, setMenuVariableAbierto] = useState(false);
+  const textareaPromptRef = useRef<HTMLTextAreaElement | null>(null);
+  const menuVariableRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    function onClickFuera(e: MouseEvent) {
+      if (menuVariableRef.current && !menuVariableRef.current.contains(e.target as Node)) {
+        setMenuVariableAbierto(false);
+      }
+    }
+    document.addEventListener("mousedown", onClickFuera);
+    return () => document.removeEventListener("mousedown", onClickFuera);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -141,6 +154,30 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
       if (nuevo.has(id)) nuevo.delete(id);
       else nuevo.add(id);
       return nuevo;
+    });
+  }
+
+  function insertarVariable(clave: string) {
+    const marcador = `{{${clave}}}`;
+    const textarea = textareaPromptRef.current;
+    const textoActual = config.prompt ?? "";
+
+    if (!textarea) {
+      setConfig((prev) => ({ ...prev, prompt: textoActual + marcador }));
+      setMenuVariableAbierto(false);
+      return;
+    }
+
+    const inicio = textarea.selectionStart ?? textoActual.length;
+    const fin = textarea.selectionEnd ?? textoActual.length;
+    const nuevoTexto = textoActual.slice(0, inicio) + marcador + textoActual.slice(fin);
+    setConfig((prev) => ({ ...prev, prompt: nuevoTexto }));
+    setMenuVariableAbierto(false);
+
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const posicion = inicio + marcador.length;
+      textarea.setSelectionRange(posicion, posicion);
     });
   }
 
@@ -339,15 +376,50 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
         </label>
       </div>
 
-      <label className="block">
-        <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Prompt / instrucciones</span>
+      <div>
+        <div className="mb-1.5 flex items-center justify-between gap-2">
+          <span className="text-sm font-medium text-[var(--color-texto)]">Prompt / instrucciones</span>
+          <div className="relative" ref={menuVariableRef}>
+            <button
+              type="button"
+              onClick={() => setMenuVariableAbierto((v) => !v)}
+              className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2.5 py-1 text-xs font-medium text-[var(--color-texto)] hover:opacity-80"
+            >
+              + Agregar variable
+            </button>
+            {menuVariableAbierto && (
+              <div className="absolute right-0 z-10 mt-1 max-h-64 w-72 overflow-y-auto rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-1 shadow-lg">
+                {camposPersonalizados.filter((c) => c.clave_variable).length === 0 ? (
+                  <p className="px-2 py-1.5 text-xs text-[var(--color-texto-mute)]">
+                    Todavía no hay variables con clave definida. Créalas en <span className="font-medium">Variables</span>.
+                  </p>
+                ) : (
+                  camposPersonalizados
+                    .filter((c) => c.clave_variable)
+                    .map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => insertarVariable(c.clave_variable as string)}
+                        className="block w-full rounded-md px-2 py-1.5 text-left text-xs hover:bg-[var(--color-tarjeta)]"
+                      >
+                        <span className="font-mono text-[var(--color-marca)]">{`{{${c.clave_variable}}}`}</span>
+                        <span className="ml-1.5 text-[var(--color-texto-mute)]">{c.nombre}</span>
+                      </button>
+                    ))
+                )}
+              </div>
+            )}
+          </div>
+        </div>
         <textarea
+          ref={textareaPromptRef}
           rows={5}
           value={config.prompt ?? ""}
           onChange={(e) => setConfig({ ...config, prompt: e.target.value })}
           className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
         />
-      </label>
+      </div>
 
       {profesionales.length > 0 && (
         <div className="rounded-xl border border-[var(--color-borde)] p-4">

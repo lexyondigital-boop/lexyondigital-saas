@@ -188,7 +188,7 @@ export function ContactosView({ cuentaId }: { cuentaId: string }) {
         <div className="mb-6 max-w-md rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-5">
           <h2 className="mb-1 text-sm font-semibold text-[var(--color-texto)]">Columnas de la tabla</h2>
           <p className="mb-3 text-xs text-[var(--color-texto-mute)]">
-            Marca cuáles mostrar y usa las flechas para acomodar el orden.
+            Marca cuáles mostrar y usa las flechas para acomodar el orden. Los cambios se guardan solos.
           </p>
           <div className="space-y-1.5">
             {configColumnas.map((col, idx) => (
@@ -217,6 +217,15 @@ export function ContactosView({ cuentaId }: { cuentaId: string }) {
                 </div>
               </div>
             ))}
+          </div>
+          <div className="mt-4 flex justify-end border-t border-[var(--color-borde)] pt-3">
+            <button
+              onClick={() => setMostrarColumnas(false)}
+              style={{ boxShadow: "var(--halo-accion)" }}
+              className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90"
+            >
+              Listo
+            </button>
           </div>
         </div>
       )}
