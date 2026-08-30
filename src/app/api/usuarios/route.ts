@@ -32,6 +32,70 @@ export async function POST(request: NextRequest) {
 
   const admin = createAdminClient();
 
+  // Si el correo ya pertenece a alguien de esta misma cuenta (ej. el propio
+  // admin que también es profesionista), no se puede crear un usuario de
+  // Auth nuevo -- el correo ya está tomado. En vez de fallar, se reutiliza
+  // ese perfil existente: solo se agrega el registro de profesionales
+  // (o se informa que ya es profesional, si ya lo era).
+  const { data: perfilesDeLaCuenta } = await admin
+    .from("perfiles")
+    .select("id, profesional_id")
+    .eq("cuenta_id", auth.perfil.cuenta_id);
+
+  let perfilExistente: { id: string; profesional_id: string | null } | null = null;
+  for (const p of perfilesDeLaCuenta ?? []) {
+    const { data } = await admin.auth.admin.getUserById(p.id);
+    if (data.user?.email?.toLowerCase() === email.trim().toLowerCase()) {
+      perfilExistente = p;
+      break;
+    }
+  }
+
+  if (perfilExistente && es_profesional) {
+    if (perfilExistente.profesional_id) {
+      return NextResponse.json({ error: "Ese usuario ya está registrado como profesional." }, { status: 409 });
+    }
+
+    const { data: nuevoProfesional, error: profesionalError } = await admin
+      .from("profesionales")
+      .insert({
+        cuenta_id: auth.perfil.cuenta_id,
+        perfil_id: perfilExistente.id,
+        nombre: nombre.trim(),
+        especialidad: profesional.especialidad.trim(),
+        email: profesional.email_google?.trim() || email.trim(),
+        telefono: telefono.trim(),
+        color_agenda: profesional.color_agenda || "#6b2fa0",
+      })
+      .select("id")
+      .single();
+
+    if (profesionalError) {
+      return NextResponse.json({ error: profesionalError.message }, { status: 500 });
+    }
+
+    await admin
+      .from("perfiles")
+      .update({ profesional_id: nuevoProfesional.id, es_profesional: true })
+      .eq("id", perfilExistente.id);
+
+    await registrarActividad({
+      cuentaId: auth.perfil.cuenta_id,
+      perfilId: auth.user.id,
+      accion: "attach_professional",
+      recursoTipo: "user",
+      recursoId: perfilExistente.id,
+      detalles: { nombre: nombre.trim(), email: email.trim() },
+      request,
+    });
+
+    return NextResponse.json({ ok: true });
+  }
+
+  if (perfilExistente) {
+    return NextResponse.json({ error: "Ya existe un usuario con ese correo en tu equipo." }, { status: 409 });
+  }
+
   const { data: nuevoUsuario, error: authError } = await admin.auth.admin.createUser({
     email: email.trim(),
     email_confirm: true,

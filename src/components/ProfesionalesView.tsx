@@ -285,7 +285,9 @@ function FormularioNuevoProfesional({ onGuardado, onCancelar }: { onGuardado: ()
     <form onSubmit={guardar} className="mt-5 max-w-2xl space-y-4 rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6">
       <h2 className="text-base font-semibold text-[var(--color-texto)]">Nuevo profesional</h2>
       <p className="text-xs text-[var(--color-texto-mute)]">
-        Se crea también como usuario del sistema (rol Agente) y le llega un correo para definir su contraseña.
+        Se crea también como usuario del sistema (rol Agente) y le llega un correo para definir su contraseña. Si usas
+        el correo de alguien que ya tiene acceso en tu equipo (por ejemplo tú mismo, si también atiendes citas), se
+        agrega el registro de profesional a su cuenta existente en vez de crear una nueva.
       </p>
 
       <div className="grid gap-4 sm:grid-cols-2">
