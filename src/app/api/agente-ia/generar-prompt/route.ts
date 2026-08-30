@@ -5,15 +5,7 @@ import { descifrar } from "@/lib/cifrado";
 import { generarRespuestaIA, calcularCostoUsd, type ProveedorIA } from "@/lib/ia";
 import { listarProfesionalesParaPrompt } from "@/lib/agente-acciones";
 import { slugificarClaveVariable, type CampoPersonalizado } from "@/lib/campos-personalizados";
-
-type AdminClient = ReturnType<typeof createAdminClient>;
-
-async function resolverLlaveDePlataforma(admin: AdminClient, proveedor: ProveedorIA): Promise<string | null> {
-  const clave = proveedor === "openai" ? "openai_api_key" : "anthropic_api_key";
-  const { data } = await admin.from("plataforma_secretos").select("valor_cifrado").eq("clave", clave).maybeSingle();
-  if (data?.valor_cifrado) return descifrar(data.valor_cifrado);
-  return proveedor === "openai" ? process.env.OPENAI_API_KEY ?? null : process.env.ANTHROPIC_API_KEY ?? null;
-}
+import { resolverLlaveDePlataforma } from "@/lib/plataforma-secretos";
 
 function construirMetaPrompt({
   tono,

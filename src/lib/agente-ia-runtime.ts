@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { enviarMensajeTexto, normalizarDestinatario } from "@/lib/meta";
 import { generarRespuestaIA, calcularCostoUsd, type MensajeHistorial, type ProveedorIA, type Herramienta } from "@/lib/ia";
 import { descifrar } from "@/lib/cifrado";
+import { resolverLlaveDePlataforma } from "@/lib/plataforma-secretos";
 import { HERRAMIENTAS_CONSULTA, HERRAMIENTAS_ACCION, crearEjecutorHerramientas, listarProfesionalesParaPrompt } from "@/lib/agente-acciones";
 import { resolverVariablesDelPrompt, construirBloqueVariables, construirHerramientaGuardarDatos } from "@/lib/agente-prompt-variables";
 import type { CampoPersonalizado } from "@/lib/campos-personalizados";
@@ -55,19 +56,6 @@ function construirSystemPrompt(
     : "";
   const bloqueDatos = bloqueVariables ? `\n\n${bloqueVariables}` : "";
   return `${base}\n\nFecha y hora actual (zona horaria de México): ${fechaActualLegible()}. Usa este dato como referencia real de "hoy" para calcular cualquier día, fecha u horario que menciones o valides -- nunca lo inventes ni asumas otro.${bloqueAgenda}${bloqueDatos}\n\nResponde siempre en idioma "${config.idioma}", con un tono ${config.tono}. Sé breve y claro, como en una conversación real de WhatsApp.`;
-}
-
-// El modo "platform_key" prioriza la key guardada en plataforma_secretos
-// (rotable desde /configuracion sin tocar el servidor) y cae al .env del
-// contenedor solo si todavía no se ha configurado ninguna ahí.
-async function resolverLlaveDePlataforma(supabase: AdminClient, proveedor: ProveedorIA): Promise<string | null> {
-  const clave = proveedor === "openai" ? "openai_api_key" : "anthropic_api_key";
-
-  const { data } = await supabase.from("plataforma_secretos").select("valor_cifrado").eq("clave", clave).maybeSingle();
-
-  if (data?.valor_cifrado) return descifrar(data.valor_cifrado);
-
-  return proveedor === "openai" ? process.env.OPENAI_API_KEY ?? null : process.env.ANTHROPIC_API_KEY ?? null;
 }
 
 // Llamado por el webhook de WhatsApp justo después de insertar el mensaje

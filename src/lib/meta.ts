@@ -79,6 +79,33 @@ export async function enviarMensajeTexto({
   };
 }
 
+// El id de medio que llega en el webhook no es descargable directo -- primero
+// hay que pedirle a Meta la URL temporal (expira en minutos) y descargarla
+// con el mismo access_token en el header, o la CDN de Meta la rechaza.
+export async function descargarMediaWhatsapp({
+  mediaId,
+  accessToken,
+}: {
+  mediaId: string;
+  accessToken: string;
+}): Promise<{ ok: boolean; datos: ArrayBuffer | null; mimeType: string | null; error: string | null }> {
+  const resUrl = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/${mediaId}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const dataUrl = await resUrl.json();
+
+  if (!resUrl.ok || !dataUrl?.url) {
+    return { ok: false, datos: null, mimeType: null, error: dataUrl?.error?.message ?? "No se pudo obtener la URL del medio" };
+  }
+
+  const resArchivo = await fetch(dataUrl.url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!resArchivo.ok) {
+    return { ok: false, datos: null, mimeType: null, error: `Descarga del medio falló con status ${resArchivo.status}` };
+  }
+
+  return { ok: true, datos: await resArchivo.arrayBuffer(), mimeType: dataUrl.mime_type ?? null, error: null };
+}
+
 export async function consultarNumero({
   phoneNumberId,
   accessToken,

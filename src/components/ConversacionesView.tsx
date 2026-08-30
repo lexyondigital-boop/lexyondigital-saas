@@ -29,6 +29,7 @@ type Mensaje = {
   direccion: "entrante" | "saliente";
   tipo: string;
   contenido: string | null;
+  media_url: string | null;
   template_nombre: string | null;
   status: string;
   created_at: string;
@@ -193,7 +194,7 @@ function PanelConversacion({ conversacion, onCambio, onVolver }: { conversacion:
     setCargando(true);
     const { data } = await supabase
       .from("mensajes")
-      .select("id, direccion, tipo, contenido, template_nombre, status, created_at, sugerencia_ia, sugerencia_usada, feedback_ia")
+      .select("id, direccion, tipo, contenido, media_url, template_nombre, status, created_at, sugerencia_ia, sugerencia_usada, feedback_ia")
       .eq("conversacion_id", conversacion.id)
       .order("created_at", { ascending: true });
     setMensajes(data ?? []);
@@ -347,7 +348,18 @@ function PanelConversacion({ conversacion, onCambio, onVolver }: { conversacion:
                       : { background: "var(--color-bg-elevada)", color: "var(--color-texto)" }
                   }
                 >
-                  <p>{m.contenido ?? (m.template_nombre ? `Plantilla: ${m.template_nombre}` : "—")}</p>
+                  {m.tipo === "imagen" && m.media_url && (
+                    <img src={m.media_url} alt="Imagen enviada" className="mb-1.5 max-w-[240px] rounded-lg" />
+                  )}
+                  {m.tipo === "audio" && m.media_url && (
+                    <audio controls src={m.media_url} className="mb-1.5 max-w-full" style={{ height: 32 }} />
+                  )}
+                  {m.tipo === "audio" && m.contenido && (
+                    <p className="text-xs italic opacity-80">&ldquo;{m.contenido}&rdquo;</p>
+                  )}
+                  {m.tipo !== "audio" && (
+                    <p>{m.contenido ?? (m.template_nombre ? `Plantilla: ${m.template_nombre}` : m.tipo === "imagen" ? "" : "—")}</p>
+                  )}
                   <p className="mt-1 text-[10px] opacity-70">
                     {new Date(m.created_at).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
                   </p>

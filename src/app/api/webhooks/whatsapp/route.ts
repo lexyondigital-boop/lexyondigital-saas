@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enviarMensajeTexto, normalizarDestinatario } from "@/lib/meta";
 import { procesarAgenteIA } from "@/lib/agente-ia-runtime";
+import { descargarYGuardarMedia } from "@/lib/media-whatsapp";
+import { transcribirAudio } from "@/lib/transcripcion";
+import { resolverLlaveDePlataforma } from "@/lib/plataforma-secretos";
 
 // Verificación de webhook de Meta. A diferencia del workflow de n8n que
 // reemplaza (que respondía el hub.challenge sin validar nada), aquí sí se
@@ -43,7 +46,7 @@ async function procesarMensajeEntrante(body: unknown) {
   const contactoMeta = value.contacts?.[0];
   const phoneNumberId: string | undefined = value.metadata?.phone_number_id;
 
-  if (!phoneNumberId || mensaje.type !== "text") return;
+  if (!phoneNumberId || !["text", "audio", "image"].includes(mensaje.type)) return;
 
   const supabase = createAdminClient();
 
@@ -58,6 +61,21 @@ async function procesarMensajeEntrante(body: unknown) {
     console.error(
       `Webhook de WhatsApp recibido para phone_number_id ${phoneNumberId} sin ninguna cuenta activa registrada.`,
     );
+    return;
+  }
+
+  const { data: credencial } = await supabase
+    .from("whatsapp_credenciales")
+    .select("access_token")
+    .eq("cuenta_whatsapp_id", cuentaWhatsapp.id)
+    .maybeSingle();
+
+  const contenidoMensaje = credencial
+    ? await interpretarMensaje(supabase, mensaje, cuentaWhatsapp.cuenta_id, credencial.access_token)
+    : null;
+
+  if (!contenidoMensaje) {
+    if (!credencial) console.error(`Cuenta ${cuentaWhatsapp.cuenta_id}: sin whatsapp_credenciales, no se pudo procesar el medio.`);
     return;
   }
 
@@ -85,8 +103,6 @@ async function procesarMensajeEntrante(body: unknown) {
     telefono,
   );
 
-  const textoEntrante: string = mensaje.text?.body ?? "";
-
   const { data: mensajeInsertado } = await supabase
     .from("mensajes")
     .insert({
@@ -94,8 +110,10 @@ async function procesarMensajeEntrante(body: unknown) {
       conversacion_id: conversacion?.id ?? null,
       contacto_id: contacto.id,
       direccion: "entrante",
-      tipo: "texto",
-      contenido: textoEntrante,
+      tipo: contenidoMensaje.tipo,
+      contenido: contenidoMensaje.contenido,
+      media_url: contenidoMensaje.mediaUrl,
+      media_mime_type: contenidoMensaje.mediaMimeType,
       whatsapp_message_id: mensaje.id,
       status: "entregado",
     })
@@ -115,16 +133,78 @@ async function procesarMensajeEntrante(body: unknown) {
     return;
   }
 
-  if (conversacion?.id && mensajeInsertado) {
+  if (conversacion?.id && mensajeInsertado && contenidoMensaje.disparaAgente && contenidoMensaje.contenido) {
     await procesarAgenteIA({
       cuentaId: cuentaWhatsapp.cuenta_id,
       conversacionId: conversacion.id,
       contactoId: contacto.id,
       telefono,
       mensajeEntranteId: mensajeInsertado.id,
-      textoEntrante,
+      textoEntrante: contenidoMensaje.contenido,
     }).catch((error) => console.error(`Cuenta ${cuentaWhatsapp.cuenta_id}: error en el agente IA:`, error));
   }
+}
+
+type ContenidoMensaje = {
+  tipo: "texto" | "audio" | "imagen";
+  contenido: string | null;
+  mediaUrl: string | null;
+  mediaMimeType: string | null;
+  // Falso para imágenes sin texto/caption -- no tiene caso mandarle al
+  // agente un mensaje vacío, se deja solo visible para que un humano lo vea.
+  disparaAgente: boolean;
+};
+
+async function interpretarMensaje(
+  supabase: ReturnType<typeof createAdminClient>,
+  mensaje: any,
+  cuentaId: string,
+  accessToken: string,
+): Promise<ContenidoMensaje | null> {
+  if (mensaje.type === "text") {
+    const texto = mensaje.text?.body ?? "";
+    return { tipo: "texto", contenido: texto, mediaUrl: null, mediaMimeType: null, disparaAgente: true };
+  }
+
+  if (mensaje.type === "audio") {
+    const descarga = await descargarYGuardarMedia({ mediaId: mensaje.audio.id, accessToken, cuentaId });
+    if (!descarga.ok) {
+      console.error(`Cuenta ${cuentaId}: no se pudo descargar el audio de WhatsApp:`, descarga.error);
+      return { tipo: "audio", contenido: "[No se pudo procesar el audio]", mediaUrl: null, mediaMimeType: null, disparaAgente: false };
+    }
+
+    const apiKeyOpenAi = await resolverLlaveDePlataforma(supabase, "openai");
+    if (!apiKeyOpenAi) {
+      console.error(`Cuenta ${cuentaId}: falta la API key de plataforma de OpenAI para transcribir audio.`);
+      return { tipo: "audio", contenido: "[No se pudo transcribir el audio]", mediaUrl: descarga.url, mediaMimeType: descarga.mimeType, disparaAgente: false };
+    }
+
+    const transcripcion = await transcribirAudio({
+      audioBuffer: descarga.datos!,
+      mimeType: descarga.mimeType ?? "audio/ogg",
+      apiKey: apiKeyOpenAi,
+    });
+
+    if (!transcripcion.ok || !transcripcion.texto) {
+      console.error(`Cuenta ${cuentaId}: no se pudo transcribir el audio:`, transcripcion.error);
+      return { tipo: "audio", contenido: "[No se pudo transcribir el audio]", mediaUrl: descarga.url, mediaMimeType: descarga.mimeType, disparaAgente: false };
+    }
+
+    return { tipo: "audio", contenido: transcripcion.texto, mediaUrl: descarga.url, mediaMimeType: descarga.mimeType, disparaAgente: true };
+  }
+
+  if (mensaje.type === "image") {
+    const descarga = await descargarYGuardarMedia({ mediaId: mensaje.image.id, accessToken, cuentaId });
+    if (!descarga.ok) {
+      console.error(`Cuenta ${cuentaId}: no se pudo descargar la imagen de WhatsApp:`, descarga.error);
+      return null;
+    }
+
+    const caption: string | null = mensaje.image?.caption ?? null;
+    return { tipo: "imagen", contenido: caption, mediaUrl: descarga.url, mediaMimeType: descarga.mimeType, disparaAgente: !!caption };
+  }
+
+  return null;
 }
 
 async function buscarContacto(
