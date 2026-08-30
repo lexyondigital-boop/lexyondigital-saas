@@ -101,6 +101,7 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
   const [guardandoApiKey, setGuardandoApiKey] = useState(false);
   const [mensajeApiKey, setMensajeApiKey] = useState<string | null>(null);
   const [menuVariableAbierto, setMenuVariableAbierto] = useState(false);
+  const [mostrarAsistente, setMostrarAsistente] = useState(false);
   const textareaPromptRef = useRef<HTMLTextAreaElement | null>(null);
   const menuVariableRef = useRef<HTMLDivElement | null>(null);
 
@@ -230,6 +231,7 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
   if (cargando) return <p className="text-sm text-[var(--color-texto-mute)]">Cargando…</p>;
 
   return (
+    <>
     <form onSubmit={guardar} className="max-w-2xl space-y-5 rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6">
       <div className="flex items-center justify-between">
         <label className="flex items-center gap-2 text-sm font-medium text-[var(--color-texto)]">
@@ -379,6 +381,14 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
       <div>
         <div className="mb-1.5 flex items-center justify-between gap-2">
           <span className="text-sm font-medium text-[var(--color-texto)]">Prompt / instrucciones</span>
+          <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setMostrarAsistente(true)}
+            className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2.5 py-1 text-xs font-medium text-[var(--color-texto)] hover:opacity-80"
+          >
+            ✨ Crear con asistente
+          </button>
           <div className="relative" ref={menuVariableRef}>
             <button
               type="button"
@@ -410,6 +420,7 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
                 )}
               </div>
             )}
+          </div>
           </div>
         </div>
         <textarea
@@ -520,6 +531,212 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
         {guardando ? "Guardando…" : "Guardar"}
       </button>
     </form>
+
+    {mostrarAsistente && (
+      <AsistentePromptModal
+        camposPersonalizados={camposPersonalizados}
+        onUsar={(prompt) => {
+          setConfig((prev) => ({ ...prev, prompt }));
+          setMostrarAsistente(false);
+        }}
+        onCerrar={() => setMostrarAsistente(false)}
+      />
+    )}
+    </>
+  );
+}
+
+function AsistentePromptModal({
+  camposPersonalizados,
+  onUsar,
+  onCerrar,
+}: {
+  camposPersonalizados: CampoPersonalizado[];
+  onUsar: (prompt: string) => void;
+  onCerrar: () => void;
+}) {
+  const [rubro, setRubro] = useState("");
+  const [objetivo, setObjetivo] = useState("");
+  const [reglas, setReglas] = useState("");
+  const [variablesSeleccionadas, setVariablesSeleccionadas] = useState<Set<string>>(new Set());
+  const [variablesNuevas, setVariablesNuevas] = useState("");
+  const [generando, setGenerando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [borrador, setBorrador] = useState<string | null>(null);
+  const [costo, setCosto] = useState<number | null>(null);
+
+  const variablesConClave = camposPersonalizados.filter((c) => c.clave_variable);
+
+  function alternarVariable(clave: string) {
+    setVariablesSeleccionadas((prev) => {
+      const nuevo = new Set(prev);
+      if (nuevo.has(clave)) nuevo.delete(clave);
+      else nuevo.add(clave);
+      return nuevo;
+    });
+  }
+
+  async function generar(e: FormEvent) {
+    e.preventDefault();
+    setGenerando(true);
+    setError(null);
+
+    const res = await fetch("/api/agente-ia/generar-prompt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        rubro,
+        objetivo,
+        reglas,
+        claves_variables_existentes: [...variablesSeleccionadas],
+        variables_nuevas: variablesNuevas,
+      }),
+    });
+    const data = await res.json();
+    setGenerando(false);
+
+    if (!res.ok) {
+      setError(data.error ?? "No se pudo generar el prompt");
+      return;
+    }
+    setBorrador(data.prompt);
+    setCosto(data.costo_usd ?? null);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto space-y-4 rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold text-[var(--color-texto)]">Crear prompt con asistente de IA</h2>
+          <button type="button" onClick={onCerrar} className="text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
+            ✕
+          </button>
+        </div>
+
+        {!borrador ? (
+          <form onSubmit={generar} className="space-y-3">
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">¿A qué se dedica el negocio?</span>
+              <input
+                required
+                value={rubro}
+                onChange={(e) => setRubro(e.target.value)}
+                placeholder="Clínica dental, tienda de ropa, despacho de consultoría…"
+                className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+              />
+            </label>
+
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">¿Qué debe lograr el agente en la conversación?</span>
+              <textarea
+                required
+                rows={2}
+                value={objetivo}
+                onChange={(e) => setObjetivo(e.target.value)}
+                placeholder="Agendar citas, responder dudas de servicios y precios, tomar pedidos…"
+                className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+              />
+            </label>
+
+            {variablesConClave.length > 0 && (
+              <div>
+                <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">¿Qué datos ya definidos debe capturar?</span>
+                <div className="space-y-1">
+                  {variablesConClave.map((c) => (
+                    <label key={c.id} className="flex cursor-pointer items-center gap-2 text-sm text-[var(--color-texto)]">
+                      <input
+                        type="checkbox"
+                        checked={variablesSeleccionadas.has(c.clave_variable as string)}
+                        onChange={() => alternarVariable(c.clave_variable as string)}
+                      />
+                      {c.nombre} <span className="font-mono text-xs text-[var(--color-texto-mute)]">{`{{${c.clave_variable}}}`}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">
+                ¿Otros datos que debe pedir pero todavía no existen como Variable?
+              </span>
+              <input
+                value={variablesNuevas}
+                onChange={(e) => setVariablesNuevas(e.target.value)}
+                placeholder="Correo electrónico, dirección de entrega (sepáralos con coma)"
+                className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+              />
+              <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
+                El asistente los va a usar como marcador en el prompt, pero después vas a tener que crearlos en Variables para que el agente los pueda guardar de verdad.
+              </span>
+            </label>
+
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Reglas especiales (opcional)</span>
+              <textarea
+                rows={2}
+                value={reglas}
+                onChange={(e) => setReglas(e.target.value)}
+                placeholder="Nunca dar precios exactos, siempre ofrecer hablar con un humano si preguntan por garantías…"
+                className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+              />
+            </label>
+
+            {error && (
+              <p className="text-sm" style={{ color: "var(--color-aviso)" }}>
+                {error}
+              </p>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={onCerrar}
+                className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-4 py-2 text-sm font-medium text-[var(--color-texto)] hover:opacity-80"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={generando}
+                style={{ boxShadow: "var(--halo-accion)" }}
+                className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
+              >
+                {generando ? "Generando…" : "Generar prompt"}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="space-y-3">
+            <span className="block text-sm font-medium text-[var(--color-texto)]">Borrador generado</span>
+            <textarea
+              rows={10}
+              value={borrador}
+              onChange={(e) => setBorrador(e.target.value)}
+              className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+            />
+            {costo !== null && <p className="text-xs text-[var(--color-texto-mute)]">Costo de esta generación: ${costo.toFixed(4)} USD</p>}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setBorrador(null)}
+                className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-4 py-2 text-sm font-medium text-[var(--color-texto)] hover:opacity-80"
+              >
+                Volver a las preguntas
+              </button>
+              <button
+                type="button"
+                onClick={() => onUsar(borrador)}
+                style={{ boxShadow: "var(--halo-accion)" }}
+                className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90"
+              >
+                Usar este prompt
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -796,7 +1013,9 @@ function PestanaEstadisticas() {
                     {new Date(f.created_at).toLocaleString("es-MX", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
                   </td>
                   <td className="px-5 py-3.5 text-[var(--color-texto)]">{nombreContactoDe(f)}</td>
-                  <td className="px-5 py-3.5 text-[var(--color-texto)]">{f.modalidad === "sugestivo" ? "Sugestivo" : "Automático"}</td>
+                  <td className="px-5 py-3.5 text-[var(--color-texto)]">
+                    {f.modalidad === "sugestivo" ? "Sugestivo" : f.modalidad === "asistente_prompt" ? "Asistente de prompt" : "Automático"}
+                  </td>
                   <td className="px-5 py-3.5 text-[var(--color-texto-mute)]">{f.proveedor}</td>
                   <td className="px-5 py-3.5 text-[var(--color-texto)]">${f.costo_usd.toFixed(4)}</td>
                 </tr>
