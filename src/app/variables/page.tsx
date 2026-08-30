@@ -9,7 +9,7 @@ export default async function VariablesPage() {
   if (!permisos.view_variables) notFound();
 
   return (
-    <AppShell email={user.email} role={perfil.rol} permisos={permisos}>
+    <AppShell email={user.email} role={perfil.rol} permisos={permisos} cuentaId={perfil.cuenta_id}>
       <VariablesView cuentaId={perfil.cuenta_id} />
     </AppShell>
   );

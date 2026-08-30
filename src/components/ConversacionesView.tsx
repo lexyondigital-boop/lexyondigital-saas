@@ -43,6 +43,48 @@ function nombreDe(c: ConversacionCruda): string | null {
   return rel?.nombre ?? null;
 }
 
+// Palomitas estilo WhatsApp: una gris (enviado), dos grises (entregado), dos
+// azules (leído), o un aviso rojo (fallido). El estado real se actualiza vía
+// los eventos "statuses" del webhook, no es solo cosmético.
+function IconoEstadoMensaje({ status }: { status: string }) {
+  if (status === "fallido") {
+    return (
+      <span title="No se pudo entregar" className="text-red-300">
+        ⚠
+      </span>
+    );
+  }
+
+  if (status !== "entregado" && status !== "leido") {
+    return (
+      <svg width="14" height="10" viewBox="0 0 16 11" fill="none" aria-label="Enviado">
+        <path d="M1 5.5 5 9.5 15 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.7" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg width="18" height="10" viewBox="0 0 20 11" fill="none" aria-label={status === "leido" ? "Leído" : "Entregado"}>
+      <path
+        d="M1 5.5 5 9.5 15 1"
+        stroke={status === "leido" ? "#53bdeb" : "currentColor"}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        opacity={status === "leido" ? 1 : 0.7}
+      />
+      <path
+        d="M6 5.5 10 9.5 20 1"
+        stroke={status === "leido" ? "#53bdeb" : "currentColor"}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        opacity={status === "leido" ? 1 : 0.7}
+      />
+    </svg>
+  );
+}
+
 export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
   const supabase = useMemo(() => createClient(), []);
   const [conversaciones, setConversaciones] = useState<Conversacion[]>([]);
@@ -201,8 +243,16 @@ function PanelConversacion({ conversacion, onCambio, onVolver }: { conversacion:
     setCargando(false);
   }
 
+  // Marca la conversación como vista -- así deja de contar en la
+  // "esferita" de pendientes de la barra lateral. Se llama al abrirla y de
+  // nuevo cada vez que llega un mensaje mientras ya la tienes abierta.
+  function marcarComoVisto() {
+    supabase.from("conversaciones").update({ ultimo_visto_en: new Date().toISOString() }).eq("id", conversacion.id).then();
+  }
+
   useEffect(() => {
     cargarMensajes();
+    marcarComoVisto();
 
     const canal = supabase
       .channel(`mensajes-conversacion-${conversacion.id}`)
@@ -215,6 +265,7 @@ function PanelConversacion({ conversacion, onCambio, onVolver }: { conversacion:
           // puede ganarle la carrera a este evento de Realtime -- sin este
           // chequeo, el mismo mensaje termina agregado dos veces.
           setMensajes((prev) => (prev.some((m) => m.id === nuevo.id) ? prev : [...prev, nuevo]));
+          if (nuevo.direccion === "entrante") marcarComoVisto();
         },
       )
       .on(
@@ -364,8 +415,9 @@ function PanelConversacion({ conversacion, onCambio, onVolver }: { conversacion:
                   {m.tipo !== "audio" && (
                     <p>{m.contenido ?? (m.template_nombre ? `Plantilla: ${m.template_nombre}` : m.tipo === "imagen" ? "" : "—")}</p>
                   )}
-                  <p className="mt-1 text-[10px] opacity-70">
+                  <p className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-70">
                     {new Date(m.created_at).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
+                    {m.direccion === "saliente" && <IconoEstadoMensaje status={m.status} />}
                   </p>
                 </div>
               </div>

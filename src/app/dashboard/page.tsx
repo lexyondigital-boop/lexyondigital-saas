@@ -25,7 +25,7 @@ export default async function DashboardPage() {
   ];
 
   return (
-    <AppShell email={user.email} role={perfil.rol} permisos={permisos}>
+    <AppShell email={user.email} role={perfil.rol} permisos={permisos} cuentaId={perfil.cuenta_id}>
       <h1 className="text-xl font-bold text-[var(--color-texto)]">
         Bienvenido{perfil.nombre ? `, ${perfil.nombre}` : ""}
       </h1>

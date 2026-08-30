@@ -38,8 +38,15 @@ async function procesarMensajeEntrante(body: unknown) {
   const entry = (body as any)?.entry?.[0];
   const value = entry?.changes?.[0]?.value;
 
-  // Los eventos de status (entregado/leído) no traen "messages" — se
-  // descartan aquí, igual que el nodo "If" del workflow original.
+  // Los eventos de "statuses" (enviado/entregado/leído/fallido de un mensaje
+  // saliente) llegan aparte de los de "messages" -- se procesan para poder
+  // mostrar las palomitas reales en el chat, no solo un estado fijo al
+  // momento de mandar el mensaje.
+  if (value?.statuses) {
+    await procesarActualizacionesEstado(value.statuses);
+    return;
+  }
+
   if (!value?.messages) return;
 
   const mensaje = value.messages[0];
@@ -299,5 +306,37 @@ async function enviarSaludoBienvenida({
       `Cuenta ${cuentaId}: falló el saludo de bienvenida a ${telefono}:`,
       JSON.stringify(resultado.raw),
     );
+  }
+}
+
+const ESTADO_POR_META: Record<string, "enviado" | "entregado" | "leido" | "fallido"> = {
+  sent: "enviado",
+  delivered: "entregado",
+  read: "leido",
+  failed: "fallido",
+};
+
+// Progresión normal enviado -> entregado -> leido -- si llegan fuera de
+// orden (raro, pero pasa) no se retrocede un estado más avanzado. "fallido"
+// siempre se aplica, sin importar en qué estado estaba antes.
+const RANGO_ESTADO: Record<string, number> = { enviado: 1, entregado: 2, leido: 3 };
+
+async function procesarActualizacionesEstado(statuses: any[]) {
+  const supabase = createAdminClient();
+
+  for (const s of statuses) {
+    const nuevoEstado = ESTADO_POR_META[s?.status];
+    if (!nuevoEstado || !s?.id) continue;
+
+    const { data: existente } = await supabase
+      .from("mensajes")
+      .select("id, status")
+      .eq("whatsapp_message_id", s.id)
+      .maybeSingle();
+
+    if (!existente) continue;
+    if (nuevoEstado !== "fallido" && (RANGO_ESTADO[existente.status] ?? 0) >= (RANGO_ESTADO[nuevoEstado] ?? 0)) continue;
+
+    await supabase.from("mensajes").update({ status: nuevoEstado }).eq("id", existente.id);
   }
 }

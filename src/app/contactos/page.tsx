@@ -9,7 +9,7 @@ export default async function ContactosPage() {
   if (!permisos.view_contacts) notFound();
 
   return (
-    <AppShell email={user.email} role={perfil.rol} permisos={permisos}>
+    <AppShell email={user.email} role={perfil.rol} permisos={permisos} cuentaId={perfil.cuenta_id}>
       <ContactosView cuentaId={perfil.cuenta_id} />
     </AppShell>
   );

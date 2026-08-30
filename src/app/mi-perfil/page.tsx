@@ -6,7 +6,7 @@ export default async function MiPerfilPage() {
   const { user, perfil, permisos } = await obtenerSesionApp();
 
   return (
-    <AppShell email={user.email} role={perfil.rol} permisos={permisos}>
+    <AppShell email={user.email} role={perfil.rol} permisos={permisos} cuentaId={perfil.cuenta_id}>
       <MiPerfilView nombre={perfil.nombre} email={user.email} rol={perfil.rol} />
     </AppShell>
   );

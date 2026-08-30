@@ -9,7 +9,7 @@ export default async function ConfiguracionPage() {
 
   if (perfil.rol === "super_admin") {
     return (
-      <AppShell email={user.email} role={perfil.rol} permisos={permisos}>
+      <AppShell email={user.email} role={perfil.rol} permisos={permisos} cuentaId={perfil.cuenta_id}>
         <ConfiguracionPlataformaView />
       </AppShell>
     );
@@ -18,7 +18,7 @@ export default async function ConfiguracionPage() {
   if (!permisos.access_configuration) notFound();
 
   return (
-    <AppShell email={user.email} role={perfil.rol} permisos={permisos}>
+    <AppShell email={user.email} role={perfil.rol} permisos={permisos} cuentaId={perfil.cuenta_id}>
       <ConfiguracionCuentaView />
     </AppShell>
   );

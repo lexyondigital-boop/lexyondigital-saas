@@ -9,7 +9,7 @@ export default async function EtiquetasPage() {
   if (!permisos.view_tags) notFound();
 
   return (
-    <AppShell email={user.email} role={perfil.rol} permisos={permisos}>
+    <AppShell email={user.email} role={perfil.rol} permisos={permisos} cuentaId={perfil.cuenta_id}>
       <EtiquetasView cuentaId={perfil.cuenta_id} />
     </AppShell>
   );

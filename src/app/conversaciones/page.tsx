@@ -9,7 +9,7 @@ export default async function ConversacionesPage() {
   if (!permisos.view_conversations) notFound();
 
   return (
-    <AppShell email={user.email} role={perfil.rol} permisos={permisos}>
+    <AppShell email={user.email} role={perfil.rol} permisos={permisos} cuentaId={perfil.cuenta_id}>
       <ConversacionesView cuentaId={perfil.cuenta_id} />
     </AppShell>
   );

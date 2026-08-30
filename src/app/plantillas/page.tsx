@@ -9,7 +9,7 @@ export default async function PlantillasPage() {
   if (!permisos.view_templates) notFound();
 
   return (
-    <AppShell email={user.email} role={perfil.rol} permisos={permisos}>
+    <AppShell email={user.email} role={perfil.rol} permisos={permisos} cuentaId={perfil.cuenta_id}>
       <PlantillasView cuentaId={perfil.cuenta_id} />
     </AppShell>
   );

@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { Logo } from "@/components/Logo";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import { LogoutButton } from "@/components/LogoutButton";
+import { NotificacionesConversaciones } from "@/components/NotificacionesConversaciones";
 import {
   IconDashboard,
   IconChat,
@@ -55,11 +56,13 @@ export function AppShell({
   email,
   role,
   permisos,
+  cuentaId,
 }: {
   children: ReactNode;
   email?: string;
   role?: "super_admin" | "admin" | "agente";
   permisos?: Record<string, boolean>;
+  cuentaId?: string;
 }) {
   const pathname = usePathname();
   const [menuAbierto, setMenuAbierto] = useState(false);
@@ -129,6 +132,7 @@ export function AppShell({
               >
                 <Icono />
                 {item.label}
+                {item.href === "/conversaciones" && cuentaId && <NotificacionesConversaciones cuentaId={cuentaId} />}
               </Link>
             );
           })}
