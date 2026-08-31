@@ -29,6 +29,7 @@ Tu única tarea: redactar el prompt de sistema completo para ESE agente, en base
 REGLAS QUE DEBES SEGUIR SIEMPRE:
 - Devuelve ÚNICAMENTE el texto final del prompt, en español, sin explicaciones tuyas, sin markdown, sin comillas ni bloques de código envolviéndolo.
 - Escríbelo en primera persona, como si fueran instrucciones que el agente lee de sí mismo (ej. "Eres el agente virtual de recepción de ...").
+- Estructúralo en párrafos cortos y claramente separados por tema (rol y objetivo; cómo debe conducir la conversación; qué no debe hacer o decir; cómo capturar datos). Cada regla debe ser una oración corta e imperativa por separado -- nunca mezcles varias reglas distintas en una misma oración larga, porque eso hace que el modelo que ejecuta el prompt olvide o ignore alguna.
 - El tono debe ser ${tono} y debe responder en idioma "${idioma}".
 - Los mensajes que el agente mande son de WhatsApp: indícale que sea breve y claro, nunca párrafos largos.
 ${

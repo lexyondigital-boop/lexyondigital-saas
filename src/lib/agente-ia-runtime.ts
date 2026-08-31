@@ -45,17 +45,39 @@ function fechaActualLegible(): string {
   return formato;
 }
 
+// El texto libre que escribe el administrador (o que generó el asistente de
+// IA en otro momento) puede quedar desactualizado frente a la configuración
+// real de la cuenta -- por ejemplo, el prompt puede decir "no tienes agenda"
+// porque se escribió antes de asignarle un profesional, y luego el admin
+// activa uno sin volver a tocar el texto. Por eso el prompt final se arma en
+// secciones con encabezados y una regla de prioridad explícita: las secciones
+// "instrucción técnica del sistema" reflejan la configuración real vigente y
+// siempre ganan sobre cualquier afirmación contraria en el texto de negocio,
+// en vez de dejar que el modelo reciba dos instrucciones contradictorias sin
+// forma de resolverlas (causa raíz de que el agente pareciera "no hacerle
+// caso" al prompt de forma inconsistente).
 function construirSystemPrompt(
   config: { prompt: string | null; tono: string; idioma: string },
   profesionalesTexto: string | null,
   bloqueVariables: string | null,
 ): string {
   const base = config.prompt?.trim() || "Eres un asistente de atención al cliente por WhatsApp.";
+
   const bloqueAgenda = profesionalesTexto
-    ? `\n\n${profesionalesTexto}\n\nPara agendar, reagendar, cancelar o consultar horarios usa siempre las herramientas disponibles -- nunca inventes ni asumas disponibilidad, ids de citas o de profesionales.`
+    ? `\n\n=== AGENDA (instrucción técnica del sistema) ===\nSí tienes acceso a una agenda de citas y a herramientas para consultarla, agendar, reagendar y cancelar. Si el texto de negocio de arriba afirma que no tienes agenda o que no puedes agendar citas, ignora esa afirmación: está desactualizada, la configuración real de esta cuenta es la que sigue.\n\n${profesionalesTexto}\n\nUsa siempre las herramientas disponibles para estas acciones -- nunca inventes ni asumas disponibilidad, ids de citas o de profesionales.`
+    : `\n\n=== AGENDA (instrucción técnica del sistema) ===\nNo tienes acceso a una agenda de citas ni herramientas para agendar, reagendar o cancelar. Si el texto de negocio de arriba da por hecho que sí la tienes, ignora esa parte: no ofrezcas agendar ni menciones horarios o disponibilidad.`;
+
+  const bloqueDatos = bloqueVariables
+    ? `\n\n=== DATOS A CAPTURAR DEL CLIENTE (instrucción técnica del sistema) ===\n${bloqueVariables}`
     : "";
-  const bloqueDatos = bloqueVariables ? `\n\n${bloqueVariables}` : "";
-  return `${base}\n\nFecha y hora actual (zona horaria de México): ${fechaActualLegible()}. Usa este dato como referencia real de "hoy" para calcular cualquier día, fecha u horario que menciones o valides -- nunca lo inventes ni asumas otro.${bloqueAgenda}${bloqueDatos}\n\nResponde siempre en idioma "${config.idioma}", con un tono ${config.tono}. Sé breve y claro, como en una conversación real de WhatsApp.`;
+
+  return `=== INSTRUCCIONES DE NEGOCIO (definidas por el administrador de esta cuenta) ===\n${base}
+
+=== FECHA Y HORA (instrucción técnica del sistema) ===\nFecha y hora actual (zona horaria de México): ${fechaActualLegible()}. Úsala como referencia real de "hoy" para calcular cualquier día, fecha u horario que menciones o valides -- nunca la inventes ni asumas otra.${bloqueAgenda}${bloqueDatos}
+
+=== ESTILO DE RESPUESTA (instrucción técnica del sistema) ===\nResponde siempre en idioma "${config.idioma}", con un tono ${config.tono}. Sé breve y claro, como en una conversación real de WhatsApp.
+
+Si alguna sección anterior entra en conflicto con otra, las secciones marcadas "instrucción técnica del sistema" siempre tienen prioridad: reflejan la configuración real y vigente de esta cuenta, mientras que el texto de negocio pudo quedar desactualizado si el administrador cambió su configuración (agenda, variables, etc.) sin reescribirlo.`;
 }
 
 // Llamado por el webhook de WhatsApp justo después de insertar el mensaje
