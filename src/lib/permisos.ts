@@ -14,6 +14,7 @@ export const LABEL_CATEGORIA: Record<string, string> = {
   citas: "Citas",
   etiquetas: "Etiquetas",
   variables: "Variables",
+  pipeline: "Pipeline",
 };
 
 export const LABEL_ACCION: Record<string, string> = {
@@ -32,6 +33,20 @@ export const LABEL_ACCION: Record<string, string> = {
   resend_password_email: "Reenvió el correo de contraseña",
   reschedule_appointment: "Reagendó una cita",
   google_calendar_sync_inbound: "Google Calendar movió/canceló una cita",
+  create_deal: "Creó un deal",
+  edit_deal: "Editó un deal",
+  move_deal_stage: "Movió un deal de etapa",
+  assign_deal: "Asignó un deal",
+  close_deal_won: "Cerró un deal como ganado",
+  close_deal_lost: "Cerró un deal como perdido",
+  delete_deal: "Eliminó un deal",
+  comment_deal: "Comentó en un deal",
+  create_etapa: "Creó una etapa del pipeline",
+  edit_etapa: "Editó una etapa del pipeline",
+  delete_etapa: "Eliminó una etapa del pipeline",
+  create_task: "Creó una tarea",
+  complete_task: "Completó una tarea",
+  delete_task: "Eliminó una tarea",
 };
 
 export function agruparPorCategoria(permisos: Permiso[]): Record<string, Permiso[]> {

@@ -117,6 +117,16 @@ export function IconRobot({ className }: IconProps) {
   );
 }
 
+export function IconPipeline({ className }: IconProps) {
+  return (
+    <svg {...props(className)}>
+      <rect x="3" y="4" width="5" height="16" rx="1.3" />
+      <rect x="9.5" y="4" width="5" height="10" rx="1.3" />
+      <rect x="16" y="4" width="5" height="6" rx="1.3" />
+    </svg>
+  );
+}
+
 export function IconGear({ className }: IconProps) {
   return (
     <svg {...props(className)}>

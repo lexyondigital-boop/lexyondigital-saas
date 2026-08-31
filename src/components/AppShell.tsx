@@ -7,6 +7,7 @@ import { Logo } from "@/components/Logo";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import { LogoutButton } from "@/components/LogoutButton";
 import { NotificacionesConversaciones } from "@/components/NotificacionesConversaciones";
+import { NotificacionesPipeline } from "@/components/NotificacionesPipeline";
 import {
   IconDashboard,
   IconChat,
@@ -20,6 +21,7 @@ import {
   IconBriefcase,
   IconRobot,
   IconGear,
+  IconPipeline,
 } from "@/components/icons";
 
 type ItemNav = {
@@ -39,6 +41,7 @@ const NAV_TENANT: ItemNav[] = [
   { href: "/dashboard", label: "Dashboard", icon: IconDashboard, disponible: true },
   { href: "/conversaciones", label: "Conversaciones", icon: IconChat, disponible: true, requiere: "view_conversations" },
   { href: "/contactos", label: "Contactos", icon: IconUser, disponible: true, requiere: "view_contacts" },
+  { href: "/pipeline", label: "Pipeline", icon: IconPipeline, disponible: true, requiere: "view_pipeline" },
   { href: "/plantillas", label: "Plantillas", icon: IconDoc, disponible: true, requiere: "view_templates" },
   { href: "/calendarios", label: "Calendarios", icon: IconCalendar, disponible: true, requiere: "view_appointments" },
   { href: "/campanas", label: "Campañas", icon: IconMegaphone, disponible: true, requiere: "view_campaigns" },
@@ -133,6 +136,7 @@ export function AppShell({
                 <Icono />
                 {item.label}
                 {item.href === "/conversaciones" && cuentaId && <NotificacionesConversaciones cuentaId={cuentaId} />}
+                {item.href === "/pipeline" && cuentaId && <NotificacionesPipeline cuentaId={cuentaId} />}
               </Link>
             );
           })}
