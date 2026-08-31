@@ -43,7 +43,8 @@ ${
     : "- Este agente NO tiene acceso a una agenda de citas todavía -- no le des instrucciones de agendar, reagendar ni cancelar citas."
 }
 - No inventes políticas, precios, ubicaciones ni datos del negocio que el administrador no te haya dado -- si falta información específica, deja una instrucción genérica y clara en vez de inventar un dato falso.
-- No hace falta que redactes preguntas frecuentes ni qué hacer cuando el agente no sabe una respuesta -- eso el sistema lo agrega aparte de forma automática a partir de la sección "Preguntas frecuentes" de la cuenta, y no depende de este prompt. Enfócate solo en el rol, el objetivo, el flujo de conversación y las reglas propias de este negocio.`;
+- No hace falta que redactes preguntas frecuentes ni qué hacer cuando el agente no sabe una respuesta -- eso el sistema lo agrega aparte de forma automática a partir de la sección "Preguntas frecuentes" de la cuenta, y no depende de este prompt. Enfócate solo en el rol, el objetivo, el flujo de conversación y las reglas propias de este negocio.
+- No inventes información específica del negocio (servicios exactos, precios, horarios de atención, dirección, etc.) más allá de lo que el administrador te haya dado en esta conversación -- si subió documentos o conectó su sitio web en la sección "Documentos", el sistema se los agrega aparte al agente de forma automática, y no debes duplicar ni adivinar ese contenido aquí.`;
 }
 
 export async function POST(request: NextRequest) {

@@ -1011,17 +1011,48 @@ function PestanaFaqs({ cuentaId }: { cuentaId: string }) {
   );
 }
 
+type DocumentoConocimiento = {
+  id: string;
+  nombre_archivo: string;
+  url: string;
+  tipo_fuente: "documento" | "sitio_web";
+  estado_extraccion: "pendiente" | "listo" | "error";
+  error_extraccion: string | null;
+  contenido_extraido: string | null;
+  actualizado_contenido_en: string | null;
+};
+
+const ETIQUETA_ESTADO: Record<DocumentoConocimiento["estado_extraccion"], { texto: string; color: string }> = {
+  listo: { texto: "Listo -- el agente ya lo puede usar", color: "var(--color-exito, #16a34a)" },
+  error: { texto: "Error al leer el contenido", color: "var(--color-aviso)" },
+  pendiente: { texto: "Procesando…", color: "var(--color-texto-mute)" },
+};
+
 function PestanaDocumentos({ cuentaId }: { cuentaId: string }) {
   const supabase = createClient();
-  const [documentos, setDocumentos] = useState<{ id: string; nombre_archivo: string; url: string; tipo: string | null }[]>([]);
-  const [nombreArchivo, setNombreArchivo] = useState("");
-  const [url, setUrl] = useState("");
+  const [documentos, setDocumentos] = useState<DocumentoConocimiento[]>([]);
   const [cargando, setCargando] = useState(true);
+  const [expandido, setExpandido] = useState<string | null>(null);
+
+  const [nombrePdf, setNombrePdf] = useState("");
+  const [archivo, setArchivo] = useState<File | null>(null);
+  const [subiendo, setSubiendo] = useState(false);
+  const [errorPdf, setErrorPdf] = useState<string | null>(null);
+
+  const [nombreSitio, setNombreSitio] = useState("");
+  const [urlSitio, setUrlSitio] = useState("");
+  const [conectando, setConectando] = useState(false);
+  const [errorSitio, setErrorSitio] = useState<string | null>(null);
+
+  const [refrescandoId, setRefrescandoId] = useState<string | null>(null);
 
   async function cargar() {
     setCargando(true);
-    const { data } = await supabase.from("agente_documentos").select("id, nombre_archivo, url, tipo").order("created_at");
-    setDocumentos(data ?? []);
+    const { data } = await supabase
+      .from("agente_documentos")
+      .select("id, nombre_archivo, url, tipo_fuente, estado_extraccion, error_extraccion, contenido_extraido, actualizado_contenido_en")
+      .order("created_at");
+    setDocumentos((data as DocumentoConocimiento[]) ?? []);
     setCargando(false);
   }
 
@@ -1030,63 +1061,188 @@ function PestanaDocumentos({ cuentaId }: { cuentaId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function agregar(e: FormEvent) {
+  async function subirPdf(e: FormEvent) {
     e.preventDefault();
-    if (!nombreArchivo.trim() || !url.trim()) return;
-    await supabase.from("agente_documentos").insert({ cuenta_id: cuentaId, nombre_archivo: nombreArchivo.trim(), url: url.trim() });
-    setNombreArchivo("");
-    setUrl("");
+    if (!archivo || !nombrePdf.trim()) return;
+    setSubiendo(true);
+    setErrorPdf(null);
+
+    const formData = new FormData();
+    formData.append("archivo", archivo);
+    formData.append("nombre", nombrePdf.trim());
+
+    const res = await fetch("/api/agente-documentos/subir", { method: "POST", body: formData });
+    const data = await res.json();
+    setSubiendo(false);
+
+    if (!res.ok) {
+      setErrorPdf(data.error ?? "No se pudo subir el documento");
+      return;
+    }
+    setNombrePdf("");
+    setArchivo(null);
+    cargar();
+  }
+
+  async function conectarSitio(e: FormEvent) {
+    e.preventDefault();
+    if (!nombreSitio.trim() || !urlSitio.trim()) return;
+    setConectando(true);
+    setErrorSitio(null);
+
+    const res = await fetch("/api/agente-documentos/sitio-web", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nombre: nombreSitio.trim(), url: urlSitio.trim() }),
+    });
+    const data = await res.json();
+    setConectando(false);
+
+    if (!res.ok) {
+      setErrorSitio(data.error ?? "No se pudo conectar el sitio");
+      return;
+    }
+    setNombreSitio("");
+    setUrlSitio("");
+    cargar();
+  }
+
+  async function refrescar(id: string) {
+    setRefrescandoId(id);
+    await fetch(`/api/agente-documentos/${id}/actualizar`, { method: "POST" });
+    setRefrescandoId(null);
     cargar();
   }
 
   async function eliminar(id: string) {
-    await supabase.from("agente_documentos").delete().eq("id", id);
+    await fetch(`/api/agente-documentos/${id}`, { method: "DELETE" });
     cargar();
   }
 
   return (
-    <div className="max-w-2xl">
-      <p className="mb-4 text-xs text-[var(--color-texto-mute)]">
-        Pega el link público de un documento (PDF, Google Doc, etc.) que el agente pueda usar como referencia. Todavía
-        no hay carga de archivos directa.
+    <div className="max-w-2xl space-y-6">
+      <p className="text-xs text-[var(--color-texto-mute)]">
+        Todo lo que agregues aquí se lee de verdad y se le da al agente como conocimiento del negocio -- no solo un
+        link que nadie procesa.
       </p>
 
-      <form onSubmit={agregar} className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-5">
-        <input
-          value={nombreArchivo}
-          onChange={(e) => setNombreArchivo(e.target.value)}
-          placeholder="Nombre del documento"
-          className="min-w-[180px] flex-1 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
-        />
-        <input
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://…"
-          className="min-w-[220px] flex-[2] rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
-        />
-        <button
-          type="submit"
-          style={{ boxShadow: "var(--halo-accion)" }}
-          className="shrink-0 rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90"
-        >
-          Agregar
-        </button>
+      <form onSubmit={subirPdf} className="space-y-3 rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-5">
+        <h3 className="text-sm font-semibold text-[var(--color-texto)]">Subir documento (PDF)</h3>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={nombrePdf}
+            onChange={(e) => setNombrePdf(e.target.value)}
+            placeholder="Nombre del documento"
+            className="min-w-[180px] flex-1 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+          />
+          <input
+            type="file"
+            accept="application/pdf"
+            onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}
+            className="min-w-[220px] flex-[2] rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-1.5 text-sm text-[var(--color-texto)] file:mr-2 file:rounded-md file:border-0 file:bg-[var(--color-marca)] file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-[var(--color-accion-fg)]"
+          />
+          <button
+            type="submit"
+            disabled={subiendo || !archivo || !nombrePdf.trim()}
+            style={{ boxShadow: "var(--halo-accion)" }}
+            className="shrink-0 rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {subiendo ? "Subiendo y leyendo…" : "Subir"}
+          </button>
+        </div>
+        {errorPdf && <p className="text-xs" style={{ color: "var(--color-aviso)" }}>{errorPdf}</p>}
+      </form>
+
+      <form onSubmit={conectarSitio} className="space-y-3 rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-5">
+        <h3 className="text-sm font-semibold text-[var(--color-texto)]">Conectar página del negocio</h3>
+        <p className="text-xs text-[var(--color-texto-mute)]">
+          El agente lee el texto visible de esta página para responder preguntas sobre el negocio. Si el sitio cambia,
+          usa &ldquo;Actualizar&rdquo; en la lista para volver a leerlo.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={nombreSitio}
+            onChange={(e) => setNombreSitio(e.target.value)}
+            placeholder="Nombre (ej. Sitio web principal)"
+            className="min-w-[180px] flex-1 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+          />
+          <input
+            value={urlSitio}
+            onChange={(e) => setUrlSitio(e.target.value)}
+            placeholder="https://tu-negocio.com"
+            className="min-w-[220px] flex-[2] rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+          />
+          <button
+            type="submit"
+            disabled={conectando || !nombreSitio.trim() || !urlSitio.trim()}
+            style={{ boxShadow: "var(--halo-accion)" }}
+            className="shrink-0 rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {conectando ? "Leyendo página…" : "Conectar"}
+          </button>
+        </div>
+        {errorSitio && <p className="text-xs" style={{ color: "var(--color-aviso)" }}>{errorSitio}</p>}
       </form>
 
       <div className="space-y-2">
         {cargando ? (
           <p className="text-sm text-[var(--color-texto-mute)]">Cargando…</p>
         ) : documentos.length === 0 ? (
-          <p className="text-sm text-[var(--color-texto-mute)]">Todavía no hay documentos.</p>
+          <p className="text-sm text-[var(--color-texto-mute)]">Todavía no hay fuentes de conocimiento.</p>
         ) : (
           documentos.map((d) => (
-            <div key={d.id} className="flex items-center justify-between rounded-xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-4">
-              <a href={d.url} target="_blank" rel="noreferrer" className="text-sm font-medium text-[var(--color-marca)] hover:underline">
-                {d.nombre_archivo}
-              </a>
-              <button onClick={() => eliminar(d.id)} className="text-xs font-medium text-red-500 hover:underline">
-                Eliminar
-              </button>
+            <div key={d.id} className="rounded-xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <a href={d.url} target="_blank" rel="noreferrer" className="block truncate text-sm font-medium text-[var(--color-marca)] hover:underline">
+                    {d.nombre_archivo}
+                  </a>
+                  <p className="mt-0.5 text-xs text-[var(--color-texto-mute)]">
+                    {d.tipo_fuente === "sitio_web" ? "Sitio web" : "Documento PDF"}
+                    {d.actualizado_contenido_en &&
+                      ` -- última lectura: ${new Date(d.actualizado_contenido_en).toLocaleString("es-MX", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}`}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  {d.tipo_fuente === "sitio_web" && (
+                    <button
+                      onClick={() => refrescar(d.id)}
+                      disabled={refrescandoId === d.id}
+                      className="text-xs font-medium text-[var(--color-marca)] hover:underline disabled:opacity-50"
+                    >
+                      {refrescandoId === d.id ? "Actualizando…" : "Actualizar"}
+                    </button>
+                  )}
+                  <button onClick={() => eliminar(d.id)} className="text-xs font-medium text-red-500 hover:underline">
+                    Eliminar
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-2 flex items-center gap-2 text-xs" style={{ color: ETIQUETA_ESTADO[d.estado_extraccion].color }}>
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: "currentcolor" }} />
+                {ETIQUETA_ESTADO[d.estado_extraccion].texto}
+              </div>
+              {d.estado_extraccion === "error" && d.error_extraccion && (
+                <p className="mt-1 text-xs text-[var(--color-texto-mute)]">{d.error_extraccion}</p>
+              )}
+
+              {d.contenido_extraido && (
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    onClick={() => setExpandido((prev) => (prev === d.id ? null : d.id))}
+                    className="text-xs font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]"
+                  >
+                    {expandido === d.id ? "Ocultar contenido leído" : "Ver contenido que leyó el agente"}
+                  </button>
+                  {expandido === d.id && (
+                    <pre className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg bg-[var(--color-bg-elevada)] p-3 text-xs text-[var(--color-texto-mute)]">
+                      {d.contenido_extraido}
+                    </pre>
+                  )}
+                </div>
+              )}
             </div>
           ))
         )}

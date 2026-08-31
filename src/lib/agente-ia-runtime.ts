@@ -6,6 +6,7 @@ import { resolverLlaveDePlataforma } from "@/lib/plataforma-secretos";
 import { HERRAMIENTAS_CONSULTA, HERRAMIENTAS_ACCION, crearEjecutorHerramientas, listarProfesionalesParaPrompt } from "@/lib/agente-acciones";
 import { resolverVariablesDelPrompt, construirBloqueVariables, construirHerramientaGuardarDatos } from "@/lib/agente-prompt-variables";
 import type { CampoPersonalizado } from "@/lib/campos-personalizados";
+import { LIMITE_CARACTERES_TOTAL_CONOCIMIENTO } from "@/lib/documento-conocimiento";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -62,10 +63,55 @@ function construirBloqueFaqs(faqs: { pregunta: string; respuesta: string }[]): s
   return `Estas son preguntas frecuentes ya revisadas y aprobadas por el negocio. Si el cliente pregunta algo que coincide con alguna de estas, responde con esa información (puedes adaptar la redacción al tono de la conversación, pero no cambies el contenido):\n\n${lineas.join("\n\n")}`;
 }
 
-function construirBloqueDocumentos(documentos: { nombre_archivo: string; url: string }[]): string | null {
+type DocumentoConocimiento = {
+  nombre_archivo: string;
+  url: string;
+  tipo_fuente: "documento" | "sitio_web";
+  contenido_extraido: string | null;
+  estado_extraccion: "pendiente" | "listo" | "error";
+};
+
+// A diferencia de la versión anterior (que solo mandaba nombre + link, sin
+// que el agente conociera el contenido), aquí sí se inyecta el texto real
+// extraído del PDF o del sitio conectado -- ver documento-conocimiento.ts.
+// Se acota el total combinado para no disparar el costo ni el contexto de
+// cada respuesta si una cuenta acumula varios documentos grandes.
+function construirBloqueDocumentos(documentos: DocumentoConocimiento[]): string | null {
   if (documentos.length === 0) return null;
-  const lineas = documentos.map((d) => `- ${d.nombre_archivo}: ${d.url}`);
-  return `Tienes estos documentos de referencia disponibles (solo conoces su nombre y enlace, no su contenido interno):\n${lineas.join("\n")}\n\nSi el cliente pregunta algo que podría estar en alguno de ellos, puedes compartir el enlace correspondiente -- pero nunca inventes ni asumas qué dice adentro.`;
+
+  const listos = documentos.filter((d) => d.estado_extraccion === "listo" && d.contenido_extraido);
+  const sinContenido = documentos.filter((d) => d.estado_extraccion !== "listo" || !d.contenido_extraido);
+
+  const secciones: string[] = [];
+  let acumulado = 0;
+  let omitidos = 0;
+  for (const d of listos) {
+    const bloque = `--- ${d.tipo_fuente === "sitio_web" ? "Página web" : "Documento"}: ${d.nombre_archivo} ---\n${d.contenido_extraido}`;
+    if (acumulado + bloque.length > LIMITE_CARACTERES_TOTAL_CONOCIMIENTO) {
+      omitidos++;
+      continue;
+    }
+    secciones.push(bloque);
+    acumulado += bloque.length;
+  }
+
+  if (secciones.length === 0 && sinContenido.length === 0) return null;
+
+  const partes: string[] = [];
+  if (secciones.length > 0) {
+    partes.push(
+      `Este es el contenido real de tus fuentes de conocimiento del negocio. Úsalo para responder preguntas del cliente sobre el negocio, sus servicios, políticas, etc. -- pero solo lo que efectivamente diga el texto, sin inventar nada que no esté aquí:\n\n${secciones.join("\n\n")}`,
+    );
+  }
+  if (omitidos > 0) {
+    partes.push(`(Hay ${omitidos} fuente(s) de conocimiento adicionales configuradas que no se incluyeron aquí por espacio.)`);
+  }
+  if (sinContenido.length > 0) {
+    const lineas = sinContenido.map((d) => `- ${d.nombre_archivo} (${d.tipo_fuente === "sitio_web" ? "sitio web" : "documento"}): sin contenido disponible todavía`);
+    partes.push(`Estas otras fuentes están configuradas pero su contenido no está disponible -- no asumas ni inventes qué dicen:\n${lineas.join("\n")}`);
+  }
+
+  return partes.join("\n\n");
 }
 
 // El texto libre que escribe el administrador (o que generó el asistente de
@@ -290,10 +336,13 @@ export async function procesarAgenteIA({
   // el asistente de generación se acuerden de mencionarlos en el prompt).
   const [{ data: faqs }, { data: documentos }] = await Promise.all([
     supabase.from("agente_faqs").select("pregunta, respuesta").eq("cuenta_id", cuentaId),
-    supabase.from("agente_documentos").select("nombre_archivo, url").eq("cuenta_id", cuentaId),
+    supabase
+      .from("agente_documentos")
+      .select("nombre_archivo, url, tipo_fuente, contenido_extraido, estado_extraccion")
+      .eq("cuenta_id", cuentaId),
   ]);
   const bloqueFaqs = construirBloqueFaqs(faqs ?? []);
-  const bloqueDocumentos = construirBloqueDocumentos(documentos ?? []);
+  const bloqueDocumentos = construirBloqueDocumentos((documentos ?? []) as DocumentoConocimiento[]);
 
   const herramientasAgenda: Herramienta[] = profesionalesTexto
     ? [...HERRAMIENTAS_CONSULTA, ...(config.modo !== "sugestivo" ? HERRAMIENTAS_ACCION : [])]
