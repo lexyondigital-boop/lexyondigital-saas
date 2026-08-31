@@ -20,7 +20,7 @@ type Deal = {
   titulo: string;
   valor: number;
   contacto_id: string | null;
-  etapa_id: string;
+  etapa_id: string | null;
   propietario_id: string | null;
   estado: "abierto" | "ganado" | "perdido";
   probabilidad_manual: number | null;
@@ -51,6 +51,12 @@ const FORMATO_MONEDA = new Intl.NumberFormat("es-MX", { style: "currency", curre
 const LABEL_TIPO_TAREA: Record<Tarea["tipo"], string> = { llamada: "Llamada", email: "Correo", reunion: "Reunión", otro: "Otro" };
 const COLORES_PRESET = ["#8b5cf6", "#0ea5e9", "#f97316", "#eab308", "#22c55e", "#ef4444", "#64748b", "#ec4899"];
 
+// Columna especial para deals cuya etapa fue eliminada -- no es una fila
+// real de etapas_pipeline, solo una agrupación visual con un id sentinela
+// que onDragEnd traduce de vuelta a etapa_id: null.
+const ID_SIN_ETAPA = "sin-etapa";
+const ETAPA_SIN_ETAPA: Etapa = { id: ID_SIN_ETAPA, nombre: "Sin etapa", color: "#64748b", orden: -1, probabilidad_default: 0, es_ganada: false, es_perdida: false };
+
 export const INPUT =
   "w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]";
 
@@ -65,7 +71,7 @@ function nombrePerfil(p: PerfilLite | undefined | null): string {
 
 function probabilidadEfectiva(deal: Deal, etapasPorId: Map<string, Etapa>): number {
   if (deal.probabilidad_manual !== null) return deal.probabilidad_manual;
-  return etapasPorId.get(deal.etapa_id)?.probabilidad_default ?? 0;
+  return (deal.etapa_id ? etapasPorId.get(deal.etapa_id) : undefined)?.probabilidad_default ?? 0;
 }
 
 function esDormido(deal: Deal): boolean {
@@ -276,20 +282,23 @@ function TableroTab({
     const { active, over } = event;
     if (!over) return;
     const dealId = String(active.id);
-    const etapaDestinoId = String(over.id);
+    const destinoId = String(over.id);
+    const etapaIdFinal = destinoId === ID_SIN_ETAPA ? null : destinoId;
     const deal = deals.find((d) => d.id === dealId);
-    if (!deal || deal.etapa_id === etapaDestinoId) return;
+    if (!deal || deal.etapa_id === etapaIdFinal) return;
 
     setError(null);
     const res = await fetch(`/api/deals/${dealId}/mover-etapa`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ etapa_id: etapaDestinoId }),
+      body: JSON.stringify({ etapa_id: etapaIdFinal }),
     });
     const err = await jsonOError(res);
     if (err) setError(err);
     onRecargar();
   }
+
+  const dealsSinEtapa = dealsFiltrados.filter((d) => !d.etapa_id);
 
   return (
     <div>
@@ -327,6 +336,17 @@ function TableroTab({
       ) : (
         <DndContext sensors={sensors} onDragEnd={onDragEnd}>
           <div className="flex gap-4 overflow-x-auto pb-4">
+            {dealsSinEtapa.length > 0 && (
+              <ColumnaEtapa
+                etapa={ETAPA_SIN_ETAPA}
+                deals={dealsSinEtapa}
+                contactosPorId={contactosPorId}
+                perfilesPorId={perfilesPorId}
+                puedeGestionar={false}
+                onAbrirDeal={onAbrirDeal}
+                onNuevoDeal={() => {}}
+              />
+            )}
             {etapas.map((etapa) => (
               <ColumnaEtapa
                 key={etapa.id}
@@ -1131,7 +1151,13 @@ function EtapasTab({
   }
 
   async function eliminar(etapa: Etapa) {
-    if (!confirm(`¿Eliminar la etapa "${etapa.nombre}"?`)) return;
+    const afectados = deals.filter((d) => d.etapa_id === etapa.id).length;
+    const advertencia =
+      afectados > 0
+        ? `¿Eliminar la etapa "${etapa.nombre}"? ${afectados} deal${afectados !== 1 ? "s" : ""} que está${afectados !== 1 ? "n" : ""} en esta etapa se quedará${afectados !== 1 ? "n" : ""} sin etapa asignada -- podrás reasignarlos después desde el tablero.`
+        : `¿Eliminar la etapa "${etapa.nombre}"?`;
+    if (!confirm(advertencia)) return;
+
     const res = await fetch(`/api/pipeline/etapas/${etapa.id}`, { method: "DELETE" });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));

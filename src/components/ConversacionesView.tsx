@@ -210,6 +210,7 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
           <PanelConversacion
             key={conversacionActiva.id}
             conversacion={conversacionActiva}
+            cuentaId={cuentaId}
             onCambio={cargarLista}
             onVolver={() => setSeleccionada(null)}
           />
@@ -223,7 +224,17 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
   );
 }
 
-function PanelConversacion({ conversacion, onCambio, onVolver }: { conversacion: Conversacion; onCambio: () => void; onVolver: () => void }) {
+function PanelConversacion({
+  conversacion,
+  cuentaId,
+  onCambio,
+  onVolver,
+}: {
+  conversacion: Conversacion;
+  cuentaId: string;
+  onCambio: () => void;
+  onVolver: () => void;
+}) {
   const supabase = useMemo(() => createClient(), []);
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -386,6 +397,8 @@ function PanelConversacion({ conversacion, onCambio, onVolver }: { conversacion:
         </div>
       </div>
 
+      <EtiquetaYEtapaContacto cuentaId={cuentaId} contactoId={conversacion.contacto_id} />
+
       <div className="flex-1 space-y-2 overflow-y-auto p-4">
         {cargando ? (
           <p className="text-sm text-[var(--color-texto-mute)]">Cargando…</p>
@@ -457,6 +470,137 @@ function PanelConversacion({ conversacion, onCambio, onVolver }: { conversacion:
         </button>
       </div>
     </>
+  );
+}
+
+type EtiquetaCatalogo = { id: string; nombre: string; color: string };
+type EtapaLite = { id: string; nombre: string; color: string };
+type DealLite = { id: string; etapa_id: string | null; estado: string };
+
+function ChipMini({ nombre, color }: { nombre: string; color: string }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
+      style={{ color, background: `color-mix(in srgb, ${color} 14%, transparent)` }}
+    >
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
+      {nombre}
+    </span>
+  );
+}
+
+// Fila de contexto del contacto justo debajo del nombre/teléfono -- antes no
+// había forma de ver ni cambiar su etiqueta o en qué etapa del pipeline está
+// sin salirte de Conversaciones. El "deal" relevante es el más reciente
+// abierto (o el más reciente a secas si no tiene ninguno abierto), ya que un
+// contacto puede tener varios a lo largo del tiempo.
+function EtiquetaYEtapaContacto({ cuentaId, contactoId }: { cuentaId: string; contactoId: string }) {
+  const supabase = useMemo(() => createClient(), []);
+  const [etiquetasContacto, setEtiquetasContacto] = useState<string[]>([]);
+  const [catalogoEtiquetas, setCatalogoEtiquetas] = useState<EtiquetaCatalogo[]>([]);
+  const [etapas, setEtapas] = useState<EtapaLite[]>([]);
+  const [deal, setDeal] = useState<DealLite | null>(null);
+  const [cargando, setCargando] = useState(true);
+  const [editandoEtiquetas, setEditandoEtiquetas] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  async function cargar() {
+    const [{ data: contacto }, { data: etq }, { data: et }, { data: dealsDelContacto }] = await Promise.all([
+      supabase.from("contactos").select("etiquetas").eq("id", contactoId).maybeSingle(),
+      supabase.from("etiquetas").select("id, nombre, color").eq("cuenta_id", cuentaId).order("nombre"),
+      supabase.from("etapas_pipeline").select("id, nombre, color").eq("cuenta_id", cuentaId).order("orden"),
+      supabase.from("deals").select("id, etapa_id, estado, created_at").eq("contacto_id", contactoId).order("created_at", { ascending: false }),
+    ]);
+    setEtiquetasContacto(contacto?.etiquetas ?? []);
+    setCatalogoEtiquetas(etq ?? []);
+    setEtapas(et ?? []);
+    const lista = dealsDelContacto ?? [];
+    setDeal(lista.find((d) => d.estado === "abierto") ?? lista[0] ?? null);
+    setCargando(false);
+  }
+
+  useEffect(() => {
+    cargar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contactoId, cuentaId]);
+
+  useEffect(() => {
+    function onClickFuera(e: MouseEvent) {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) setEditandoEtiquetas(false);
+    }
+    document.addEventListener("mousedown", onClickFuera);
+    return () => document.removeEventListener("mousedown", onClickFuera);
+  }, []);
+
+  async function alternarEtiqueta(nombre: string) {
+    const nuevas = etiquetasContacto.includes(nombre) ? etiquetasContacto.filter((e) => e !== nombre) : [...etiquetasContacto, nombre];
+    setEtiquetasContacto(nuevas);
+    await supabase.from("contactos").update({ etiquetas: nuevas }).eq("id", contactoId);
+  }
+
+  async function cambiarEtapa(etapaId: string) {
+    if (!deal) return;
+    setDeal({ ...deal, etapa_id: etapaId || null });
+    await fetch(`/api/deals/${deal.id}/mover-etapa`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ etapa_id: etapaId || null }),
+    });
+  }
+
+  if (cargando) return null;
+
+  const etapaActual = deal?.etapa_id ? etapas.find((e) => e.id === deal.etapa_id) : null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-4 py-1.5">
+      <div className="relative" ref={popoverRef}>
+        <button type="button" onClick={() => setEditandoEtiquetas((v) => !v)} className="flex flex-wrap items-center gap-1">
+          {etiquetasContacto.length === 0 ? (
+            <span className="text-xs text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">+ Etiqueta</span>
+          ) : (
+            etiquetasContacto.map((nombre) => {
+              const cat = catalogoEtiquetas.find((c) => c.nombre === nombre);
+              return <ChipMini key={nombre} nombre={nombre} color={cat?.color ?? "#8b5cf6"} />;
+            })
+          )}
+        </button>
+        {editandoEtiquetas && (
+          <div className="absolute left-0 top-full z-20 mt-1 w-56 rounded-lg border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-2 shadow-lg">
+            {catalogoEtiquetas.length === 0 ? (
+              <p className="px-1 py-1 text-xs text-[var(--color-texto-mute)]">Todavía no hay etiquetas creadas.</p>
+            ) : (
+              catalogoEtiquetas.map((et) => (
+                <label key={et.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-xs hover:bg-[var(--color-bg-elevada)]">
+                  <input type="checkbox" checked={etiquetasContacto.includes(et.nombre)} onChange={() => alternarEtiqueta(et.nombre)} />
+                  <ChipMini nombre={et.nombre} color={et.color} />
+                </label>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
+      <span className="text-[var(--color-texto-mute)]">·</span>
+
+      {deal ? (
+        <select
+          value={deal.etapa_id ?? ""}
+          onChange={(e) => cambiarEtapa(e.target.value)}
+          className="rounded-md border-none bg-transparent text-xs font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+          style={{ color: etapaActual?.color ?? "var(--color-texto-mute)" }}
+        >
+          <option value="">Sin etapa</option>
+          {etapas.map((et) => (
+            <option key={et.id} value={et.id}>
+              {et.nombre}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <span className="text-xs text-[var(--color-texto-mute)]">Sin deal en el pipeline</span>
+      )}
+    </div>
   );
 }
 

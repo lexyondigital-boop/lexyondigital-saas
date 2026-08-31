@@ -45,10 +45,12 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   const { id } = await params;
   const admin = createAdminClient();
 
-  const { count } = await admin.from("deals").select("id", { count: "exact", head: true }).eq("etapa_id", id);
-  if ((count ?? 0) > 0) {
-    return NextResponse.json({ error: "No puedes eliminar una etapa que todavía tiene deals -- muévelos a otra etapa primero." }, { status: 400 });
-  }
+  // Ya no se bloquea si tiene deals -- se permite borrar igual, y los deals
+  // que estaban ahí quedan sin etapa (deals.etapa_id -> null vía "on delete
+  // set null"). El admin ya vio la advertencia con el conteo antes de
+  // confirmar (ver PipelineView.tsx), así que aquí solo se registra cuántos
+  // quedaron afectados para el timeline.
+  const { count: dealsAfectados } = await admin.from("deals").select("id", { count: "exact", head: true }).eq("etapa_id", id);
 
   const { error } = await admin.from("etapas_pipeline").delete().eq("id", id).eq("cuenta_id", auth.perfil.cuenta_id);
 
@@ -62,6 +64,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     accion: "delete_etapa",
     recursoTipo: "etapa_pipeline",
     recursoId: id,
+    detalles: { deals_afectados: dealsAfectados ?? 0 },
     request,
   });
 

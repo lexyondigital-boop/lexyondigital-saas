@@ -12,9 +12,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const { id } = await params;
-  const { etapa_id } = (await request.json()) as { etapa_id?: string };
+  const { etapa_id } = (await request.json()) as { etapa_id?: string | null };
 
-  if (!etapa_id) {
+  if (etapa_id === undefined) {
     return NextResponse.json({ error: "Falta la etapa destino" }, { status: 400 });
   }
 
@@ -24,11 +24,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (!deal) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
 
   const [{ data: etapaOrigen }, { data: etapaDestino }] = await Promise.all([
-    admin.from("etapas_pipeline").select("nombre").eq("id", deal.etapa_id).maybeSingle(),
-    admin.from("etapas_pipeline").select("nombre").eq("id", etapa_id).eq("cuenta_id", auth.perfil.cuenta_id).maybeSingle(),
+    deal.etapa_id ? admin.from("etapas_pipeline").select("nombre").eq("id", deal.etapa_id).maybeSingle() : Promise.resolve({ data: null }),
+    // "Sin etapa" en el tablero manda etapa_id: null a propósito -- es un
+    // destino válido (deal huérfano por una etapa borrada), no un error.
+    etapa_id ? admin.from("etapas_pipeline").select("nombre").eq("id", etapa_id).eq("cuenta_id", auth.perfil.cuenta_id).maybeSingle() : Promise.resolve({ data: { nombre: "Sin etapa" } }),
   ]);
 
-  if (!etapaDestino) return NextResponse.json({ error: "Etapa destino inválida" }, { status: 400 });
+  if (etapa_id && !etapaDestino) return NextResponse.json({ error: "Etapa destino inválida" }, { status: 400 });
 
   const { error } = await admin
     .from("deals")
@@ -46,7 +48,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     accion: "move_deal_stage",
     recursoTipo: "deal",
     recursoId: id,
-    detalles: { etapa_origen: etapaOrigen?.nombre ?? null, etapa_destino: etapaDestino.nombre },
+    detalles: { etapa_origen: etapaOrigen?.nombre ?? null, etapa_destino: etapaDestino?.nombre ?? null },
     request,
   });
 

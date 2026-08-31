@@ -230,7 +230,15 @@ export async function procesarAgenteIA({
       texto,
     });
 
-    await supabase.from("mensajes").insert({
+    // Si este insert falla (ej. una migración pendiente que agregó una
+    // columna referenciada aquí), el mensaje puede haberse mandado de verdad
+    // por WhatsApp pero el CRM se queda sin registro de él -- y peor, el
+    // historial que se le manda al modelo en el siguiente turno pierde esa
+    // respuesta, haciendo que el agente "olvide" lo que él mismo ya dijo.
+    // Antes esto fallaba en silencio (el error de Supabase nunca se
+    // revisaba); ahora se loguea fuerte para que un problema así nunca vuelva
+    // a pasar desapercibido.
+    const { error } = await supabase.from("mensajes").insert({
       cuenta_id: cuentaId,
       conversacion_id: conversacionId,
       contacto_id: contactoId,
@@ -241,6 +249,10 @@ export async function procesarAgenteIA({
       whatsapp_message_id: resultado.whatsappMessageId,
       uso_herramientas: usoHerramientas,
     });
+
+    if (error) {
+      console.error(`Cuenta ${cuentaId}: no se pudo guardar la respuesta del agente en mensajes (¿falta correr una migración?):`, error.message);
+    }
   }
 
   const horaActual = horaActualEnMinutos();
@@ -272,7 +284,7 @@ export async function procesarAgenteIA({
   // que la conversación sí está avanzando hacia un trámite real, así que el
   // tope de seguridad solo debe aplicar a turnos "estancados" (charla sin
   // avance real, ej. una FAQ tras otra sin llegar a ningún lado).
-  const { count: turnosBot } = await supabase
+  const { count: turnosBot, error: errorTurnosBot } = await supabase
     .from("mensajes")
     .select("id", { count: "exact", head: true })
     .eq("conversacion_id", conversacionId)
@@ -280,6 +292,14 @@ export async function procesarAgenteIA({
     .eq("tipo", "texto")
     .eq("uso_herramientas", false)
     .gte("created_at", conversacion.agente_activado_en);
+
+  // Si esta consulta falla (ej. falta correr la migración que agregó
+  // uso_herramientas), antes se leía silenciosamente como "0 turnos" para
+  // siempre -- el tope de max_mensajes quedaba desactivado sin que nadie se
+  // enterara. Ahora se loguea fuerte en vez de degradar en silencio.
+  if (errorTurnosBot) {
+    console.error(`Cuenta ${cuentaId}: no se pudo calcular turnosBot (¿falta correr una migración?):`, errorTurnosBot.message);
+  }
 
   if ((turnosBot ?? 0) >= config.max_mensajes) {
     await supabase.from("conversaciones").update({ agente_ia_activo: false }).eq("id", conversacionId);
