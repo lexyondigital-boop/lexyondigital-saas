@@ -222,7 +222,7 @@ export async function procesarAgenteIA({
     return;
   }
 
-  async function responderDirecto(texto: string) {
+  async function responderDirecto(texto: string, usoHerramientas = false) {
     const resultado = await enviarMensajeTexto({
       phoneNumberId: cuentaWhatsapp!.phone_number_id,
       accessToken: credencial!.access_token,
@@ -239,6 +239,7 @@ export async function procesarAgenteIA({
       contenido: texto,
       status: resultado.ok ? "enviado" : "fallido",
       whatsapp_message_id: resultado.whatsappMessageId,
+      uso_herramientas: usoHerramientas,
     });
   }
 
@@ -265,13 +266,19 @@ export async function procesarAgenteIA({
   // Se cuenta solo desde la última vez que el agente se activó (creación de
   // la conversación, o reactivación manual tras una transferencia) -- no el
   // histórico completo, para que una conversación longeva no quede
-  // transfiriendo para siempre aunque un humano la reactive.
+  // transfiriendo para siempre aunque un humano la reactive. Tampoco se
+  // cuentan los turnos donde el agente usó una herramienta (consultar
+  // disponibilidad, agendar, guardar datos, etc.) -- esos son evidencia de
+  // que la conversación sí está avanzando hacia un trámite real, así que el
+  // tope de seguridad solo debe aplicar a turnos "estancados" (charla sin
+  // avance real, ej. una FAQ tras otra sin llegar a ningún lado).
   const { count: turnosBot } = await supabase
     .from("mensajes")
     .select("id", { count: "exact", head: true })
     .eq("conversacion_id", conversacionId)
     .eq("direccion", "saliente")
     .eq("tipo", "texto")
+    .eq("uso_herramientas", false)
     .gte("created_at", conversacion.agente_activado_en);
 
   if ((turnosBot ?? 0) >= config.max_mensajes) {
@@ -387,5 +394,5 @@ export async function procesarAgenteIA({
     return;
   }
 
-  await responderDirecto(resultado.texto);
+  await responderDirecto(resultado.texto, resultado.accionesEjecutadas.length > 0);
 }
