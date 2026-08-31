@@ -42,7 +42,8 @@ ${
     ? "- Este agente SÍ tiene acceso a una agenda de citas (el sistema le agrega automáticamente, por separado, la lista de profesionales y las herramientas técnicas para consultar disponibilidad, agendar, reagendar y cancelar -- no las menciones ni las inventes tú). Limítate a indicar EN QUÉ MOMENTO de la conversación conviene ofrecer agendar una cita, y qué debe confirmar con el cliente antes de hacerlo (día, hora, motivo)."
     : "- Este agente NO tiene acceso a una agenda de citas todavía -- no le des instrucciones de agendar, reagendar ni cancelar citas."
 }
-- No inventes políticas, precios, ubicaciones ni datos del negocio que el administrador no te haya dado -- si falta información específica, deja una instrucción genérica y clara en vez de inventar un dato falso.`;
+- No inventes políticas, precios, ubicaciones ni datos del negocio que el administrador no te haya dado -- si falta información específica, deja una instrucción genérica y clara en vez de inventar un dato falso.
+- No hace falta que redactes preguntas frecuentes ni qué hacer cuando el agente no sabe una respuesta -- eso el sistema lo agrega aparte de forma automática a partir de la sección "Preguntas frecuentes" de la cuenta, y no depende de este prompt. Enfócate solo en el rol, el objetivo, el flujo de conversación y las reglas propias de este negocio.`;
 }
 
 export async function POST(request: NextRequest) {

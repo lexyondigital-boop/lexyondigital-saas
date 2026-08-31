@@ -56,10 +56,39 @@ function fechaActualLegible(): string {
 // en vez de dejar que el modelo reciba dos instrucciones contradictorias sin
 // forma de resolverlas (causa raíz de que el agente pareciera "no hacerle
 // caso" al prompt de forma inconsistente).
+function construirBloqueFaqs(faqs: { pregunta: string; respuesta: string }[]): string | null {
+  if (faqs.length === 0) return null;
+  const lineas = faqs.map((f) => `P: ${f.pregunta}\nR: ${f.respuesta}`);
+  return `Estas son preguntas frecuentes ya revisadas y aprobadas por el negocio. Si el cliente pregunta algo que coincide con alguna de estas, responde con esa información (puedes adaptar la redacción al tono de la conversación, pero no cambies el contenido):\n\n${lineas.join("\n\n")}`;
+}
+
+function construirBloqueDocumentos(documentos: { nombre_archivo: string; url: string }[]): string | null {
+  if (documentos.length === 0) return null;
+  const lineas = documentos.map((d) => `- ${d.nombre_archivo}: ${d.url}`);
+  return `Tienes estos documentos de referencia disponibles (solo conoces su nombre y enlace, no su contenido interno):\n${lineas.join("\n")}\n\nSi el cliente pregunta algo que podría estar en alguno de ellos, puedes compartir el enlace correspondiente -- pero nunca inventes ni asumas qué dice adentro.`;
+}
+
+// El texto libre que escribe el administrador (o que generó el asistente de
+// IA en otro momento) puede quedar desactualizado frente a la configuración
+// real de la cuenta -- por ejemplo, el prompt puede decir "no tienes agenda"
+// porque se escribió antes de asignarle un profesional, y luego el admin
+// activa uno sin volver a tocar el texto. Por eso el prompt final se arma en
+// secciones con encabezados y una regla de prioridad explícita: las secciones
+// "instrucción técnica del sistema" reflejan la configuración real vigente y
+// siempre ganan sobre cualquier afirmación contraria en el texto de negocio,
+// en vez de dejar que el modelo reciba dos instrucciones contradictorias sin
+// forma de resolverlas (causa raíz de que el agente pareciera "no hacerle
+// caso" al prompt de forma inconsistente). Los bloques de FAQs, documentos y
+// el cierre de "si no sabes, no inventes" se agregan siempre desde aquí, no
+// desde el texto del admin ni del asistente de generación -- así ninguna
+// cuenta se queda sin ellos solo porque el administrador no supo redactarlos
+// o el asistente los omitió.
 function construirSystemPrompt(
   config: { prompt: string | null; tono: string; idioma: string },
   profesionalesTexto: string | null,
   bloqueVariables: string | null,
+  bloqueFaqs: string | null,
+  bloqueDocumentos: string | null,
 ): string {
   const base = config.prompt?.trim() || "Eres un asistente de atención al cliente por WhatsApp.";
 
@@ -71,13 +100,20 @@ function construirSystemPrompt(
     ? `\n\n=== DATOS A CAPTURAR DEL CLIENTE (instrucción técnica del sistema) ===\n${bloqueVariables}`
     : "";
 
+  const bloqueFaqsFinal = bloqueFaqs ? `\n\n=== PREGUNTAS FRECUENTES (instrucción técnica del sistema) ===\n${bloqueFaqs}` : "";
+  const bloqueDocumentosFinal = bloqueDocumentos
+    ? `\n\n=== DOCUMENTOS DE REFERENCIA (instrucción técnica del sistema) ===\n${bloqueDocumentos}`
+    : "";
+
   return `=== INSTRUCCIONES DE NEGOCIO (definidas por el administrador de esta cuenta) ===\n${base}
 
-=== FECHA Y HORA (instrucción técnica del sistema) ===\nFecha y hora actual (zona horaria de México): ${fechaActualLegible()}. Úsala como referencia real de "hoy" para calcular cualquier día, fecha u horario que menciones o valides -- nunca la inventes ni asumas otra.${bloqueAgenda}${bloqueDatos}
+=== FECHA Y HORA (instrucción técnica del sistema) ===\nFecha y hora actual (zona horaria de México): ${fechaActualLegible()}. Úsala como referencia real de "hoy" para calcular cualquier día, fecha u horario que menciones o valides -- nunca la inventes ni asumas otra.${bloqueAgenda}${bloqueDatos}${bloqueFaqsFinal}${bloqueDocumentosFinal}
 
 === ESTILO DE RESPUESTA (instrucción técnica del sistema) ===\nResponde siempre en idioma "${config.idioma}", con un tono ${config.tono}. Sé breve y claro, como en una conversación real de WhatsApp.
 
-Si alguna sección anterior entra en conflicto con otra, las secciones marcadas "instrucción técnica del sistema" siempre tienen prioridad: reflejan la configuración real y vigente de esta cuenta, mientras que el texto de negocio pudo quedar desactualizado si el administrador cambió su configuración (agenda, variables, etc.) sin reescribirlo.`;
+=== CUANDO NO SEPAS LA RESPUESTA (instrucción técnica del sistema) ===\nSi la pregunta del cliente no está cubierta por las instrucciones de negocio, las preguntas frecuentes ni los documentos de arriba, sé honesto: no inventes precios, políticas, plazos ni ningún otro dato. Dilo con naturalidad y ofrece transferir la conversación con un humano o pide que aclare su duda.
+
+Si alguna sección anterior entra en conflicto con otra, las secciones marcadas "instrucción técnica del sistema" siempre tienen prioridad: reflejan la configuración real y vigente de esta cuenta, mientras que el texto de negocio pudo quedar desactualizado si el administrador cambió su configuración (agenda, variables, FAQs, etc.) sin reescribirlo.`;
 }
 
 // Llamado por el webhook de WhatsApp justo después de insertar el mensaje
@@ -249,6 +285,16 @@ export async function procesarAgenteIA({
   const bloqueVariables = construirBloqueVariables(camposUsados);
   const herramientaGuardarDatos = construirHerramientaGuardarDatos(camposUsados);
 
+  // FAQs y documentos de referencia -- configurados en pestañas separadas del
+  // Agente IA, se inyectan siempre desde aquí (no dependen de que el admin o
+  // el asistente de generación se acuerden de mencionarlos en el prompt).
+  const [{ data: faqs }, { data: documentos }] = await Promise.all([
+    supabase.from("agente_faqs").select("pregunta, respuesta").eq("cuenta_id", cuentaId),
+    supabase.from("agente_documentos").select("nombre_archivo, url").eq("cuenta_id", cuentaId),
+  ]);
+  const bloqueFaqs = construirBloqueFaqs(faqs ?? []);
+  const bloqueDocumentos = construirBloqueDocumentos(documentos ?? []);
+
   const herramientasAgenda: Herramienta[] = profesionalesTexto
     ? [...HERRAMIENTAS_CONSULTA, ...(config.modo !== "sugestivo" ? HERRAMIENTAS_ACCION : [])]
     : [];
@@ -263,7 +309,7 @@ export async function procesarAgenteIA({
   const resultado = await generarRespuestaIA({
     proveedor,
     apiKey,
-    systemPrompt: construirSystemPrompt(config, profesionalesTexto, bloqueVariables),
+    systemPrompt: construirSystemPrompt(config, profesionalesTexto, bloqueVariables, bloqueFaqs, bloqueDocumentos),
     historial,
     mensajeNuevo: textoEntrante,
     herramientas,

@@ -603,7 +603,31 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
     {mostrarAsistente && (
       <AsistentePromptModal
         camposPersonalizados={camposPersonalizados}
-        onUsar={(prompt) => {
+        onUsar={async (prompt, variablesNuevas) => {
+          // El borrador puede mencionar {{claves}} que todavía no existen como
+          // variable real -- si el admin olvida crearlas a mano en Variables,
+          // el agente jamás podría guardar ese dato aunque el texto se lo pida
+          // al cliente. Se crean aquí mismo, en el momento de aceptar el
+          // borrador, para que el prompt nunca prometa una captura que el
+          // sistema no puede cumplir.
+          const pendientes = variablesNuevas.filter(
+            (v) => !camposPersonalizados.some((c) => c.clave_variable === v.clave),
+          );
+          if (pendientes.length > 0) {
+            await supabase.from("campos_personalizados").insert(
+              pendientes.map((v, i) => ({
+                cuenta_id: cuentaId,
+                nombre: v.etiqueta,
+                tipo: "text",
+                requerido: false,
+                opciones: [],
+                clave_variable: v.clave,
+                mapea_a_columna_real: null,
+                orden: camposPersonalizados.length + i,
+              })),
+            );
+            await cargarCamposPersonalizados();
+          }
           setConfig((prev) => ({ ...prev, prompt }));
           setMostrarAsistente(false);
         }}
@@ -638,7 +662,7 @@ function AsistentePromptModal({
   onCerrar,
 }: {
   camposPersonalizados: CampoPersonalizado[];
-  onUsar: (prompt: string) => void;
+  onUsar: (prompt: string, variablesNuevas: { clave: string; etiqueta: string }[]) => void;
   onCerrar: () => void;
 }) {
   const [rubro, setRubro] = useState("");
@@ -651,6 +675,7 @@ function AsistentePromptModal({
   const [error, setError] = useState<string | null>(null);
   const [borrador, setBorrador] = useState<string | null>(null);
   const [costo, setCosto] = useState<number | null>(null);
+  const [variablesNuevasSugeridas, setVariablesNuevasSugeridas] = useState<{ clave: string; etiqueta: string }[]>([]);
 
   // El teléfono se excluye de "datos a capturar" -- ya se conoce desde que
   // el cliente escribe por WhatsApp, no tiene sentido pedírselo ni el agente
@@ -716,6 +741,7 @@ function AsistentePromptModal({
     }
     setBorrador(data.prompt);
     setCosto(data.costo_usd ?? null);
+    setVariablesNuevasSugeridas(data.variables_nuevas_sugeridas ?? []);
   }
 
   return (
@@ -825,8 +851,8 @@ function AsistentePromptModal({
 
               {datos.some((d) => d.esNueva) && (
                 <span className="mt-1.5 block text-xs text-[var(--color-texto-mute)]">
-                  Las marcadas "(nueva)" el asistente las va a usar como marcador en el prompt, pero después vas a tener que
-                  crearlas en Variables para que el agente las pueda guardar de verdad.
+                  Las marcadas "(nueva)" se crean automáticamente en Variables en cuanto aceptes el borrador -- no
+                  tienes que crearlas a mano por separado.
                 </span>
               )}
             </div>
@@ -886,7 +912,7 @@ function AsistentePromptModal({
               </button>
               <button
                 type="button"
-                onClick={() => onUsar(borrador)}
+                onClick={() => onUsar(borrador, variablesNuevasSugeridas)}
                 style={{ boxShadow: "var(--halo-accion)" }}
                 className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90"
               >
