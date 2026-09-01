@@ -1,20 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Template } from "@/components/PlantillasView";
+import { CampoVariableForm } from "@/components/CampoVariableForm";
+import type { CampoPersonalizado } from "@/lib/campos-personalizados";
 
 const INPUT =
   "w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]";
 
-type Tab = "plantilla" | "mensaje" | "encabezado" | "footer" | "archivo" | "botones" | "tarjetas" | "webhook" | "etiquetas" | "etapa";
+type Tab = "plantilla" | "mensaje" | "archivo" | "encabezado" | "footer" | "botones" | "tarjetas" | "webhook" | "etiquetas" | "etapa";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "plantilla", label: "Plantilla" },
   { id: "mensaje", label: "Mensaje" },
+  { id: "archivo", label: "Archivo" },
   { id: "encabezado", label: "Encabezado" },
   { id: "footer", label: "Mensaje Inferior" },
-  { id: "archivo", label: "Archivo" },
   { id: "botones", label: "Botones" },
   { id: "tarjetas", label: "Tarjetas" },
   { id: "webhook", label: "Webhook" },
@@ -52,6 +54,102 @@ async function subirMedia(archivo: File, cuentaWhatsappId: string): Promise<{ ur
   return { url: data.url ?? null, handle: data.handle ?? null, error: data.error ?? null };
 }
 
+// Combobox de búsqueda + selección + "crear nueva" para ligar un {{n}} (o el
+// único variable del encabezado) a un campo real de Variables -- mismo
+// concepto que el buscador de contactos, pero acotado a campos con
+// clave_variable (los que sí se pueden usar como marcador).
+function SelectorVariable({
+  valor,
+  variables,
+  onSeleccionar,
+  onCrear,
+  disabled,
+}: {
+  valor: string | null;
+  variables: CampoPersonalizado[];
+  onSeleccionar: (clave: string | null) => void;
+  onCrear: (textoBusqueda: string) => void;
+  disabled?: boolean;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const [busqueda, setBusqueda] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function fuera(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setAbierto(false);
+    }
+    document.addEventListener("mousedown", fuera);
+    return () => document.removeEventListener("mousedown", fuera);
+  }, []);
+
+  const seleccionado = variables.find((v) => v.clave_variable === valor);
+  const filtradas = variables.filter(
+    (v) => !busqueda.trim() || v.nombre.toLowerCase().includes(busqueda.toLowerCase()) || v.clave_variable?.toLowerCase().includes(busqueda.toLowerCase()),
+  );
+  const hayCoincidenciaExacta = variables.some((v) => v.nombre.toLowerCase() === busqueda.trim().toLowerCase());
+
+  return (
+    <div ref={ref} className="relative">
+      {seleccionado ? (
+        <div className="flex items-center justify-between rounded-lg border border-[var(--color-marca)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm">
+          <span className="text-[var(--color-texto)]">
+            {seleccionado.nombre} <span className="font-mono text-xs text-[var(--color-texto-mute)]">{`{{${seleccionado.clave_variable}}}`}</span>
+          </span>
+          {!disabled && (
+            <button type="button" onClick={() => onSeleccionar(null)} className="text-xs text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
+              ✕
+            </button>
+          )}
+        </div>
+      ) : (
+        <input
+          value={busqueda}
+          disabled={disabled}
+          onFocus={() => setAbierto(true)}
+          onChange={(e) => {
+            setBusqueda(e.target.value);
+            setAbierto(true);
+          }}
+          placeholder="Buscar o crear una variable…"
+          className={INPUT}
+        />
+      )}
+      {abierto && !seleccionado && (
+        <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-[var(--color-borde)] bg-[var(--color-tarjeta)] shadow-lg">
+          {filtradas.length === 0 && <p className="px-3 py-2 text-xs text-[var(--color-texto-mute)]">Sin variables creadas todavía.</p>}
+          {filtradas.map((v) => (
+            <button
+              key={v.id}
+              type="button"
+              onClick={() => {
+                onSeleccionar(v.clave_variable);
+                setBusqueda("");
+                setAbierto(false);
+              }}
+              className="block w-full px-3 py-2 text-left text-sm text-[var(--color-texto)] hover:bg-[var(--color-bg-elevada)]"
+            >
+              {v.nombre} <span className="font-mono text-xs text-[var(--color-texto-mute)]">{`{{${v.clave_variable}}}`}</span>
+            </button>
+          ))}
+          {busqueda.trim() && !hayCoincidenciaExacta && (
+            <button
+              type="button"
+              onClick={() => {
+                onCrear(busqueda.trim());
+                setAbierto(false);
+              }}
+              className="block w-full border-t border-[var(--color-borde)] px-3 py-2 text-left text-sm font-medium text-[var(--color-marca)] hover:bg-[var(--color-bg-elevada)]"
+            >
+              + Crear variable &ldquo;{busqueda.trim()}&rdquo;
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AsistentePlantillaModal({
   cuentaId,
   plantilla,
@@ -70,6 +168,8 @@ export function AsistentePlantillaModal({
   const [cuentasWhatsapp, setCuentasWhatsapp] = useState<CuentaWhatsapp[]>([]);
   const [etiquetasCuenta, setEtiquetasCuenta] = useState<Etiqueta[]>([]);
   const [etapas, setEtapas] = useState<Etapa[]>([]);
+  const [variablesDisponibles, setVariablesDisponibles] = useState<CampoPersonalizado[]>([]);
+  const [crearVariablePara, setCrearVariablePara] = useState<number | "header" | null>(null);
 
   const [nombre, setNombre] = useState(plantilla?.name ?? "");
   const [categoria, setCategoria] = useState<"MARKETING" | "UTILITY" | "AUTHENTICATION">(plantilla?.categoria ?? "MARKETING");
@@ -78,10 +178,12 @@ export function AsistentePlantillaModal({
 
   const [body, setBody] = useState(plantilla?.body ?? "");
   const [bodyEjemplos, setBodyEjemplos] = useState<string[]>(plantilla?.variables ?? []);
+  const [bodyClaves, setBodyClaves] = useState<(string | null)[]>(plantilla?.variables_mapeo ?? []);
 
   const [headerTipo, setHeaderTipo] = useState<HeaderTipo>(plantilla?.header_tipo ?? "ninguno");
   const [headerTexto, setHeaderTexto] = useState(plantilla?.header_texto ?? "");
-  const [headerTextoEjemplo, setHeaderTextoEjemplo] = useState("");
+  const [headerTextoEjemplo, setHeaderTextoEjemplo] = useState(plantilla?.header_texto_ejemplo ?? "");
+  const [headerVariableClave, setHeaderVariableClave] = useState<string | null>(plantilla?.header_variable_clave ?? null);
   const [headerMediaUrl, setHeaderMediaUrl] = useState<string | null>(plantilla?.header_media_url ?? null);
   const [headerMediaHandle, setHeaderMediaHandle] = useState<string | null>(plantilla?.header_media_handle ?? null);
   const [subiendoHeader, setSubiendoHeader] = useState(false);
@@ -109,10 +211,17 @@ export function AsistentePlantillaModal({
   );
 
   const [etiquetasSeleccionadas, setEtiquetasSeleccionadas] = useState<string[]>(plantilla?.etiquetas_envio ?? []);
+  const [busquedaEtiqueta, setBusquedaEtiqueta] = useState("");
+  const [creandoEtiqueta, setCreandoEtiqueta] = useState(false);
   const [etapaDestinoId, setEtapaDestinoId] = useState<string | null>(plantilla?.etapa_destino_id ?? null);
 
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function cargarVariables() {
+    const { data } = await supabase.from("campos_personalizados").select("*").eq("cuenta_id", cuentaId).not("clave_variable", "is", null).order("orden");
+    setVariablesDisponibles((data as CampoPersonalizado[]) ?? []);
+  }
 
   useEffect(() => {
     async function cargarCatalogos() {
@@ -126,13 +235,35 @@ export function AsistentePlantillaModal({
       setEtapas(ep ?? []);
     }
     cargarCatalogos();
+    cargarVariables();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cuentaId]);
 
   const variablesBody = useMemo(() => detectarVariables(body), [body]);
   useEffect(() => {
     setBodyEjemplos((prev) => variablesBody.map((_, i) => prev[i] ?? ""));
+    setBodyClaves((prev) => variablesBody.map((_, i) => prev[i] ?? null));
   }, [variablesBody]);
+
+  function alGuardarVariableCreada(claveCreada: string | null) {
+    const slot = crearVariablePara;
+    setCrearVariablePara(null);
+    if (!claveCreada) return;
+    cargarVariables().then(() => {
+      if (slot === "header") setHeaderVariableClave(claveCreada);
+      else if (typeof slot === "number") setBodyClaves((prev) => prev.map((v, idx) => (idx === slot ? claveCreada : v)));
+    });
+  }
+
+  async function crearEtiqueta(nombreNueva: string) {
+    setCreandoEtiqueta(true);
+    const { data, error } = await supabase.from("etiquetas").insert({ cuenta_id: cuentaId, nombre: nombreNueva }).select().single();
+    setCreandoEtiqueta(false);
+    if (error || !data) return;
+    setEtiquetasCuenta((prev) => [...prev, data].sort((a, b) => a.nombre.localeCompare(b.nombre)));
+    setEtiquetasSeleccionadas((prev) => [...prev, data.nombre]);
+    setBusquedaEtiqueta("");
+  }
 
   async function elegirArchivoHeader(archivo: File) {
     if (!cuentaWhatsappId) {
@@ -167,6 +298,23 @@ export function AsistentePlantillaModal({
     setTarjetas((prev) => prev.filter((_, i) => i !== index));
   }
 
+  function elegirTipoArchivo(tipo: "ninguno" | "imagen" | "video" | "documento") {
+    setHeaderTipo(tipo);
+    if (tipo === "ninguno") {
+      setHeaderMediaUrl(null);
+      setHeaderMediaHandle(null);
+    }
+  }
+
+  function elegirTipoEncabezado(tipo: "ninguno" | "texto") {
+    setHeaderTipo(tipo);
+    if (tipo === "ninguno") {
+      setHeaderTexto("");
+      setHeaderTextoEjemplo("");
+      setHeaderVariableClave(null);
+    }
+  }
+
   async function guardar() {
     setGuardando(true);
     setError(null);
@@ -185,9 +333,11 @@ export function AsistentePlantillaModal({
       cuenta_whatsapp_id: cuentaWhatsappId,
       body: body.trim(),
       body_ejemplos: bodyEjemplos,
+      variables_mapeo: bodyClaves,
       header_tipo: headerTipo,
       header_texto: headerTipo === "texto" ? headerTexto.trim() || null : null,
       header_texto_ejemplo: headerTextoEjemplo.trim() || null,
+      header_variable_clave: headerTipo === "texto" ? headerVariableClave : null,
       header_media_url: headerTipo !== "ninguno" && headerTipo !== "texto" ? headerMediaUrl : null,
       header_media_handle: headerTipo !== "ninguno" && headerTipo !== "texto" ? headerMediaHandle : null,
       footer_texto: footerTexto.trim() || null,
@@ -222,6 +372,9 @@ export function AsistentePlantillaModal({
 
     onGuardado();
   }
+
+  const etiquetasFiltradas = etiquetasCuenta.filter((et) => !busquedaEtiqueta.trim() || et.nombre.toLowerCase().includes(busquedaEtiqueta.toLowerCase()));
+  const hayEtiquetaExacta = etiquetasCuenta.some((et) => et.nombre.toLowerCase() === busquedaEtiqueta.trim().toLowerCase());
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -323,77 +476,57 @@ export function AsistentePlantillaModal({
                   />
                 </label>
                 {variablesBody.length > 0 && (
-                  <div className="space-y-2 rounded-lg border border-[var(--color-borde)] p-3">
-                    <p className="text-xs font-medium text-[var(--color-texto)]">Define un valor de ejemplo para las variables</p>
+                  <div className="space-y-3 rounded-lg border border-[var(--color-borde)] p-3">
+                    <p className="text-xs font-medium text-[var(--color-texto)]">
+                      Liga cada variable a un dato real del contacto (opcional) y define su valor de ejemplo para Meta
+                    </p>
                     {variablesBody.map((n, i) => (
-                      <label key={n} className="block">
-                        <span className="mb-1 block text-xs text-[var(--color-texto-mute)]">{`{{${n}}}`}</span>
+                      <div key={n} className="space-y-1.5">
+                        <span className="block text-xs text-[var(--color-texto-mute)]">{`{{${n}}}`}</span>
+                        <SelectorVariable
+                          valor={bodyClaves[i] ?? null}
+                          variables={variablesDisponibles}
+                          disabled={soloConfiguracionLocal}
+                          onSeleccionar={(clave) => setBodyClaves((prev) => prev.map((v, idx) => (idx === i ? clave : v)))}
+                          onCrear={() => setCrearVariablePara(i)}
+                        />
                         <input
                           value={bodyEjemplos[i] ?? ""}
                           disabled={soloConfiguracionLocal}
+                          placeholder="Valor de ejemplo para que Meta apruebe la plantilla"
                           onChange={(e) => setBodyEjemplos((prev) => prev.map((v, idx) => (idx === i ? e.target.value : v)))}
                           className={INPUT}
                         />
-                      </label>
+                      </div>
                     ))}
                   </div>
                 )}
               </div>
             )}
 
-            {tab === "encabezado" && (
+            {tab === "archivo" && (
               <div className="space-y-4">
                 <label className="block">
-                  <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Seleccionar</span>
-                  <select value={headerTipo} onChange={(e) => setHeaderTipo(e.target.value as HeaderTipo)} disabled={soloConfiguracionLocal} className={INPUT}>
+                  <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Adjuntar archivo</span>
+                  <select
+                    value={headerTipo === "texto" ? "ninguno" : headerTipo}
+                    disabled={soloConfiguracionLocal || headerTipo === "texto"}
+                    onChange={(e) => elegirTipoArchivo(e.target.value as "ninguno" | "imagen" | "video" | "documento")}
+                    className={INPUT}
+                  >
                     <option value="ninguno">Ninguno</option>
-                    <option value="texto">Texto</option>
                     <option value="imagen">Imagen</option>
                     <option value="video">Video</option>
                     <option value="documento">Documento</option>
                   </select>
                 </label>
-                {headerTipo === "texto" && (
-                  <>
-                    <label className="block">
-                      <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Texto del Encabezado</span>
-                      <input
-                        value={headerTexto}
-                        onChange={(e) => setHeaderTexto(e.target.value)}
-                        disabled={soloConfiguracionLocal}
-                        maxLength={60}
-                        placeholder="Principal {{1}}"
-                        className={INPUT}
-                      />
-                      <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">{headerTexto.length}/60 -- admite máximo 1 variable.</span>
-                    </label>
-                    {detectarVariables(headerTexto).length > 0 && (
-                      <label className="block">
-                        <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Valor de ejemplo</span>
-                        <input value={headerTextoEjemplo} onChange={(e) => setHeaderTextoEjemplo(e.target.value)} disabled={soloConfiguracionLocal} className={INPUT} />
-                      </label>
-                    )}
-                  </>
-                )}
-                {headerTipo !== "ninguno" && headerTipo !== "texto" && (
-                  <p className="text-xs text-[var(--color-texto-mute)]">Ve a la pestaña &ldquo;Archivo&rdquo; para subir el {headerTipo}.</p>
-                )}
-              </div>
-            )}
-
-            {tab === "footer" && (
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Mensaje Inferior</span>
-                <input value={footerTexto} onChange={(e) => setFooterTexto(e.target.value)} disabled={soloConfiguracionLocal} maxLength={60} className={INPUT} />
-                <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">{footerTexto.length}/60 -- no admite variables.</span>
-              </label>
-            )}
-
-            {tab === "archivo" && (
-              <div className="space-y-3">
-                {headerTipo === "ninguno" || headerTipo === "texto" ? (
-                  <p className="text-sm text-[var(--color-texto-mute)]">
-                    Elige un tipo de medio (Imagen, Video o Documento) en la pestaña &ldquo;Encabezado&rdquo; para poder adjuntar un archivo.
+                {headerTipo === "texto" ? (
+                  <p className="text-xs text-[var(--color-texto-mute)]">
+                    Ya tienes un encabezado de texto configurado en la pestaña &ldquo;Encabezado&rdquo;. Quítalo ahí primero si quieres adjuntar un archivo en su lugar.
+                  </p>
+                ) : headerTipo === "ninguno" ? (
+                  <p className="text-xs text-[var(--color-texto-mute)]">
+                    Úsalo para mandar un documento (ej. instructivo de uso) o una imagen (ej. una promoción) junto con el mensaje.
                   </p>
                 ) : (
                   <>
@@ -417,6 +550,68 @@ export function AsistentePlantillaModal({
                   </>
                 )}
               </div>
+            )}
+
+            {tab === "encabezado" && (
+              <div className="space-y-4">
+                <label className="block">
+                  <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Seleccionar</span>
+                  <select
+                    value={headerTipo === "texto" ? "texto" : "ninguno"}
+                    disabled={soloConfiguracionLocal || (headerTipo !== "ninguno" && headerTipo !== "texto")}
+                    onChange={(e) => elegirTipoEncabezado(e.target.value as "ninguno" | "texto")}
+                    className={INPUT}
+                  >
+                    <option value="ninguno">Ninguno</option>
+                    <option value="texto">Texto</option>
+                  </select>
+                </label>
+                {headerTipo !== "ninguno" && headerTipo !== "texto" ? (
+                  <p className="text-xs text-[var(--color-texto-mute)]">
+                    Ya tienes un archivo adjunto configurado en la pestaña &ldquo;Archivo&rdquo;. Quítalo ahí primero si quieres usar un encabezado de texto en su lugar.
+                  </p>
+                ) : (
+                  headerTipo === "texto" && (
+                    <>
+                      <label className="block">
+                        <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Texto del Encabezado</span>
+                        <input
+                          value={headerTexto}
+                          onChange={(e) => setHeaderTexto(e.target.value)}
+                          disabled={soloConfiguracionLocal}
+                          maxLength={60}
+                          placeholder="Principal {{1}}"
+                          className={INPUT}
+                        />
+                        <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">{headerTexto.length}/60 -- admite máximo 1 variable.</span>
+                      </label>
+                      {detectarVariables(headerTexto).length > 0 && (
+                        <div className="space-y-2">
+                          <SelectorVariable
+                            valor={headerVariableClave}
+                            variables={variablesDisponibles}
+                            disabled={soloConfiguracionLocal}
+                            onSeleccionar={setHeaderVariableClave}
+                            onCrear={() => setCrearVariablePara("header")}
+                          />
+                          <label className="block">
+                            <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Valor de ejemplo</span>
+                            <input value={headerTextoEjemplo} onChange={(e) => setHeaderTextoEjemplo(e.target.value)} disabled={soloConfiguracionLocal} className={INPUT} />
+                          </label>
+                        </div>
+                      )}
+                    </>
+                  )
+                )}
+              </div>
+            )}
+
+            {tab === "footer" && (
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Mensaje Inferior</span>
+                <input value={footerTexto} onChange={(e) => setFooterTexto(e.target.value)} disabled={soloConfiguracionLocal} maxLength={60} className={INPUT} />
+                <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">{footerTexto.length}/60 -- no admite variables.</span>
+              </label>
             )}
 
             {tab === "botones" && (
@@ -598,12 +793,18 @@ export function AsistentePlantillaModal({
             )}
 
             {tab === "etiquetas" && (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <p className="text-sm text-[var(--color-texto-mute)]">
                   Etiquetas adicionales que se agregan al contacto al enviar esta plantilla (además de la etiqueta objetivo de la campaña).
                 </p>
+                <input
+                  value={busquedaEtiqueta}
+                  onChange={(e) => setBusquedaEtiqueta(e.target.value)}
+                  placeholder="Buscar o crear una etiqueta…"
+                  className={INPUT}
+                />
                 <div className="flex flex-wrap gap-2">
-                  {etiquetasCuenta.map((et) => {
+                  {etiquetasFiltradas.map((et) => {
                     const activa = etiquetasSeleccionadas.includes(et.nombre);
                     return (
                       <button
@@ -623,6 +824,16 @@ export function AsistentePlantillaModal({
                   })}
                   {etiquetasCuenta.length === 0 && <p className="text-xs text-[var(--color-texto-mute)]">No hay etiquetas creadas todavía.</p>}
                 </div>
+                {busquedaEtiqueta.trim() && !hayEtiquetaExacta && (
+                  <button
+                    type="button"
+                    disabled={creandoEtiqueta}
+                    onClick={() => crearEtiqueta(busquedaEtiqueta.trim())}
+                    className="text-xs font-medium text-[var(--color-marca)] hover:underline disabled:opacity-60"
+                  >
+                    {creandoEtiqueta ? "Creando…" : `+ Crear etiqueta "${busquedaEtiqueta.trim()}"`}
+                  </button>
+                )}
               </div>
             )}
 
@@ -673,6 +884,20 @@ export function AsistentePlantillaModal({
           tarjetas={tarjetas}
         />
       </div>
+
+      {crearVariablePara !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto">
+            <CampoVariableForm
+              cuentaId={cuentaId}
+              campo={null}
+              siguienteOrden={variablesDisponibles.length}
+              onGuardado={alGuardarVariableCreada}
+              onCancelar={() => setCrearVariablePara(null)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

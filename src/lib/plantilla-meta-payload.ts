@@ -15,9 +15,14 @@ export type PayloadPlantilla = {
   cuenta_whatsapp_id: string;
   body: string;
   body_ejemplos: string[];
+  // Paralelo a body_ejemplos por posición: si un elemento tiene la clave_variable
+  // de un campo personalizado, el envío de campañas autollena ese {{n}} con el
+  // dato real del contacto en vez del ejemplo fijo (ver lib/variables-contacto.ts).
+  variables_mapeo: (string | null)[];
   header_tipo: "ninguno" | "texto" | "imagen" | "video" | "documento";
   header_texto: string | null;
   header_texto_ejemplo: string | null;
+  header_variable_clave: string | null;
   header_media_url: string | null;
   header_media_handle: string | null;
   footer_texto: string | null;
@@ -110,9 +115,11 @@ export const CAMPOS_CONTENIDO_META = [
   "cuenta_whatsapp_id",
   "body",
   "body_ejemplos",
+  "variables_mapeo",
   "header_tipo",
   "header_texto",
   "header_texto_ejemplo",
+  "header_variable_clave",
   "header_media_url",
   "header_media_handle",
   "footer_texto",

@@ -1,0 +1,44 @@
+import { createAdminClient } from "@/lib/supabase/admin";
+import type { CampoPersonalizado } from "@/lib/campos-personalizados";
+
+type AdminClient = ReturnType<typeof createAdminClient>;
+
+// Mismo patrón de resolución que ya usa enriquecerNotasCita en
+// agente-acciones.ts (columnas reales vs. valores_campos_personalizados),
+// pero indexado por clave_variable en vez de por prompt -- lo usa el envío de
+// campañas para autollenar {{n}} desde el dato real del contacto cuando la
+// plantilla tiene esa posición vinculada a una variable.
+export async function obtenerValoresContactoPorClave(
+  admin: AdminClient,
+  cuentaId: string,
+  contactoId: string,
+  claves: string[],
+): Promise<Record<string, string>> {
+  const clavesUnicas = [...new Set(claves.filter(Boolean))];
+  if (clavesUnicas.length === 0) return {};
+
+  const [{ data: campos }, { data: contacto }, { data: valores }] = await Promise.all([
+    admin.from("campos_personalizados").select("*").eq("cuenta_id", cuentaId).in("clave_variable", clavesUnicas),
+    admin.from("contactos").select("nombre_completo, telefono, correo_electronico").eq("id", contactoId).maybeSingle(),
+    admin.from("valores_campos_personalizados").select("campo_id, valor").eq("contacto_id", contactoId),
+  ]);
+
+  const valorPorCampoId: Record<string, string> = {};
+  for (const v of valores ?? []) if (v.valor) valorPorCampoId[v.campo_id] = v.valor;
+
+  const resultado: Record<string, string> = {};
+  for (const campo of (campos ?? []) as CampoPersonalizado[]) {
+    if (!campo.clave_variable) continue;
+    const valor =
+      campo.mapea_a_columna_real === "nombre_completo"
+        ? contacto?.nombre_completo
+        : campo.mapea_a_columna_real === "telefono"
+          ? contacto?.telefono
+          : campo.mapea_a_columna_real === "correo_electronico"
+            ? contacto?.correo_electronico
+            : valorPorCampoId[campo.id];
+    if (valor) resultado[campo.clave_variable] = valor;
+  }
+
+  return resultado;
+}

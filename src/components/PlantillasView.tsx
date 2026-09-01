@@ -15,10 +15,13 @@ export type Template = {
   status: "pending" | "approved" | "rejected" | "paused" | "disabled";
   body: string | null;
   variables: string[];
+  variables_mapeo: (string | null)[];
   categoria: "MARKETING" | "UTILITY" | "AUTHENTICATION";
   cuenta_whatsapp_id: string | null;
   header_tipo: "ninguno" | "texto" | "imagen" | "video" | "documento";
   header_texto: string | null;
+  header_texto_ejemplo: string | null;
+  header_variable_clave: string | null;
   header_media_url: string | null;
   header_media_handle: string | null;
   footer_texto: string | null;
