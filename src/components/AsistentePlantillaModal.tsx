@@ -928,6 +928,23 @@ export function AsistentePlantillaModal({
   );
 }
 
+// Muestra el archivo real (imagen/video) en vez de un cuadro gris con un
+// emoji -- así la vista previa refleja de verdad lo que va a recibir el
+// cliente. Un documento no se puede "previsualizar" de forma útil dentro de
+// una tarjeta chica, así que se deja como icono + etiqueta.
+function MediaPreview({ tipo, url, alto }: { tipo: "imagen" | "video" | "documento"; url: string; alto: string }) {
+  if (tipo === "imagen") {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={url} alt="" className={`${alto} w-full object-cover`} />;
+  }
+  if (tipo === "video") {
+    return <video src={url} controls className={`${alto} w-full object-cover`} />;
+  }
+  return (
+    <div className={`flex ${alto} w-full items-center justify-center bg-neutral-200 text-xs text-neutral-500 dark:bg-neutral-700`}>📄 documento</div>
+  );
+}
+
 function VistaPrevia({
   headerTipo,
   headerMediaUrl,
@@ -956,8 +973,8 @@ function VistaPrevia({
       <p className="mb-3 text-xs font-medium text-[var(--color-texto-mute)]">Vista previa</p>
       <div className="rounded-lg bg-white p-3 text-sm text-neutral-900 shadow dark:bg-[#202c33] dark:text-neutral-100">
         {headerTipo !== "ninguno" && headerMediaUrl && (
-          <div className="mb-2 flex h-28 items-center justify-center rounded bg-neutral-200 text-xs text-neutral-500 dark:bg-neutral-700">
-            {headerTipo === "imagen" ? "🖼️" : headerTipo === "video" ? "🎬" : "📄"} {headerTipo}
+          <div className="mb-2 overflow-hidden rounded">
+            <MediaPreview tipo={headerTipo === "documento" ? "documento" : headerTipo} url={headerMediaUrl} alto="h-32" />
           </div>
         )}
         <p className="whitespace-pre-wrap">
@@ -985,8 +1002,12 @@ function VistaPrevia({
             {tarjetas.length === 0 && <p className="text-xs text-neutral-500">Agrega tarjetas para ver la vista previa</p>}
             {tarjetas.map((t, i) => (
               <div key={i} className="w-32 shrink-0 rounded border border-neutral-200 p-2 text-xs dark:border-neutral-700">
-                <div className="mb-1 flex h-16 items-center justify-center rounded bg-neutral-200 dark:bg-neutral-700">
-                  {t.media_tipo === "imagen" ? "🖼️" : "🎬"}
+                <div className="mb-1 overflow-hidden rounded">
+                  {t.media_url ? (
+                    <MediaPreview tipo={t.media_tipo} url={t.media_url} alto="h-16" />
+                  ) : (
+                    <div className="flex h-16 items-center justify-center bg-neutral-200 dark:bg-neutral-700">{t.media_tipo === "imagen" ? "🖼️" : "🎬"}</div>
+                  )}
                 </div>
                 <p className="line-clamp-2">{sustituirEjemplos(t.body, t.body_ejemplos) || "Mensaje…"}</p>
               </div>
