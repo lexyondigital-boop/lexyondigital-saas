@@ -107,9 +107,14 @@ async function procesarMensajeEntrante(body: unknown) {
     const { data } = await supabase
       .from("contactos")
       .insert({ cuenta_id: cuentaWhatsapp.cuenta_id, telefono, nombre, status: "activo" })
-      .select("id")
+      .select("id, campana_status")
       .single();
     contacto = data;
+  } else if (["enviado", "entregado", "leido"].includes(contacto.campana_status ?? "")) {
+    // El contacto ya estaba en una campaña (se le mandó algo y no había
+    // contestado) -- al escribir, pasa a "respondió", el estado más
+    // avanzado de campana_status (ver RANGO_CAMPANA_STATUS más abajo).
+    await supabase.from("contactos").update({ campana_status: "respondio" }).eq("id", contacto.id);
   }
 
   if (!contacto) return;
@@ -232,7 +237,7 @@ async function buscarContacto(
 ) {
   const { data } = await supabase
     .from("contactos")
-    .select("id")
+    .select("id, campana_status")
     .eq("cuenta_id", cuentaId)
     .eq("telefono", telefono)
     .maybeSingle();
@@ -332,6 +337,11 @@ const ESTADO_POR_META: Record<string, "enviado" | "entregado" | "leido" | "falli
 // siempre se aplica, sin importar en qué estado estaba antes.
 const RANGO_ESTADO: Record<string, number> = { enviado: 1, entregado: 2, leido: 3 };
 
+// Mismo espíritu que RANGO_ESTADO, pero para contactos.campana_status --
+// "respondio" (el contacto contestó, ver procesarMensajeEntrante) es el más
+// avanzado, así que un entregado/leido que llegue tarde nunca lo pisa.
+const RANGO_CAMPANA_STATUS: Record<string, number> = { pendiente: 0, enviado: 1, entregado: 2, leido: 3, respondio: 4 };
+
 async function procesarActualizacionesEstado(statuses: any[]) {
   const supabase = createAdminClient();
 
@@ -341,7 +351,7 @@ async function procesarActualizacionesEstado(statuses: any[]) {
 
     const { data: existente } = await supabase
       .from("mensajes")
-      .select("id, status, tipo, template_nombre, cuenta_id")
+      .select("id, status, tipo, template_nombre, cuenta_id, campana_id, contacto_id")
       .eq("whatsapp_message_id", s.id)
       .maybeSingle();
 
@@ -357,6 +367,14 @@ async function procesarActualizacionesEstado(statuses: any[]) {
         estado: nuevoEstado,
         whatsappMessageId: s.id,
       });
+    }
+
+    if (existente.campana_id && existente.contacto_id && (nuevoEstado === "entregado" || nuevoEstado === "leido")) {
+      const { data: contacto } = await supabase.from("contactos").select("campana_status").eq("id", existente.contacto_id).maybeSingle();
+      const actual = contacto?.campana_status ?? "pendiente";
+      if ((RANGO_CAMPANA_STATUS[actual] ?? 0) < (RANGO_CAMPANA_STATUS[nuevoEstado] ?? 0)) {
+        await supabase.from("contactos").update({ campana_status: nuevoEstado }).eq("id", existente.contacto_id);
+      }
     }
   }
 }

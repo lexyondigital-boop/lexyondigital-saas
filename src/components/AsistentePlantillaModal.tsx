@@ -210,7 +210,7 @@ export function AsistentePlantillaModal({
 }: {
   cuentaId: string;
   plantilla: Template | null;
-  onGuardado: () => void;
+  onGuardado: (templateId?: string) => void;
   onCancelar: () => void;
 }) {
   const supabase = createClient();
@@ -443,7 +443,7 @@ export function AsistentePlantillaModal({
       return;
     }
 
-    onGuardado();
+    onGuardado(data.template?.id as string | undefined);
   }
 
   const etiquetasFiltradas = etiquetasCuenta.filter((et) => !busquedaEtiqueta.trim() || et.nombre.toLowerCase().includes(busquedaEtiqueta.toLowerCase()));

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enviarMensajePlantilla, normalizarDestinatario } from "@/lib/meta";
 import { moverDealEtapa, obtenerDealAbiertoDeContacto } from "@/lib/deals";
-import { obtenerValoresContactoPorClave } from "@/lib/variables-contacto";
+import { resolverParametrosPlantilla } from "@/lib/variables-contacto";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -16,6 +16,17 @@ export async function POST(request: NextRequest) {
   }
 
   const supabase = createAdminClient();
+
+  // Promueve a "enviando" las campañas programadas cuya hora ya llegó --
+  // "Enviar ahora" hace lo mismo de forma manual e inmediata vía
+  // /api/campanas/[id]/iniciar; esto es el disparador automático.
+  await supabase
+    .from("campanas")
+    .update({ status: "enviando" })
+    .eq("status", "borrador")
+    .not("programado_para", "is", null)
+    .lte("programado_para", new Date().toISOString())
+    .gt("total_destinatarios", 0);
 
   const { data: campanas, error } = await supabase
     .from("campanas")
@@ -118,36 +129,6 @@ async function avanzarCampana(
   }
 
   return { campana_id: campana.id, contacto_id: contacto.id, ok: resultado.ok };
-}
-
-// Por cada posición {{n}} del body: si la plantilla la tiene ligada a una
-// variable real (pestaña "Mensaje" del asistente, ver AsistentePlantillaModal),
-// se autollena con el dato de ESE contacto -- si no lo tiene capturado
-// todavía, o la posición no está ligada a nada, se cae al valor que el admin
-// escribió al iniciar la campaña, y si tampoco hay eso, al ejemplo guardado
-// en la plantilla (mejor un valor genérico que un {{n}} vacío en el mensaje).
-async function resolverParametrosPlantilla(
-  supabase: AdminClient,
-  cuentaId: string,
-  contactoId: string,
-  template: { variables: string[] | null; variables_mapeo: (string | null)[] | null },
-  variablesCampana: unknown,
-): Promise<string[]> {
-  const ejemplos = template.variables ?? [];
-  const mapeo = template.variables_mapeo ?? [];
-  const valoresCampana = Array.isArray(variablesCampana) ? variablesCampana.map(String) : [];
-  const totalPosiciones = Math.max(ejemplos.length, mapeo.length, valoresCampana.length);
-
-  const clavesUsadas = mapeo.filter((c): c is string => !!c);
-  const valoresContacto = clavesUsadas.length > 0 ? await obtenerValoresContactoPorClave(supabase, cuentaId, contactoId, clavesUsadas) : {};
-
-  const parametros: string[] = [];
-  for (let i = 0; i < totalPosiciones; i++) {
-    const clave = mapeo[i];
-    const valorContacto = clave ? valoresContacto[clave] : undefined;
-    parametros.push(valorContacto ?? valoresCampana[i] ?? ejemplos[i] ?? "");
-  }
-  return parametros;
 }
 
 async function registrarEnvioExitoso(

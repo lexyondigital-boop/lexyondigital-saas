@@ -42,3 +42,36 @@ export async function obtenerValoresContactoPorClave(
 
   return resultado;
 }
+
+// Por cada posición {{n}} del body: si la plantilla la tiene ligada a una
+// variable real (pestaña "Mensaje" del asistente de plantillas), se
+// autollena con el dato de ESE contacto -- si no lo tiene capturado
+// todavía, o la posición no está ligada a nada, se cae al valor que se haya
+// dado manualmente (ej. al iniciar una campaña con valores fijos), y si
+// tampoco hay eso, al ejemplo guardado en la plantilla (mejor un valor
+// genérico que un {{n}} vacío en el mensaje real). Se usa tanto desde el
+// cron de campañas como desde el envío individual de plantilla en
+// Conversaciones.
+export async function resolverParametrosPlantilla(
+  admin: AdminClient,
+  cuentaId: string,
+  contactoId: string,
+  template: { variables: string[] | null; variables_mapeo: (string | null)[] | null },
+  valoresManuales: unknown = [],
+): Promise<string[]> {
+  const ejemplos = template.variables ?? [];
+  const mapeo = template.variables_mapeo ?? [];
+  const valoresDados = Array.isArray(valoresManuales) ? valoresManuales.map(String) : [];
+  const totalPosiciones = Math.max(ejemplos.length, mapeo.length, valoresDados.length);
+
+  const clavesUsadas = mapeo.filter((c): c is string => !!c);
+  const valoresContacto = clavesUsadas.length > 0 ? await obtenerValoresContactoPorClave(admin, cuentaId, contactoId, clavesUsadas) : {};
+
+  const parametros: string[] = [];
+  for (let i = 0; i < totalPosiciones; i++) {
+    const clave = mapeo[i];
+    const valorContacto = clave ? valoresContacto[clave] : undefined;
+    parametros.push(valorContacto ?? valoresDados[i] ?? ejemplos[i] ?? "");
+  }
+  return parametros;
+}

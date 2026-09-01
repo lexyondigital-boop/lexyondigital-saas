@@ -241,6 +241,11 @@ function PanelConversacion({
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [procesandoSugerencia, setProcesandoSugerencia] = useState<string | null>(null);
+  const [templatesAprobados, setTemplatesAprobados] = useState<{ id: string; name: string }[]>([]);
+  const [templateSeleccionado, setTemplateSeleccionado] = useState("");
+  const [previaPlantilla, setPreviaPlantilla] = useState<{ body: string; header_tipo: string; footer_texto: string | null } | null>(null);
+  const [cargandoPrevia, setCargandoPrevia] = useState(false);
+  const [enviandoPlantilla, setEnviandoPlantilla] = useState(false);
   const finRef = useRef<HTMLDivElement>(null);
 
   async function cargarMensajes() {
@@ -298,6 +303,50 @@ function PanelConversacion({
   useEffect(() => {
     finRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [mensajes.length]);
+
+  useEffect(() => {
+    supabase
+      .from("templates")
+      .select("id, name")
+      .eq("status", "approved")
+      .then(({ data }) => setTemplatesAprobados(data ?? []));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!templateSeleccionado || !conversacion.contacto_id) {
+      setPreviaPlantilla(null);
+      return;
+    }
+    setCargandoPrevia(true);
+    fetch("/api/plantillas/previsualizar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ template_id: templateSeleccionado, contacto_id: conversacion.contacto_id }),
+    })
+      .then((res) => res.json())
+      .then((data) => setPreviaPlantilla(data.error ? null : data))
+      .finally(() => setCargandoPrevia(false));
+  }, [templateSeleccionado, conversacion.contacto_id]);
+
+  async function enviarPlantilla() {
+    if (!templateSeleccionado) return;
+    setEnviandoPlantilla(true);
+    const res = await fetch("/api/messages/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversacion_id: conversacion.id, tipo: "template", template_id: templateSeleccionado }),
+    });
+    setEnviandoPlantilla(false);
+    if (res.ok) {
+      setTemplateSeleccionado("");
+      setPreviaPlantilla(null);
+      cargarMensajes();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      alert(data.error ?? "No se pudo enviar la plantilla.");
+    }
+  }
 
   async function alternarAgente() {
     const activando = !conversacion.agente_ia_activo;
@@ -469,6 +518,40 @@ function PanelConversacion({
           Enviar
         </button>
       </div>
+
+      {templatesAprobados.length > 0 && (
+        <div className="space-y-2 border-t border-[var(--color-borde)] p-4">
+          <div className="flex gap-2">
+            <select
+              value={templateSeleccionado}
+              onChange={(e) => setTemplateSeleccionado(e.target.value)}
+              className="flex-1 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+            >
+              <option value="">Enviar una plantilla…</option>
+              {templatesAprobados.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={enviarPlantilla}
+              disabled={!templateSeleccionado || enviandoPlantilla || cargandoPrevia}
+              className="shrink-0 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-4 py-2 text-sm font-semibold text-[var(--color-texto)] transition-opacity hover:opacity-80 disabled:opacity-50"
+            >
+              {enviandoPlantilla ? "Enviando…" : "Enviar plantilla"}
+            </button>
+          </div>
+          {cargandoPrevia && <p className="text-xs text-[var(--color-texto-mute)]">Cargando vista previa…</p>}
+          {previaPlantilla && (
+            <div className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-3 text-sm text-[var(--color-texto)]">
+              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-[var(--color-texto-mute)]">Vista previa</p>
+              <p className="whitespace-pre-wrap">{previaPlantilla.body}</p>
+              {previaPlantilla.footer_texto && <p className="mt-1 text-xs text-[var(--color-texto-mute)]">{previaPlantilla.footer_texto}</p>}
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 }

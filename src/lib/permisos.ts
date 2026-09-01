@@ -51,6 +51,8 @@ export const LABEL_ACCION: Record<string, string> = {
   edit_template: "Editó una plantilla",
   delete_template: "Eliminó una plantilla",
   resubmit_template: "Reenvió una plantilla a Meta",
+  assign_contact: "Asignó un contacto",
+  load_campaign_contacts: "Cargó contactos a una campaña",
 };
 
 export function agruparPorCategoria(permisos: Permiso[]): Record<string, Permiso[]> {

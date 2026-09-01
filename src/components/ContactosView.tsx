@@ -15,6 +15,8 @@ type Contacto = {
   etiquetas: string[];
   status: "activo" | "inactivo";
   canal_origen: string | null;
+  campana_status: string | null;
+  asignado_a: string | null;
   created_at: string;
 };
 
@@ -23,6 +25,7 @@ type ColumnaConfig = { id: string; visible: boolean };
 type EtapaLite = { id: string; nombre: string; color: string; orden: number };
 type DealLite = { id: string; contacto_id: string; etapa_id: string | null; estado: string; created_at: string };
 type EtapaDeContacto = { etapa_id: string | null; nombre: string; color: string } | null;
+type PerfilLite = { id: string; nombre: string | null };
 
 const COLUMNAS_BASE: { id: string; etiqueta: string }[] = [
   { id: "nombre", etiqueta: "Nombre" },
@@ -32,8 +35,29 @@ const COLUMNAS_BASE: { id: string; etiqueta: string }[] = [
   { id: "etiquetas", etiqueta: "Etiquetas" },
   { id: "etapa_pipeline", etiqueta: "Etapa / Pipeline" },
   { id: "canal_origen", etiqueta: "Canal" },
+  { id: "campana_status", etiqueta: "Estado de campaña" },
   { id: "status", etiqueta: "Estado" },
+  { id: "asignado_a", etiqueta: "Asignado a" },
+  { id: "created_at", etiqueta: "Agregado" },
 ];
+
+export const LABEL_CAMPANA_STATUS: Record<string, string> = {
+  pendiente: "Pendiente",
+  enviado: "Enviado",
+  entregado: "Entregado",
+  leido: "Leído",
+  respondio: "Respondió",
+  fallido: "Fallido",
+};
+
+const TONO_CAMPANA_STATUS: Record<string, "aviso" | "en-vivo" | "marca" | "ia" | "mute"> = {
+  pendiente: "mute",
+  enviado: "aviso",
+  entregado: "marca",
+  leido: "ia",
+  respondio: "en-vivo",
+  fallido: "mute",
+};
 
 function claveColumnas(cuentaId: string) {
   return `lexyon-columnas-contactos-${cuentaId}`;
@@ -71,28 +95,35 @@ export function ContactosView({ cuentaId }: { cuentaId: string }) {
   const [valoresPorContacto, setValoresPorContacto] = useState<Record<string, Record<string, string>>>({});
   const [etapas, setEtapas] = useState<EtapaLite[]>([]);
   const [dealsPorContacto, setDealsPorContacto] = useState<Record<string, DealLite>>({});
+  const [perfiles, setPerfiles] = useState<PerfilLite[]>([]);
   const [configColumnas, setConfigColumnas] = useState<ColumnaConfig[]>([]);
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState("");
   const [filtroEtapa, setFiltroEtapa] = useState("");
+  const [filtroEtiqueta, setFiltroEtiqueta] = useState("");
+  const [filtroOrigen, setFiltroOrigen] = useState("");
+  const [filtroCampanaStatus, setFiltroCampanaStatus] = useState("");
+  const [filtroAsignado, setFiltroAsignado] = useState("");
   const [editando, setEditando] = useState<Contacto | null>(null);
   const [mostrarForm, setMostrarForm] = useState(false);
   const [mostrarColumnas, setMostrarColumnas] = useState(false);
 
   async function cargar() {
     setCargando(true);
-    const [{ data: c }, { data: e }, { data: cp }, { data: vp }, { data: et }, { data: d }] = await Promise.all([
+    const [{ data: c }, { data: e }, { data: cp }, { data: vp }, { data: et }, { data: d }, { data: p }] = await Promise.all([
       supabase.from("contactos").select("*").order("created_at", { ascending: false }),
       supabase.from("etiquetas").select("nombre").order("nombre"),
       supabase.from("campos_personalizados").select("*").order("orden"),
       supabase.from("valores_campos_personalizados").select("contacto_id, campo_id, valor"),
       supabase.from("etapas_pipeline").select("id, nombre, color, orden").order("orden"),
       supabase.from("deals").select("id, contacto_id, etapa_id, estado, created_at").order("created_at", { ascending: false }),
+      supabase.from("perfiles").select("id, nombre").eq("activo", true).order("nombre"),
     ]);
     setContactos(c ?? []);
     setEtiquetasCatalogo((e ?? []).map((x) => x.nombre));
     setCamposPersonalizados((cp as CampoPersonalizado[]) ?? []);
     setEtapas((et as EtapaLite[]) ?? []);
+    setPerfiles((p as PerfilLite[]) ?? []);
 
     const mapa: Record<string, Record<string, string>> = {};
     for (const v of vp ?? []) {
@@ -178,6 +209,11 @@ export function ContactosView({ cuentaId }: { cuentaId: string }) {
     return etapa ? { etapa_id: etapa.id, nombre: etapa.nombre, color: etapa.color } : null;
   }
 
+  const origenesDisponibles = useMemo(
+    () => [...new Set(contactos.map((c) => c.canal_origen).filter((o): o is string => !!o))].sort(),
+    [contactos],
+  );
+
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
     return contactos.filter((c) => {
@@ -189,14 +225,31 @@ export function ContactosView({ cuentaId }: { cuentaId: string }) {
         if (filtroEtapa === "__sin_deal__" && deal) return false;
         if (filtroEtapa !== "__sin_deal__" && (!deal || deal.etapa_id !== filtroEtapa)) return false;
       }
+      if (filtroEtiqueta && !c.etiquetas.includes(filtroEtiqueta)) return false;
+      if (filtroOrigen && c.canal_origen !== filtroOrigen) return false;
+      if (filtroCampanaStatus && (c.campana_status ?? "") !== filtroCampanaStatus) return false;
+      if (filtroAsignado) {
+        if (filtroAsignado === "__sin_asignar__" && c.asignado_a) return false;
+        if (filtroAsignado !== "__sin_asignar__" && c.asignado_a !== filtroAsignado) return false;
+      }
       return true;
     });
-  }, [contactos, busqueda, filtroEtapa, dealsPorContacto]);
+  }, [contactos, busqueda, filtroEtapa, filtroEtiqueta, filtroOrigen, filtroCampanaStatus, filtroAsignado, dealsPorContacto]);
 
   async function eliminar(id: string) {
     if (!confirm("¿Eliminar este contacto? También se borran sus conversaciones y mensajes.")) return;
     await supabase.from("contactos").delete().eq("id", id);
     cargar();
+  }
+
+  async function asignar(contactoId: string, perfilId: string | null) {
+    setContactos((prev) => prev.map((c) => (c.id === contactoId ? { ...c, asignado_a: perfilId } : c)));
+    const res = await fetch(`/api/contactos/${contactoId}/asignar`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ asignado_a: perfilId }),
+    });
+    if (!res.ok) cargar();
   }
 
   return (
@@ -228,6 +281,61 @@ export function ContactosView({ cuentaId }: { cuentaId: string }) {
                 </option>
               ))}
               <option value="__sin_deal__">Sin deal en pipeline</option>
+            </select>
+          )}
+          {etiquetasCatalogo.length > 0 && (
+            <select
+              value={filtroEtiqueta}
+              onChange={(e) => setFiltroEtiqueta(e.target.value)}
+              className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+            >
+              <option value="">Todas las etiquetas</option>
+              {etiquetasCatalogo.map((et) => (
+                <option key={et} value={et}>
+                  {et}
+                </option>
+              ))}
+            </select>
+          )}
+          {origenesDisponibles.length > 0 && (
+            <select
+              value={filtroOrigen}
+              onChange={(e) => setFiltroOrigen(e.target.value)}
+              className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+            >
+              <option value="">Todos los orígenes</option>
+              {origenesDisponibles.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          )}
+          <select
+            value={filtroCampanaStatus}
+            onChange={(e) => setFiltroCampanaStatus(e.target.value)}
+            className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+          >
+            <option value="">Todos los estados de campaña</option>
+            {Object.entries(LABEL_CAMPANA_STATUS).map(([valor, etiqueta]) => (
+              <option key={valor} value={valor}>
+                {etiqueta}
+              </option>
+            ))}
+          </select>
+          {perfiles.length > 0 && (
+            <select
+              value={filtroAsignado}
+              onChange={(e) => setFiltroAsignado(e.target.value)}
+              className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+            >
+              <option value="">Todos los asignados</option>
+              {perfiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nombre ?? "Sin nombre"}
+                </option>
+              ))}
+              <option value="__sin_asignar__">Sin asignar</option>
             </select>
           )}
           <button
@@ -341,6 +449,8 @@ export function ContactosView({ cuentaId }: { cuentaId: string }) {
                         camposPersonalizados={camposPersonalizados}
                         valoresPersonalizados={valoresPorContacto[c.id] ?? {}}
                         etapa={etapaDeContacto(c.id)}
+                        perfiles={perfiles}
+                        onAsignar={(perfilId) => asignar(c.id, perfilId)}
                       />
                     </td>
                   ))}
@@ -377,12 +487,16 @@ function CeldaContacto({
   camposPersonalizados,
   valoresPersonalizados,
   etapa,
+  perfiles,
+  onAsignar,
 }: {
   columnaId: string;
   contacto: Contacto;
   camposPersonalizados: CampoPersonalizado[];
   valoresPersonalizados: Record<string, string>;
   etapa: EtapaDeContacto;
+  perfiles: PerfilLite[];
+  onAsignar: (perfilId: string | null) => void;
 }) {
   if (columnaId.startsWith("campo:")) {
     const campoId = columnaId.slice("campo:".length);
@@ -427,11 +541,39 @@ function CeldaContacto({
       );
     case "canal_origen":
       return <span className="text-[var(--color-texto-mute)]">{contacto.canal_origen ?? "—"}</span>;
+    case "campana_status":
+      if (!contacto.campana_status) return <span className="text-[var(--color-texto-mute)]">—</span>;
+      return (
+        <Badge tono={TONO_CAMPANA_STATUS[contacto.campana_status] ?? "mute"}>
+          {LABEL_CAMPANA_STATUS[contacto.campana_status] ?? contacto.campana_status}
+        </Badge>
+      );
     case "status":
       return (
         <Badge tono={contacto.status === "activo" ? "en-vivo" : "mute"}>
           {contacto.status === "activo" ? "Activo" : "Inactivo"}
         </Badge>
+      );
+    case "asignado_a":
+      return (
+        <select
+          value={contacto.asignado_a ?? ""}
+          onChange={(e) => onAsignar(e.target.value || null)}
+          className="rounded-lg border border-transparent bg-transparent px-1 py-0.5 text-sm text-[var(--color-texto)] hover:border-[var(--color-borde)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+        >
+          <option value="">Sin asignar</option>
+          {perfiles.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.nombre ?? "Sin nombre"}
+            </option>
+          ))}
+        </select>
+      );
+    case "created_at":
+      return (
+        <span className="text-[var(--color-texto-mute)]">
+          {new Date(contacto.created_at).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}
+        </span>
       );
     default:
       return <span className="text-[var(--color-texto-mute)]">—</span>;
