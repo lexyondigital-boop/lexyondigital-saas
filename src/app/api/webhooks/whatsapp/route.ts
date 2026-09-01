@@ -36,7 +36,18 @@ export async function POST(request: NextRequest) {
 
 async function procesarMensajeEntrante(body: unknown) {
   const entry = (body as any)?.entry?.[0];
-  const value = entry?.changes?.[0]?.value;
+  const change = entry?.changes?.[0];
+  const value = change?.value;
+
+  // Meta manda esto por separado de mensajes/estados cuando una plantilla
+  // sometida cambia de status (aprobada, rechazada, pausada, deshabilitada).
+  // Se revisa el campo explícito -- a diferencia de "statuses"/"messages" de
+  // abajo, que se distinguen por forma, este evento no siempre trae el
+  // mismo shape que uno pueda adivinar de forma confiable.
+  if (change?.field === "message_template_status_update") {
+    await procesarActualizacionPlantilla(value);
+    return;
+  }
 
   // Los eventos de "statuses" (enviado/entregado/leído/fallido de un mensaje
   // saliente) llegan aparte de los de "messages" -- se procesan para poder
@@ -330,7 +341,7 @@ async function procesarActualizacionesEstado(statuses: any[]) {
 
     const { data: existente } = await supabase
       .from("mensajes")
-      .select("id, status")
+      .select("id, status, tipo, template_nombre, cuenta_id")
       .eq("whatsapp_message_id", s.id)
       .maybeSingle();
 
@@ -338,5 +349,71 @@ async function procesarActualizacionesEstado(statuses: any[]) {
     if (nuevoEstado !== "fallido" && (RANGO_ESTADO[existente.status] ?? 0) >= (RANGO_ESTADO[nuevoEstado] ?? 0)) continue;
 
     await supabase.from("mensajes").update({ status: nuevoEstado }).eq("id", existente.id);
+
+    if (existente.tipo === "template" && existente.template_nombre) {
+      await dispararWebhookPlantilla(supabase, {
+        cuentaId: existente.cuenta_id,
+        nombrePlantilla: existente.template_nombre,
+        estado: nuevoEstado,
+        whatsappMessageId: s.id,
+      });
+    }
+  }
+}
+
+// Notificación propia de la plataforma (no de Meta): si la plantilla tiene
+// una URL de webhook configurada en la pestaña "Webhook" del asistente, se
+// le avisa cuando un mensaje enviado con ella cambia de estado. Best-effort:
+// nunca debe tronar el procesamiento del webhook real de Meta.
+async function dispararWebhookPlantilla(
+  supabase: ReturnType<typeof createAdminClient>,
+  { cuentaId, nombrePlantilla, estado, whatsappMessageId }: { cuentaId: string; nombrePlantilla: string; estado: string; whatsappMessageId: string },
+) {
+  try {
+    const { data: plantilla } = await supabase
+      .from("templates")
+      .select("webhook_url, webhook_headers")
+      .eq("cuenta_id", cuentaId)
+      .eq("name", nombrePlantilla)
+      .maybeSingle();
+
+    if (!plantilla?.webhook_url) return;
+
+    await fetch(plantilla.webhook_url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(plantilla.webhook_headers as Record<string, string> | null) },
+      body: JSON.stringify({ plantilla: nombrePlantilla, estado, whatsapp_message_id: whatsappMessageId }),
+    });
+  } catch (error) {
+    console.error(`Cuenta ${cuentaId}: falló el webhook propio de la plantilla "${nombrePlantilla}":`, error);
+  }
+}
+
+const ESTADO_PLANTILLA_POR_META: Record<string, "pending" | "approved" | "rejected" | "paused" | "disabled"> = {
+  APPROVED: "approved",
+  REJECTED: "rejected",
+  PENDING: "pending",
+  PAUSED: "paused",
+  DISABLED: "disabled",
+  IN_APPEAL: "pending",
+};
+
+async function procesarActualizacionPlantilla(value: any) {
+  const nuevoEstado = ESTADO_PLANTILLA_POR_META[value?.event];
+  const metaTemplateId: string | undefined = value?.message_template_id ? String(value.message_template_id) : undefined;
+
+  if (!nuevoEstado || !metaTemplateId) {
+    console.error("Webhook de estado de plantilla con forma inesperada:", JSON.stringify(value));
+    return;
+  }
+
+  const supabase = createAdminClient();
+  const { error } = await supabase
+    .from("templates")
+    .update({ status: nuevoEstado, error_meta: value?.reason ?? null })
+    .eq("meta_template_id", metaTemplateId);
+
+  if (error) {
+    console.error(`No se pudo actualizar el status de la plantilla ${metaTemplateId} desde el webhook:`, error.message);
   }
 }

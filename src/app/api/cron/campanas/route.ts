@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enviarMensajePlantilla, normalizarDestinatario } from "@/lib/meta";
+import { moverDealEtapa, obtenerDealAbiertoDeContacto } from "@/lib/deals";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -55,7 +56,7 @@ async function avanzarCampana(
 
   const { data: template } = await supabase
     .from("templates")
-    .select("name, language, status, body")
+    .select("name, language, status, body, etiquetas_envio, etapa_destino_id")
     .eq("id", campana.template_id)
     .maybeSingle();
 
@@ -124,7 +125,7 @@ async function registrarEnvioExitoso(
     campana: { id: string; cuenta_id: string; etiqueta_id: string | null };
     pendiente: { id: string };
     contacto: { id: string; etiquetas: string[] | null };
-    template: { name: string; body: string | null };
+    template: { name: string; body: string | null; etiquetas_envio?: string[] | null; etapa_destino_id?: string | null };
     conversacionId?: string;
     whatsappMessageId: string | null;
   },
@@ -148,6 +149,13 @@ async function registrarEnvioExitoso(
     }
   }
 
+  // Etiquetas adicionales configuradas en la propia plantilla (pestaña
+  // "Etiquetas" del asistente) -- se suman a la de la campaña, no la
+  // reemplazan.
+  for (const nombreEtiqueta of template.etiquetas_envio ?? []) {
+    if (!etiquetas.includes(nombreEtiqueta)) etiquetas = [...etiquetas, nombreEtiqueta];
+  }
+
   await supabase
     .from("contactos")
     .update({ etiquetas, campana_status: "enviado", canal_origen: "campaña" })
@@ -165,6 +173,21 @@ async function registrarEnvioExitoso(
     status: "enviado",
     whatsapp_message_id: whatsappMessageId,
   });
+
+  // Etapa destino configurada en la plantilla ("Etapa" del asistente): si el
+  // contacto tiene un deal abierto, se mueve automáticamente al enviar.
+  if (template.etapa_destino_id) {
+    const deal = await obtenerDealAbiertoDeContacto(supabase, contacto.id);
+    if (deal) {
+      await moverDealEtapa(supabase, {
+        dealId: deal.id,
+        cuentaId: campana.cuenta_id,
+        etapaId: template.etapa_destino_id,
+        perfilId: null,
+        detallesExtra: { origen: "envio_plantilla", plantilla: template.name },
+      });
+    }
+  }
 }
 
 async function registrarEnvioFallido(

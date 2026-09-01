@@ -47,6 +47,10 @@ export const LABEL_ACCION: Record<string, string> = {
   create_task: "Creó una tarea",
   complete_task: "Completó una tarea",
   delete_task: "Eliminó una tarea",
+  create_template: "Creó una plantilla",
+  edit_template: "Editó una plantilla",
+  delete_template: "Eliminó una plantilla",
+  resubmit_template: "Reenvió una plantilla a Meta",
 };
 
 export function agruparPorCategoria(permisos: Permiso[]): Record<string, Permiso[]> {
