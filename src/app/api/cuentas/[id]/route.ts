@@ -52,6 +52,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const admin = createAdminClient();
 
   const cambios: Record<string, unknown> = {};
+  if (typeof body.nombre === "string") {
+    if (!body.nombre.trim()) return NextResponse.json({ error: "El nombre no puede quedar vacío" }, { status: 400 });
+    cambios.nombre = body.nombre.trim();
+  }
   if (typeof body.giro === "string") cambios.giro = body.giro.trim() || null;
   if (typeof body.activa === "boolean") cambios.activa = body.activa;
 

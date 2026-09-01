@@ -155,8 +155,28 @@ export function AdministrarSubCuenta({ id }: { id: string }) {
 }
 
 function PestanaGeneral({ id, cuenta, onCambio }: { id: string; cuenta: Cuenta; onCambio: () => void }) {
+  const [nombre, setNombre] = useState(cuenta.nombre);
   const [giro, setGiro] = useState(cuenta.giro ?? "");
+  const [guardandoNombre, setGuardandoNombre] = useState(false);
+  const [errorNombre, setErrorNombre] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
+
+  async function guardarNombre() {
+    setGuardandoNombre(true);
+    setErrorNombre(null);
+    const res = await fetch(`/api/cuentas/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nombre }),
+    });
+    setGuardandoNombre(false);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setErrorNombre(data.error ?? "No se pudo guardar el nombre");
+      return;
+    }
+    onCambio();
+  }
 
   async function guardar() {
     setGuardando(true);
@@ -172,6 +192,29 @@ function PestanaGeneral({ id, cuenta, onCambio }: { id: string; cuenta: Cuenta; 
   return (
     <div className="max-w-xl space-y-4 rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6">
       <div>
+        <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Nombre del negocio</span>
+        <div className="flex gap-2">
+          <input
+            value={nombre}
+            onChange={(e) => setNombre(e.target.value)}
+            className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+          />
+          <button
+            onClick={guardarNombre}
+            disabled={guardandoNombre || !nombre.trim()}
+            style={{ boxShadow: "var(--halo-accion)" }}
+            className="shrink-0 rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
+          >
+            {guardandoNombre ? "Guardando…" : "Guardar"}
+          </button>
+        </div>
+        {errorNombre && <p className="mt-1 text-xs text-red-500">{errorNombre}</p>}
+        <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
+          Se muestra en el menú de todos los administradores y usuarios de esta sub-cuenta.
+        </span>
+      </div>
+
+      <div className="border-t border-[var(--color-borde)] pt-4">
         <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Giro de negocio</span>
         <div className="flex gap-2">
           <input

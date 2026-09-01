@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import { Logo } from "@/components/Logo";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import { LogoutButton } from "@/components/LogoutButton";
@@ -69,9 +70,26 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const [menuAbierto, setMenuAbierto] = useState(false);
+  const [nombreCuenta, setNombreCuenta] = useState<string | null>(null);
   const nav = (role === "super_admin" ? NAV_SUPER_ADMIN : NAV_TENANT).filter(
     (item) => !item.requiere || permisos?.[item.requiere],
   );
+
+  // El nombre del negocio (editable por el super admin en Sub-cuentas > General)
+  // se muestra debajo del logo en vez del genérico "Administración" -- así
+  // cada sub-cuenta ve su propio nombre, no el de la plataforma.
+  useEffect(() => {
+    if (role === "super_admin" || !cuentaId) {
+      setNombreCuenta(null);
+      return;
+    }
+    createClient()
+      .from("cuentas")
+      .select("nombre")
+      .eq("id", cuentaId)
+      .maybeSingle()
+      .then(({ data }) => setNombreCuenta(data?.nombre ?? null));
+  }, [role, cuentaId]);
 
   // El menú es un cajón deslizable solo en móvil -- en escritorio (md+) el
   // sidebar sigue fijo como siempre. Se cierra solo al cambiar de página.
@@ -93,7 +111,7 @@ export function AppShell({
         <div className="flex items-center justify-between border-b border-[var(--color-borde)] p-5">
           <div>
             <Logo tamaño="sm" />
-            <p className="mt-1 text-xs text-[var(--color-texto-mute)]">Administración</p>
+            <p className="mt-1 truncate text-xs text-[var(--color-texto-mute)]">{nombreCuenta ?? "Administración"}</p>
           </div>
           <button
             onClick={() => setMenuAbierto(false)}
