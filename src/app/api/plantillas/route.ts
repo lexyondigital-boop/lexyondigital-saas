@@ -23,9 +23,6 @@ export async function POST(request: NextRequest) {
     body_ejemplos: body.body_ejemplos ?? [],
     variables_mapeo: body.variables_mapeo ?? [],
     header_tipo: body.header_tipo ?? "ninguno",
-    header_texto: body.header_texto ?? null,
-    header_texto_ejemplo: body.header_texto_ejemplo ?? null,
-    header_variable_clave: body.header_variable_clave ?? null,
     header_media_url: body.header_media_url ?? null,
     header_media_handle: body.header_media_handle ?? null,
     footer_texto: body.footer_texto ?? null,
@@ -52,7 +49,7 @@ export async function POST(request: NextRequest) {
   // Si falta un handle de medio requerido, se guarda como borrador local sin
   // intentar el POST a Meta -- nunca se pierde lo capturado, y el usuario
   // puede reintentar la subida del archivo y reenviar después.
-  const faltaMedioHeader = p.header_tipo !== "ninguno" && p.header_tipo !== "texto" && !p.header_media_handle && !p.usa_carrusel;
+  const faltaMedioHeader = p.header_tipo !== "ninguno" && !p.header_media_handle && !p.usa_carrusel;
   const faltaMedioCarrusel = p.usa_carrusel && p.tarjetas.some((t) => !t.media_handle);
   const listaParaMeta = !faltaMedioHeader && !faltaMedioCarrusel;
 
@@ -98,9 +95,6 @@ export async function POST(request: NextRequest) {
       categoria: p.categoria,
       cuenta_whatsapp_id: p.cuenta_whatsapp_id,
       header_tipo: p.header_tipo,
-      header_texto: p.header_texto,
-      header_texto_ejemplo: p.header_texto_ejemplo,
-      header_variable_clave: p.header_variable_clave,
       header_media_url: p.header_media_url,
       header_media_handle: p.header_media_handle,
       footer_texto: p.footer_texto,

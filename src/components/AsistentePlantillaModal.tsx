@@ -9,13 +9,12 @@ import type { CampoPersonalizado } from "@/lib/campos-personalizados";
 const INPUT =
   "w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]";
 
-type Tab = "plantilla" | "mensaje" | "archivo" | "encabezado" | "footer" | "botones" | "tarjetas" | "webhook" | "etiquetas" | "etapa";
+type Tab = "plantilla" | "mensaje" | "archivo" | "footer" | "botones" | "tarjetas" | "webhook" | "etiquetas" | "etapa";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "plantilla", label: "Plantilla" },
   { id: "mensaje", label: "Mensaje" },
   { id: "archivo", label: "Archivo" },
-  { id: "encabezado", label: "Encabezado" },
   { id: "footer", label: "Mensaje Inferior" },
   { id: "botones", label: "Botones" },
   { id: "tarjetas", label: "Tarjetas" },
@@ -24,7 +23,12 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "etapa", label: "Etapa" },
 ];
 
-type HeaderTipo = "ninguno" | "texto" | "imagen" | "video" | "documento";
+// Solo medio -- Meta no admite un header de texto junto con uno de medio, así
+// que el "título" (ej. FELICIDADES GANASTE UNA PROMOCION) se escribe como
+// primera línea en negritas del Mensaje (ver botón "+ Título en negritas"),
+// dejando Archivo siempre disponible e independiente para adjuntar imagen,
+// video o documento sin ningún conflicto.
+type HeaderTipo = "ninguno" | "imagen" | "video" | "documento";
 type CtaTipo = "URL" | "PHONE_NUMBER";
 type Boton = { type: "QUICK_REPLY" | CtaTipo; text: string; url?: string; phone_number?: string };
 type Tarjeta = { media_tipo: "imagen" | "video"; media_url: string; media_handle: string | null; body: string; body_ejemplos: string[]; botones: Boton[] };
@@ -38,10 +42,13 @@ function detectarVariables(texto: string): number[] {
   return [...nums].sort((a, b) => a - b);
 }
 
-function siguienteVariable(texto: string): string {
-  const vars = detectarVariables(texto);
-  const siguiente = vars.length ? Math.max(...vars) + 1 : 1;
-  return `{{${siguiente}}}`;
+// Sustituye cada {{n}} por su valor de ejemplo para que la vista previa se
+// lea como quedará el mensaje real, no con los marcadores crudos.
+function sustituirEjemplos(texto: string, ejemplos: string[]): string {
+  return texto.replace(/\{\{(\d+)\}\}/g, (match, n) => {
+    const valor = ejemplos[Number(n) - 1];
+    return valor?.trim() ? valor : match;
+  });
 }
 
 async function subirMedia(archivo: File, cuentaWhatsappId: string): Promise<{ url: string | null; handle: string | null; error: string | null }> {
@@ -54,10 +61,42 @@ async function subirMedia(archivo: File, cuentaWhatsappId: string): Promise<{ ur
   return { url: data.url ?? null, handle: data.handle ?? null, error: data.error ?? null };
 }
 
-// Combobox de búsqueda + selección + "crear nueva" para ligar un {{n}} (o el
-// único variable del encabezado) a un campo real de Variables -- mismo
-// concepto que el buscador de contactos, pero acotado a campos con
-// clave_variable (los que sí se pueden usar como marcador).
+// Botón de subida estilizado -- un <input type="file"> sin estilos se ve
+// como el control nativo del sistema operativo y pasa fácilmente
+// desapercibido; esto lo envuelve en un botón con la misma apariencia que el
+// resto de los botones secundarios de la plataforma.
+function BotonArchivo({ accept, disabled, subiendo, onArchivo }: { accept: string; disabled?: boolean; subiendo?: boolean; onArchivo: (archivo: File) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  return (
+    <div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        disabled={disabled || subiendo}
+        className="hidden"
+        onChange={(e) => {
+          const archivo = e.target.files?.[0];
+          if (archivo) onArchivo(archivo);
+          e.target.value = "";
+        }}
+      />
+      <button
+        type="button"
+        disabled={disabled || subiendo}
+        onClick={() => inputRef.current?.click()}
+        className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm font-medium text-[var(--color-texto)] transition-colors hover:bg-[var(--color-tarjeta)] disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {subiendo ? "Subiendo…" : "Seleccionar archivo"}
+      </button>
+    </div>
+  );
+}
+
+// Combobox de búsqueda + selección + "crear nueva" para ligar un {{n}} a un
+// campo real de Variables -- mismo concepto que el buscador de contactos,
+// pero acotado a campos con clave_variable (los que sí se pueden usar como
+// marcador).
 function SelectorVariable({
   valor,
   variables,
@@ -150,6 +189,19 @@ function SelectorVariable({
   );
 }
 
+// Nota que aparece en Archivo/Mensaje Inferior/Botones cuando el carrusel
+// está activo: Meta no admite esos componentes junto con un carrusel, pero
+// lo que ya se escribió ahí NO se borra -- solo se deja de enviar mientras
+// el carrusel esté activo, por si luego se desmarca.
+function AvisoCarruselActivo() {
+  return (
+    <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-600">
+      Tienes activo &ldquo;Usar carrusel de tarjetas&rdquo; en la pestaña Tarjetas. Meta no permite enviar esto junto con
+      un carrusel, así que lo que captures aquí se guarda pero no se somete a Meta mientras el carrusel esté activo.
+    </p>
+  );
+}
+
 export function AsistentePlantillaModal({
   cuentaId,
   plantilla,
@@ -163,13 +215,14 @@ export function AsistentePlantillaModal({
 }) {
   const supabase = createClient();
   const soloConfiguracionLocal = plantilla?.status === "approved";
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
 
   const [tab, setTab] = useState<Tab>("plantilla");
   const [cuentasWhatsapp, setCuentasWhatsapp] = useState<CuentaWhatsapp[]>([]);
   const [etiquetasCuenta, setEtiquetasCuenta] = useState<Etiqueta[]>([]);
   const [etapas, setEtapas] = useState<Etapa[]>([]);
   const [variablesDisponibles, setVariablesDisponibles] = useState<CampoPersonalizado[]>([]);
-  const [crearVariablePara, setCrearVariablePara] = useState<number | "header" | null>(null);
+  const [crearVariablePara, setCrearVariablePara] = useState<number | null>(null);
 
   const [nombre, setNombre] = useState(plantilla?.name ?? "");
   const [categoria, setCategoria] = useState<"MARKETING" | "UTILITY" | "AUTHENTICATION">(plantilla?.categoria ?? "MARKETING");
@@ -181,9 +234,6 @@ export function AsistentePlantillaModal({
   const [bodyClaves, setBodyClaves] = useState<(string | null)[]>(plantilla?.variables_mapeo ?? []);
 
   const [headerTipo, setHeaderTipo] = useState<HeaderTipo>(plantilla?.header_tipo ?? "ninguno");
-  const [headerTexto, setHeaderTexto] = useState(plantilla?.header_texto ?? "");
-  const [headerTextoEjemplo, setHeaderTextoEjemplo] = useState(plantilla?.header_texto_ejemplo ?? "");
-  const [headerVariableClave, setHeaderVariableClave] = useState<string | null>(plantilla?.header_variable_clave ?? null);
   const [headerMediaUrl, setHeaderMediaUrl] = useState<string | null>(plantilla?.header_media_url ?? null);
   const [headerMediaHandle, setHeaderMediaHandle] = useState<string | null>(plantilla?.header_media_handle ?? null);
   const [subiendoHeader, setSubiendoHeader] = useState(false);
@@ -248,10 +298,45 @@ export function AsistentePlantillaModal({
   function alGuardarVariableCreada(claveCreada: string | null) {
     const slot = crearVariablePara;
     setCrearVariablePara(null);
-    if (!claveCreada) return;
+    if (!claveCreada || slot === null) return;
     cargarVariables().then(() => {
-      if (slot === "header") setHeaderVariableClave(claveCreada);
-      else if (typeof slot === "number") setBodyClaves((prev) => prev.map((v, idx) => (idx === slot ? claveCreada : v)));
+      setBodyClaves((prev) => prev.map((v, idx) => (idx === slot ? claveCreada : v)));
+    });
+  }
+
+  // Inserta el siguiente {{n}} justo donde esté el cursor del textarea, no
+  // siempre al final -- así "Hola, |" con el cursor después de la coma
+  // inserta {{1}} ahí mismo en vez de al final del mensaje.
+  function insertarEnCursor(textoAInsertar: string) {
+    const el = bodyRef.current;
+    if (!el) {
+      setBody((prev) => prev + textoAInsertar);
+      return;
+    }
+    const inicio = el.selectionStart ?? body.length;
+    const fin = el.selectionEnd ?? body.length;
+    const nuevo = body.slice(0, inicio) + textoAInsertar + body.slice(fin);
+    setBody(nuevo);
+    requestAnimationFrame(() => {
+      el.focus();
+      const posicion = inicio + textoAInsertar.length;
+      el.setSelectionRange(posicion, posicion);
+    });
+  }
+
+  function agregarVariable() {
+    const siguiente = variablesBody.length ? Math.max(...variablesBody) + 1 : 1;
+    insertarEnCursor(`{{${siguiente}}}`);
+  }
+
+  function agregarTitulo() {
+    const el = bodyRef.current;
+    const placeholder = "Escribe aquí tu título";
+    const textoAInsertar = `*${placeholder}*\n\n`;
+    setBody((prev) => textoAInsertar + prev);
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(1, 1 + placeholder.length);
     });
   }
 
@@ -298,20 +383,11 @@ export function AsistentePlantillaModal({
     setTarjetas((prev) => prev.filter((_, i) => i !== index));
   }
 
-  function elegirTipoArchivo(tipo: "ninguno" | "imagen" | "video" | "documento") {
+  function elegirTipoArchivo(tipo: HeaderTipo) {
     setHeaderTipo(tipo);
     if (tipo === "ninguno") {
       setHeaderMediaUrl(null);
       setHeaderMediaHandle(null);
-    }
-  }
-
-  function elegirTipoEncabezado(tipo: "ninguno" | "texto") {
-    setHeaderTipo(tipo);
-    if (tipo === "ninguno") {
-      setHeaderTexto("");
-      setHeaderTextoEjemplo("");
-      setHeaderVariableClave(null);
     }
   }
 
@@ -335,11 +411,8 @@ export function AsistentePlantillaModal({
       body_ejemplos: bodyEjemplos,
       variables_mapeo: bodyClaves,
       header_tipo: headerTipo,
-      header_texto: headerTipo === "texto" ? headerTexto.trim() || null : null,
-      header_texto_ejemplo: headerTextoEjemplo.trim() || null,
-      header_variable_clave: headerTipo === "texto" ? headerVariableClave : null,
-      header_media_url: headerTipo !== "ninguno" && headerTipo !== "texto" ? headerMediaUrl : null,
-      header_media_handle: headerTipo !== "ninguno" && headerTipo !== "texto" ? headerMediaHandle : null,
+      header_media_url: headerTipo !== "ninguno" ? headerMediaUrl : null,
+      header_media_handle: headerTipo !== "ninguno" ? headerMediaHandle : null,
       footer_texto: footerTexto.trim() || null,
       botones: usaCarrusel ? [] : botones,
       usa_carrusel: usaCarrusel,
@@ -457,23 +530,37 @@ export function AsistentePlantillaModal({
                 <label className="block">
                   <div className="mb-1.5 flex items-center justify-between">
                     <span className="text-sm font-medium text-[var(--color-texto)]">Cuerpo del Mensaje</span>
-                    <button
-                      type="button"
-                      disabled={soloConfiguracionLocal}
-                      onClick={() => setBody((prev) => `${prev} ${siguienteVariable(prev)}`)}
-                      className="text-xs font-medium text-[var(--color-marca)] hover:underline disabled:opacity-40"
-                    >
-                      + Agregar variable
-                    </button>
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        disabled={soloConfiguracionLocal}
+                        onClick={agregarTitulo}
+                        className="text-xs font-medium text-[var(--color-marca)] hover:underline disabled:opacity-40"
+                      >
+                        + Título en negritas
+                      </button>
+                      <button
+                        type="button"
+                        disabled={soloConfiguracionLocal}
+                        onClick={agregarVariable}
+                        className="text-xs font-medium text-[var(--color-marca)] hover:underline disabled:opacity-40"
+                      >
+                        + Agregar variable
+                      </button>
+                    </div>
                   </div>
                   <textarea
+                    ref={bodyRef}
                     value={body}
                     onChange={(e) => setBody(e.target.value)}
                     disabled={soloConfiguracionLocal}
                     rows={6}
-                    placeholder="Hola {{1}}, tu cita es el {{2}}."
+                    placeholder="*Hola* {{1}}, tu cita es el {{2}}."
                     className={INPUT}
                   />
+                  <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
+                    Rodea una palabra con asteriscos (*así*) para que WhatsApp la muestre en negritas -- útil para un título arriba del mensaje.
+                  </span>
                 </label>
                 {variablesBody.length > 0 && (
                   <div className="space-y-3 rounded-lg border border-[var(--color-borde)] p-3">
@@ -506,12 +593,13 @@ export function AsistentePlantillaModal({
 
             {tab === "archivo" && (
               <div className="space-y-4">
+                {usaCarrusel && <AvisoCarruselActivo />}
                 <label className="block">
                   <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Adjuntar archivo</span>
                   <select
-                    value={headerTipo === "texto" ? "ninguno" : headerTipo}
-                    disabled={soloConfiguracionLocal || headerTipo === "texto"}
-                    onChange={(e) => elegirTipoArchivo(e.target.value as "ninguno" | "imagen" | "video" | "documento")}
+                    value={headerTipo}
+                    disabled={soloConfiguracionLocal}
+                    onChange={(e) => elegirTipoArchivo(e.target.value as HeaderTipo)}
                     className={INPUT}
                   >
                     <option value="ninguno">Ninguno</option>
@@ -520,27 +608,18 @@ export function AsistentePlantillaModal({
                     <option value="documento">Documento</option>
                   </select>
                 </label>
-                {headerTipo === "texto" ? (
+                {headerTipo === "ninguno" ? (
                   <p className="text-xs text-[var(--color-texto-mute)]">
-                    Ya tienes un encabezado de texto configurado en la pestaña &ldquo;Encabezado&rdquo;. Quítalo ahí primero si quieres adjuntar un archivo en su lugar.
-                  </p>
-                ) : headerTipo === "ninguno" ? (
-                  <p className="text-xs text-[var(--color-texto-mute)]">
-                    Úsalo para mandar un documento (ej. instructivo de uso) o una imagen (ej. una promoción) junto con el mensaje.
+                    Úsalo para mandar un documento (ej. instructivo de uso) o una imagen (ej. una promoción) junto con el mensaje. Es independiente del texto del Mensaje.
                   </p>
                 ) : (
                   <>
-                    <input
-                      type="file"
-                      disabled={soloConfiguracionLocal || subiendoHeader}
+                    <BotonArchivo
+                      disabled={soloConfiguracionLocal}
+                      subiendo={subiendoHeader}
                       accept={headerTipo === "imagen" ? "image/jpeg,image/png" : headerTipo === "video" ? "video/mp4" : "application/pdf"}
-                      onChange={(e) => {
-                        const archivo = e.target.files?.[0];
-                        if (archivo) elegirArchivoHeader(archivo);
-                      }}
-                      className="text-sm text-[var(--color-texto)]"
+                      onArchivo={elegirArchivoHeader}
                     />
-                    {subiendoHeader && <p className="text-xs text-[var(--color-texto-mute)]">Subiendo…</p>}
                     {headerMediaUrl && !subiendoHeader && (
                       <p className="text-xs text-[var(--color-texto)]">
                         Archivo listo{headerMediaHandle ? "" : " (guardado localmente, aún no sometido a Meta)"}.
@@ -552,70 +631,20 @@ export function AsistentePlantillaModal({
               </div>
             )}
 
-            {tab === "encabezado" && (
-              <div className="space-y-4">
-                <label className="block">
-                  <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Seleccionar</span>
-                  <select
-                    value={headerTipo === "texto" ? "texto" : "ninguno"}
-                    disabled={soloConfiguracionLocal || (headerTipo !== "ninguno" && headerTipo !== "texto")}
-                    onChange={(e) => elegirTipoEncabezado(e.target.value as "ninguno" | "texto")}
-                    className={INPUT}
-                  >
-                    <option value="ninguno">Ninguno</option>
-                    <option value="texto">Texto</option>
-                  </select>
-                </label>
-                {headerTipo !== "ninguno" && headerTipo !== "texto" ? (
-                  <p className="text-xs text-[var(--color-texto-mute)]">
-                    Ya tienes un archivo adjunto configurado en la pestaña &ldquo;Archivo&rdquo;. Quítalo ahí primero si quieres usar un encabezado de texto en su lugar.
-                  </p>
-                ) : (
-                  headerTipo === "texto" && (
-                    <>
-                      <label className="block">
-                        <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Texto del Encabezado</span>
-                        <input
-                          value={headerTexto}
-                          onChange={(e) => setHeaderTexto(e.target.value)}
-                          disabled={soloConfiguracionLocal}
-                          maxLength={60}
-                          placeholder="Principal {{1}}"
-                          className={INPUT}
-                        />
-                        <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">{headerTexto.length}/60 -- admite máximo 1 variable.</span>
-                      </label>
-                      {detectarVariables(headerTexto).length > 0 && (
-                        <div className="space-y-2">
-                          <SelectorVariable
-                            valor={headerVariableClave}
-                            variables={variablesDisponibles}
-                            disabled={soloConfiguracionLocal}
-                            onSeleccionar={setHeaderVariableClave}
-                            onCrear={() => setCrearVariablePara("header")}
-                          />
-                          <label className="block">
-                            <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Valor de ejemplo</span>
-                            <input value={headerTextoEjemplo} onChange={(e) => setHeaderTextoEjemplo(e.target.value)} disabled={soloConfiguracionLocal} className={INPUT} />
-                          </label>
-                        </div>
-                      )}
-                    </>
-                  )
-                )}
-              </div>
-            )}
-
             {tab === "footer" && (
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Mensaje Inferior</span>
-                <input value={footerTexto} onChange={(e) => setFooterTexto(e.target.value)} disabled={soloConfiguracionLocal} maxLength={60} className={INPUT} />
-                <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">{footerTexto.length}/60 -- no admite variables.</span>
-              </label>
+              <div>
+                {usaCarrusel && <AvisoCarruselActivo />}
+                <label className="block">
+                  <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Mensaje Inferior</span>
+                  <input value={footerTexto} onChange={(e) => setFooterTexto(e.target.value)} disabled={soloConfiguracionLocal} maxLength={60} className={INPUT} />
+                  <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">{footerTexto.length}/60 -- no admite variables.</span>
+                </label>
+              </div>
             )}
 
             {tab === "botones" && (
               <div className="space-y-6">
+                {usaCarrusel && <AvisoCarruselActivo />}
                 <div>
                   <p className="mb-2 text-sm font-medium text-[var(--color-texto)]">Respuesta Rápida (máx. 3)</p>
                   {respuestasRapidas.map((r, i) => (
@@ -702,7 +731,9 @@ export function AsistentePlantillaModal({
                   <span className="text-sm font-medium text-[var(--color-texto)]">Usar carrusel de tarjetas</span>
                 </label>
                 <p className="text-xs text-[var(--color-texto-mute)]">
-                  Envía un carrusel de 2 a 10 tarjetas. Al usar carrusel no se permiten encabezado, mensaje inferior, archivo ni botones principales.
+                  Envía un carrusel de 2 a 10 tarjetas junto con el Mensaje. Meta no permite combinar el carrusel con
+                  Archivo, Mensaje Inferior ni Botones principales -- lo que ya tengas ahí se conserva, solo no se envía
+                  mientras el carrusel esté activo.
                 </p>
                 {usaCarrusel && (
                   <div className="space-y-4">
@@ -723,17 +754,12 @@ export function AsistentePlantillaModal({
                           <option value="imagen">Imagen</option>
                           <option value="video">Video</option>
                         </select>
-                        <input
-                          type="file"
-                          disabled={soloConfiguracionLocal || subiendoTarjeta === i}
+                        <BotonArchivo
+                          disabled={soloConfiguracionLocal}
+                          subiendo={subiendoTarjeta === i}
                           accept={t.media_tipo === "imagen" ? "image/jpeg,image/png" : "video/mp4"}
-                          onChange={(e) => {
-                            const archivo = e.target.files?.[0];
-                            if (archivo) elegirArchivoTarjeta(i, archivo, t.media_tipo);
-                          }}
-                          className="text-sm text-[var(--color-texto)]"
+                          onArchivo={(archivo) => elegirArchivoTarjeta(i, archivo, t.media_tipo)}
                         />
-                        {subiendoTarjeta === i && <p className="text-xs text-[var(--color-texto-mute)]">Subiendo…</p>}
                         {t.media_url && <p className="text-xs text-[var(--color-texto)]">Archivo listo{t.media_handle ? "" : " (falta sometido a Meta)"}.</p>}
                         <textarea
                           value={t.body}
@@ -874,9 +900,9 @@ export function AsistentePlantillaModal({
 
         <VistaPrevia
           headerTipo={headerTipo}
-          headerTexto={headerTexto}
           headerMediaUrl={headerMediaUrl}
           body={body}
+          bodyEjemplos={bodyEjemplos}
           footerTexto={footerTexto}
           respuestasRapidas={respuestasRapidas}
           ctas={ctas}
@@ -904,9 +930,9 @@ export function AsistentePlantillaModal({
 
 function VistaPrevia({
   headerTipo,
-  headerTexto,
   headerMediaUrl,
   body,
+  bodyEjemplos,
   footerTexto,
   respuestasRapidas,
   ctas,
@@ -914,28 +940,33 @@ function VistaPrevia({
   tarjetas,
 }: {
   headerTipo: HeaderTipo;
-  headerTexto: string;
   headerMediaUrl: string | null;
   body: string;
+  bodyEjemplos: string[];
   footerTexto: string;
   respuestasRapidas: string[];
   ctas: { tipo: CtaTipo; text: string }[];
   usaCarrusel: boolean;
   tarjetas: Tarjeta[];
 }) {
+  const bodyConEjemplos = sustituirEjemplos(body, bodyEjemplos);
+
   return (
     <div className="hidden w-72 shrink-0 flex-col border-l border-[var(--color-borde)] bg-[#e5ddd5] p-4 dark:bg-[#0b141a] sm:flex">
       <p className="mb-3 text-xs font-medium text-[var(--color-texto-mute)]">Vista previa</p>
       <div className="rounded-lg bg-white p-3 text-sm text-neutral-900 shadow dark:bg-[#202c33] dark:text-neutral-100">
-        {headerTipo === "texto" && headerTexto && <p className="mb-1 font-semibold">{headerTexto}</p>}
-        {headerTipo !== "ninguno" && headerTipo !== "texto" && headerMediaUrl && (
+        {headerTipo !== "ninguno" && headerMediaUrl && (
           <div className="mb-2 flex h-28 items-center justify-center rounded bg-neutral-200 text-xs text-neutral-500 dark:bg-neutral-700">
             {headerTipo === "imagen" ? "🖼️" : headerTipo === "video" ? "🎬" : "📄"} {headerTipo}
           </div>
         )}
-        {!usaCarrusel && <p className="whitespace-pre-wrap">{body || "Escribe un mensaje para ver la vista previa"}</p>}
-        {footerTexto && <p className="mt-1 text-xs text-neutral-500">{footerTexto}</p>}
-        {(respuestasRapidas.some((r) => r.trim()) || ctas.some((c) => c.text.trim())) && !usaCarrusel && (
+        <p className="whitespace-pre-wrap">
+          {bodyConEjemplos
+            ? bodyConEjemplos.split(/\*([^*]+)\*/g).map((parte, i) => (i % 2 === 1 ? <strong key={i}>{parte}</strong> : <span key={i}>{parte}</span>))
+            : "Escribe un mensaje para ver la vista previa"}
+        </p>
+        {!usaCarrusel && footerTexto && <p className="mt-1 text-xs text-neutral-500">{footerTexto}</p>}
+        {!usaCarrusel && (respuestasRapidas.some((r) => r.trim()) || ctas.some((c) => c.text.trim())) && (
           <div className="mt-2 space-y-1 border-t border-neutral-200 pt-2 dark:border-neutral-700">
             {respuestasRapidas.filter((r) => r.trim()).map((r, i) => (
               <div key={i} className="rounded border border-neutral-300 py-1 text-center text-xs text-[var(--color-marca)] dark:border-neutral-600">
@@ -957,7 +988,7 @@ function VistaPrevia({
                 <div className="mb-1 flex h-16 items-center justify-center rounded bg-neutral-200 dark:bg-neutral-700">
                   {t.media_tipo === "imagen" ? "🖼️" : "🎬"}
                 </div>
-                <p className="line-clamp-2">{t.body || "Mensaje…"}</p>
+                <p className="line-clamp-2">{sustituirEjemplos(t.body, t.body_ejemplos) || "Mensaje…"}</p>
               </div>
             ))}
           </div>

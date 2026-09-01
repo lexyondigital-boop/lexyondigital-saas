@@ -19,10 +19,10 @@ export type PayloadPlantilla = {
   // de un campo personalizado, el envío de campañas autollena ese {{n}} con el
   // dato real del contacto en vez del ejemplo fijo (ver lib/variables-contacto.ts).
   variables_mapeo: (string | null)[];
-  header_tipo: "ninguno" | "texto" | "imagen" | "video" | "documento";
-  header_texto: string | null;
-  header_texto_ejemplo: string | null;
-  header_variable_clave: string | null;
+  // Solo medio -- Meta no permite un header de texto junto con uno de medio,
+  // así que el "título" se resuelve como la primera línea en negritas del
+  // body (ver AsistentePlantillaModal), dejando Archivo siempre independiente.
+  header_tipo: "ninguno" | "imagen" | "video" | "documento";
   header_media_url: string | null;
   header_media_handle: string | null;
   footer_texto: string | null;
@@ -63,14 +63,7 @@ export function construirComponents(p: PayloadPlantilla): unknown[] {
     return components;
   }
 
-  if (p.header_tipo === "texto" && p.header_texto) {
-    components.push({
-      type: "HEADER",
-      format: "TEXT",
-      text: p.header_texto,
-      ...(p.header_texto_ejemplo ? { example: { header_text: [p.header_texto_ejemplo] } } : {}),
-    });
-  } else if (p.header_tipo !== "ninguno" && p.header_media_handle) {
+  if (p.header_tipo !== "ninguno" && p.header_media_handle) {
     components.push({ type: "HEADER", format: FORMATO_HEADER_META[p.header_tipo], example: { header_handle: [p.header_media_handle] } });
   }
 
@@ -117,9 +110,6 @@ export const CAMPOS_CONTENIDO_META = [
   "body_ejemplos",
   "variables_mapeo",
   "header_tipo",
-  "header_texto",
-  "header_texto_ejemplo",
-  "header_variable_clave",
   "header_media_url",
   "header_media_handle",
   "footer_texto",

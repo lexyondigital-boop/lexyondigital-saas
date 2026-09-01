@@ -28,7 +28,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Esta plantilla no tiene un número de WhatsApp asignado" }, { status: 400 });
   }
 
-  const faltaMedioHeader = fila.header_tipo !== "ninguno" && fila.header_tipo !== "texto" && !fila.header_media_handle && !fila.usa_carrusel;
+  const faltaMedioHeader = fila.header_tipo !== "ninguno" && !fila.header_media_handle && !fila.usa_carrusel;
   const faltaMedioCarrusel = fila.usa_carrusel && (fila.tarjetas as PayloadPlantilla["tarjetas"]).some((t) => !t.media_handle);
   if (faltaMedioHeader || faltaMedioCarrusel) {
     return NextResponse.json({ error: "Falta subir el archivo del encabezado o de una tarjeta antes de reenviar" }, { status: 400 });
@@ -48,9 +48,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     body_ejemplos: fila.variables ?? [],
     variables_mapeo: fila.variables_mapeo ?? [],
     header_tipo: fila.header_tipo,
-    header_texto: fila.header_texto,
-    header_texto_ejemplo: fila.header_texto_ejemplo,
-    header_variable_clave: fila.header_variable_clave,
     header_media_url: fila.header_media_url,
     header_media_handle: fila.header_media_handle,
     footer_texto: fila.footer_texto,
