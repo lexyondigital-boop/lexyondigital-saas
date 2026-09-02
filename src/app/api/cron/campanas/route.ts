@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enviarMensajePlantilla, normalizarDestinatario } from "@/lib/meta";
 import { moverDealEtapa, obtenerDealAbiertoDeContacto } from "@/lib/deals";
-import { resolverParametrosPlantilla } from "@/lib/variables-contacto";
+import { resolverParametrosPlantilla, obtenerValoresContactoPorClave } from "@/lib/variables-contacto";
+import { enviarCorreo, reemplazarVariablesEmail, extraerClavesVariables } from "@/lib/email-envio";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest) {
 
   const { data: campanas, error } = await supabase
     .from("campanas")
-    .select("id, cuenta_id, template_id, etiqueta_id")
+    .select("id, cuenta_id, template_id, etiqueta_id, canal, plantilla_email_id")
     .eq("status", "enviando");
 
   if (error) {
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest) {
 
 async function avanzarCampana(
   supabase: AdminClient,
-  campana: { id: string; cuenta_id: string; template_id: string | null; etiqueta_id: string | null },
+  campana: { id: string; cuenta_id: string; template_id: string | null; etiqueta_id: string | null; canal: "whatsapp" | "correo"; plantilla_email_id: string | null },
 ) {
   const { data: pendiente } = await supabase
     .from("campana_contactos")
@@ -60,6 +61,10 @@ async function avanzarCampana(
 
   if (!pendiente) {
     return finalizarCampana(supabase, campana.id);
+  }
+
+  if (campana.canal === "correo") {
+    return avanzarCampanaCorreo(supabase, campana, pendiente);
   }
 
   if (!campana.template_id) {
@@ -126,6 +131,74 @@ async function avanzarCampana(
   } else {
     console.error(`Campaña ${campana.id}, contacto ${contacto.id}: falló el envío:`, JSON.stringify(resultado.raw));
     await registrarEnvioFallido(supabase, { campana, pendiente, contacto, template, conversacionId: conversacion?.id });
+  }
+
+  return { campana_id: campana.id, contacto_id: contacto.id, ok: resultado.ok };
+}
+
+async function avanzarCampanaCorreo(
+  supabase: AdminClient,
+  campana: { id: string; cuenta_id: string; etiqueta_id: string | null; plantilla_email_id: string | null },
+  pendiente: { id: string; contacto_id: string },
+) {
+  if (!campana.plantilla_email_id) {
+    return { campana_id: campana.id, error: "La campaña no tiene plantilla de correo asignada" };
+  }
+
+  const { data: plantilla } = await supabase
+    .from("plantillas_email")
+    .select("asunto, cuerpo_html")
+    .eq("id", campana.plantilla_email_id)
+    .maybeSingle();
+
+  if (!plantilla) {
+    return { campana_id: campana.id, error: "Plantilla de correo no encontrada" };
+  }
+
+  const { data: contacto } = await supabase
+    .from("contactos")
+    .select("id, correo_electronico, nombre_completo, nombre, etiquetas")
+    .eq("id", pendiente.contacto_id)
+    .single();
+
+  if (!contacto) {
+    await supabase.from("campana_contactos").update({ status: "fallido" }).eq("id", pendiente.id);
+    return { campana_id: campana.id, error: "Contacto de la campaña ya no existe" };
+  }
+
+  if (!contacto.correo_electronico) {
+    await supabase.from("campana_contactos").update({ status: "fallido" }).eq("id", pendiente.id);
+    await supabase.from("contactos").update({ campana_status: "fallido" }).eq("id", contacto.id);
+    return { campana_id: campana.id, contacto_id: contacto.id, ok: false, error: "El contacto no tiene correo capturado" };
+  }
+
+  const claves = extraerClavesVariables(plantilla.asunto, plantilla.cuerpo_html);
+  const valoresContacto = await obtenerValoresContactoPorClave(supabase, campana.cuenta_id, contacto.id, claves);
+  const valores: Record<string, string> = { ...valoresContacto, nombre: contacto.nombre_completo ?? contacto.nombre ?? "" };
+
+  const resultado = await enviarCorreo({
+    cuentaId: campana.cuenta_id,
+    contactoId: contacto.id,
+    campanaId: campana.id,
+    destinatario: contacto.correo_electronico,
+    asunto: reemplazarVariablesEmail(plantilla.asunto, valores),
+    cuerpoHtml: reemplazarVariablesEmail(plantilla.cuerpo_html, valores),
+  });
+
+  if (resultado.ok) {
+    await supabase.from("campana_contactos").update({ status: "enviado", enviado_at: new Date().toISOString() }).eq("id", pendiente.id);
+
+    let etiquetas = contacto.etiquetas ?? [];
+    if (campana.etiqueta_id) {
+      const { data: etiqueta } = await supabase.from("etiquetas").select("nombre").eq("id", campana.etiqueta_id).maybeSingle();
+      if (etiqueta && !etiquetas.includes(etiqueta.nombre)) etiquetas = [...etiquetas, etiqueta.nombre];
+    }
+
+    await supabase.from("contactos").update({ etiquetas, campana_status: "enviado", canal_origen: "campaña" }).eq("id", contacto.id);
+  } else {
+    console.error(`Campaña ${campana.id}, contacto ${contacto.id}: falló el correo:`, resultado.error);
+    await supabase.from("campana_contactos").update({ status: "fallido" }).eq("id", pendiente.id);
+    await supabase.from("contactos").update({ campana_status: "fallido" }).eq("id", contacto.id);
   }
 
   return { campana_id: campana.id, contacto_id: contacto.id, ok: resultado.ok };

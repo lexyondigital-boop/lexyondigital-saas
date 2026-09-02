@@ -15,13 +15,16 @@ type Campana = {
   status: "borrador" | "enviando" | "pausada" | "enviada";
   total_destinatarios: number;
   programado_para: string | null;
+  canal: "whatsapp" | "correo";
   templates: { name: string } | null;
+  plantillas_email: { nombre: string } | null;
   etiquetas: { nombre: string } | null;
 };
 
 type EstadisticasCampana = { enviado: number; entregado: number; leido: number; fallido: number };
 type PerfilLite = { id: string; nombre: string | null };
 type ContactoImportado = { id: string; telefono: string; nombre_completo: string | null; correo_electronico: string | null; etiquetas: string[]; canal_origen: string | null };
+type PlantillaEmail = { id: string; nombre: string; tipo: "confirmacion_cita" | "campana"; activa: boolean };
 
 const TONO_STATUS = { borrador: "mute", enviando: "en-vivo", pausada: "aviso", enviada: "marca" } as const;
 const LABEL_STATUS = { borrador: "Borrador", enviando: "Enviando", pausada: "Pausada", enviada: "Enviada" } as const;
@@ -32,6 +35,7 @@ export function CampanasView({ cuentaId }: { cuentaId: string }) {
   const [campanas, setCampanas] = useState<Campana[]>([]);
   const [estadisticas, setEstadisticas] = useState<Record<string, EstadisticasCampana>>({});
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [plantillasEmail, setPlantillasEmail] = useState<PlantillaEmail[]>([]);
   const [etiquetas, setEtiquetas] = useState<{ id: string; nombre: string }[]>([]);
   const [perfiles, setPerfiles] = useState<PerfilLite[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -41,28 +45,29 @@ export function CampanasView({ cuentaId }: { cuentaId: string }) {
 
   async function cargar() {
     setCargando(true);
-    const [{ data: c }, { data: t }, { data: e }, { data: p }] = await Promise.all([
+    const [{ data: c }, { data: t }, { data: e }, { data: p }, plantillasEmailRes] = await Promise.all([
       supabase
         .from("campanas")
-        .select("id, nombre, status, total_destinatarios, programado_para, templates(name), etiquetas(nombre)")
+        .select("id, nombre, status, total_destinatarios, programado_para, canal, templates(name), plantillas_email(nombre), etiquetas(nombre)")
         .order("created_at", { ascending: false }),
       supabase.from("templates").select("*"),
       supabase.from("etiquetas").select("id, nombre").order("nombre"),
       supabase.from("perfiles").select("id, nombre").eq("activo", true).order("nombre"),
+      fetch("/api/plantillas-email").then((r) => r.json()).catch(() => ({ plantillas: [] })),
     ]);
     const listaCampanas = (c as unknown as Campana[]) ?? [];
     setCampanas(listaCampanas);
     setTemplates((t as Template[]) ?? []);
+    setPlantillasEmail((plantillasEmailRes.plantillas as PlantillaEmail[]) ?? []);
     setEtiquetas(e ?? []);
     setPerfiles((p as PerfilLite[]) ?? []);
 
-    if (listaCampanas.length > 0) {
-      const { data: mensajesCampana } = await supabase
-        .from("mensajes")
-        .select("campana_id, status")
-        .in("campana_id", listaCampanas.map((camp) => camp.id));
+    const idsWhatsapp = listaCampanas.filter((camp) => camp.canal !== "correo").map((camp) => camp.id);
+    const idsCorreo = listaCampanas.filter((camp) => camp.canal === "correo").map((camp) => camp.id);
+    const tally: Record<string, EstadisticasCampana> = {};
 
-      const tally: Record<string, EstadisticasCampana> = {};
+    if (idsWhatsapp.length > 0) {
+      const { data: mensajesCampana } = await supabase.from("mensajes").select("campana_id, status").in("campana_id", idsWhatsapp);
       for (const m of mensajesCampana ?? []) {
         if (!m.campana_id) continue;
         if (!tally[m.campana_id]) tally[m.campana_id] = { enviado: 0, entregado: 0, leido: 0, fallido: 0 };
@@ -74,9 +79,21 @@ export function CampanasView({ cuentaId }: { cuentaId: string }) {
         if (m.status === "leido") tally[m.campana_id].leido++;
         if (m.status === "fallido") tally[m.campana_id].fallido++;
       }
-      setEstadisticas(tally);
     }
 
+    if (idsCorreo.length > 0) {
+      const { data: correosCampana } = await supabase.from("correos_enviados").select("campana_id, estado").in("campana_id", idsCorreo);
+      for (const co of correosCampana ?? []) {
+        if (!co.campana_id) continue;
+        if (!tally[co.campana_id]) tally[co.campana_id] = { enviado: 0, entregado: 0, leido: 0, fallido: 0 };
+        // El correo no tiene señal de entregado/leído como WhatsApp -- solo
+        // se cuenta enviado/fallido.
+        if (co.estado === "enviado") tally[co.campana_id].enviado++;
+        if (co.estado === "fallido") tally[co.campana_id].fallido++;
+      }
+    }
+
+    setEstadisticas(tally);
     setCargando(false);
   }
 
@@ -133,6 +150,7 @@ export function CampanasView({ cuentaId }: { cuentaId: string }) {
         <CampanaForm
           cuentaId={cuentaId}
           templatesAprobados={templatesAprobados}
+          plantillasEmail={plantillasEmail.filter((p) => p.tipo === "campana" && p.activa)}
           etiquetas={etiquetas}
           onCreada={() => {
             setMostrarForm(false);
@@ -184,14 +202,25 @@ export function CampanasView({ cuentaId }: { cuentaId: string }) {
                         </span>
                       )}
                     </td>
-                    <td className="px-5 py-3.5 text-[var(--color-texto-mute)]">{c.templates?.name ?? "—"}</td>
+                    <td className="px-5 py-3.5 text-[var(--color-texto-mute)]">
+                      {c.canal === "correo" ? `✉️ ${c.plantillas_email?.nombre ?? "—"}` : (c.templates?.name ?? "—")}
+                    </td>
                     <td className="px-5 py-3.5">
                       <Badge tono={TONO_STATUS[c.status]}>{LABEL_STATUS[c.status]}</Badge>
                     </td>
                     <td className="px-5 py-3.5 text-[var(--color-texto)]">{c.total_destinatarios}</td>
                     <td className="px-5 py-3.5 text-[var(--color-texto)]">
-                      {stats.enviado}/{stats.entregado}/{stats.leido} de {c.total_destinatarios}
-                      {stats.fallido > 0 && <span className="ml-1 text-red-500">({stats.fallido} fallidos)</span>}
+                      {c.canal === "correo" ? (
+                        <>
+                          {stats.enviado} enviados de {c.total_destinatarios}
+                          {stats.fallido > 0 && <span className="ml-1 text-red-500">({stats.fallido} fallidos)</span>}
+                        </>
+                      ) : (
+                        <>
+                          {stats.enviado}/{stats.entregado}/{stats.leido} de {c.total_destinatarios}
+                          {stats.fallido > 0 && <span className="ml-1 text-red-500">({stats.fallido} fallidos)</span>}
+                        </>
+                      )}
                     </td>
                     <td className="whitespace-nowrap px-5 py-3.5 text-right">
                       {(c.status === "borrador" || c.status === "pausada") && (
@@ -227,21 +256,25 @@ export function CampanasView({ cuentaId }: { cuentaId: string }) {
 function CampanaForm({
   cuentaId,
   templatesAprobados,
+  plantillasEmail,
   etiquetas,
   onCreada,
   onTemplatesCambiados,
 }: {
   cuentaId: string;
   templatesAprobados: Template[];
+  plantillasEmail: PlantillaEmail[];
   etiquetas: { id: string; nombre: string }[];
   onCreada: () => void;
   onTemplatesCambiados: () => void;
 }) {
   const supabase = createClient();
+  const [canal, setCanal] = useState<"whatsapp" | "correo">("whatsapp");
   const [nombre, setNombre] = useState("");
   const [tipo, setTipo] = useState<"MARKETING" | "UTILITY" | "AUTHENTICATION">("MARKETING");
   const [modo, setModo] = useState<"existente" | "nueva">("existente");
   const [templateId, setTemplateId] = useState("");
+  const [plantillaEmailId, setPlantillaEmailId] = useState("");
   const [etiquetaId, setEtiquetaId] = useState("");
   const [programadoPara, setProgramadoPara] = useState("");
   const [enviando, setEnviando] = useState(false);
@@ -257,7 +290,9 @@ function CampanaForm({
     const { error } = await supabase.from("campanas").insert({
       cuenta_id: cuentaId,
       nombre: nombre.trim(),
-      template_id: templateId || null,
+      canal,
+      template_id: canal === "whatsapp" ? templateId || null : null,
+      plantilla_email_id: canal === "correo" ? plantillaEmailId || null : null,
       etiqueta_id: etiquetaId || null,
       programado_para: programadoPara ? new Date(programadoPara).toISOString() : null,
     });
@@ -281,64 +316,105 @@ function CampanaForm({
         <input value={nombre} onChange={(e) => setNombre(e.target.value)} className={INPUT} />
       </label>
 
-      <label className="block">
-        <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Tipo</span>
-        <select value={tipo} onChange={(e) => setTipo(e.target.value as typeof tipo)} className={INPUT}>
-          {Object.entries(LABEL_CATEGORIA).map(([valor, etiqueta]) => (
-            <option key={valor} value={valor}>
-              {etiqueta}
-            </option>
-          ))}
-        </select>
-        <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">Solo filtra qué plantillas aprobadas aparecen abajo.</span>
-      </label>
-
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={() => setModo("existente")}
-          className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${modo === "existente" ? "border-[var(--color-marca)] bg-[var(--color-marca)] text-white" : "border-[var(--color-borde)] text-[var(--color-texto-mute)]"}`}
-        >
-          Usar plantilla existente
-        </button>
-        <button
-          type="button"
-          onClick={() => setModo("nueva")}
-          className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${modo === "nueva" ? "border-[var(--color-marca)] bg-[var(--color-marca)] text-white" : "border-[var(--color-borde)] text-[var(--color-texto-mute)]"}`}
-        >
-          Crear plantilla nueva
-        </button>
+      <div>
+        <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Canal de envío</span>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setCanal("whatsapp")}
+            className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${canal === "whatsapp" ? "border-[var(--color-marca)] bg-[var(--color-marca)] text-white" : "border-[var(--color-borde)] text-[var(--color-texto-mute)]"}`}
+          >
+            WhatsApp
+          </button>
+          <button
+            type="button"
+            onClick={() => setCanal("correo")}
+            className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${canal === "correo" ? "border-[var(--color-marca)] bg-[var(--color-marca)] text-white" : "border-[var(--color-borde)] text-[var(--color-texto-mute)]"}`}
+          >
+            Correo
+          </button>
+        </div>
       </div>
 
-      {modo === "existente" ? (
+      {canal === "correo" ? (
         <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Plantilla de WhatsApp aprobada</span>
-          <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className={INPUT}>
+          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Plantilla de correo</span>
+          <select value={plantillaEmailId} onChange={(e) => setPlantillaEmailId(e.target.value)} className={INPUT}>
             <option value="">Sin plantilla</option>
-            {templatesFiltrados.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
+            {plantillasEmail.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nombre}
               </option>
             ))}
           </select>
-          {templatesFiltrados.length === 0 && (
-            <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">No hay plantillas aprobadas de este tipo todavía.</span>
+          {plantillasEmail.length === 0 && (
+            <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
+              No hay plantillas de correo de tipo &ldquo;Campaña&rdquo; todavía -- créalas en Plantillas &gt; Correo.
+            </span>
           )}
         </label>
       ) : (
-        <button
-          type="button"
-          onClick={() => setMostrarAsistente(true)}
-          className="w-full rounded-lg border border-dashed border-[var(--color-borde)] px-3 py-2 text-sm font-medium text-[var(--color-marca)] hover:bg-[var(--color-bg-elevada)]"
-        >
-          + Abrir asistente de plantillas
-        </button>
-      )}
+        <>
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Tipo</span>
+            <select value={tipo} onChange={(e) => setTipo(e.target.value as typeof tipo)} className={INPUT}>
+              {Object.entries(LABEL_CATEGORIA).map(([valor, etiqueta]) => (
+                <option key={valor} value={valor}>
+                  {etiqueta}
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">Solo filtra qué plantillas aprobadas aparecen abajo.</span>
+          </label>
 
-      {templateId && modo === "existente" && (
-        <p className="text-xs text-[var(--color-texto-mute)]">
-          Plantilla lista para usar: {templatesAprobados.find((t) => t.id === templateId)?.name}
-        </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setModo("existente")}
+              className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${modo === "existente" ? "border-[var(--color-marca)] bg-[var(--color-marca)] text-white" : "border-[var(--color-borde)] text-[var(--color-texto-mute)]"}`}
+            >
+              Usar plantilla existente
+            </button>
+            <button
+              type="button"
+              onClick={() => setModo("nueva")}
+              className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${modo === "nueva" ? "border-[var(--color-marca)] bg-[var(--color-marca)] text-white" : "border-[var(--color-borde)] text-[var(--color-texto-mute)]"}`}
+            >
+              Crear plantilla nueva
+            </button>
+          </div>
+
+          {modo === "existente" ? (
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Plantilla de WhatsApp aprobada</span>
+              <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className={INPUT}>
+                <option value="">Sin plantilla</option>
+                {templatesFiltrados.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              {templatesFiltrados.length === 0 && (
+                <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">No hay plantillas aprobadas de este tipo todavía.</span>
+              )}
+            </label>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setMostrarAsistente(true)}
+              className="w-full rounded-lg border border-dashed border-[var(--color-borde)] px-3 py-2 text-sm font-medium text-[var(--color-marca)] hover:bg-[var(--color-bg-elevada)]"
+            >
+              + Abrir asistente de plantillas
+            </button>
+          )}
+
+          {templateId && modo === "existente" && (
+            <p className="text-xs text-[var(--color-texto-mute)]">
+              Plantilla lista para usar: {templatesAprobados.find((t) => t.id === templateId)?.name}
+            </p>
+          )}
+        </>
       )}
 
       <label className="block">

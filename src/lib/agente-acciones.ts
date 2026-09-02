@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { crearEventoGoogle, actualizarEventoGoogle, eliminarEventoGoogle, obtenerOcupacionGoogle, fechaHoraMexico } from "@/lib/google-calendar";
 import { calcularSlotsDisponibles } from "@/lib/disponibilidad";
+import { enviarConfirmacionCitaPorCorreo } from "@/lib/email-citas";
 import { registrarActividad } from "@/lib/auditoria";
 import { construirBloqueAgenda } from "@/lib/agente-prompt-agenda";
 import { resolverVariablesDelPrompt, validarValorVariable, formatearDatosParaNotas } from "@/lib/agente-prompt-variables";
@@ -238,7 +239,11 @@ async function crearCita(admin: AdminClient, contexto: ContextoAgente, input: Pa
     return { error: "Ese horario ya no está disponible -- consulta disponibilidad de nuevo y ofrece otro horario." };
   }
 
-  const { data: contacto } = await admin.from("contactos").select("nombre, nombre_completo, telefono").eq("id", contactoId).single();
+  const { data: contacto } = await admin
+    .from("contactos")
+    .select("id, nombre, nombre_completo, telefono, correo_electronico")
+    .eq("id", contactoId)
+    .single();
   const notasEnriquecidas = await enriquecerNotasCita(admin, cuentaId, contactoId, input.notas ?? null);
 
   const googleEventId = await crearEventoGoogle({
@@ -276,6 +281,8 @@ async function crearCita(admin: AdminClient, contexto: ContextoAgente, input: Pa
     recursoId: cita.id,
     detalles: { origen: "agente_ia", conversacion_id: conversacionId, profesional_id: input.profesional_id, fecha: input.fecha, hora_inicio: input.hora_inicio },
   });
+
+  if (contacto) await enviarConfirmacionCitaPorCorreo(admin, cuentaId, cita, contacto, profesional);
 
   return { ok: true, cita_id: cita.id, fecha: cita.fecha, hora_inicio: cita.hora_inicio, hora_fin: cita.hora_fin, profesional: profesional.nombre };
 }

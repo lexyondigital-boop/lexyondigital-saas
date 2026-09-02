@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { crearEventoGoogle, fechaHoraMexico } from "@/lib/google-calendar";
 import { enriquecerNotasCita } from "@/lib/agente-acciones";
+import { enviarConfirmacionCitaPorCorreo } from "@/lib/email-citas";
 import { registrarActividad } from "@/lib/auditoria";
 
 export async function POST(request: NextRequest) {
@@ -31,7 +32,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Faltan datos para agendar la cita" }, { status: 400 });
   }
 
-  const { data: contacto } = await supabase.from("contactos").select("nombre, nombre_completo, telefono").eq("id", contacto_id).single();
+  const { data: contacto } = await supabase
+    .from("contactos")
+    .select("id, nombre, nombre_completo, telefono, correo_electronico")
+    .eq("id", contacto_id)
+    .single();
   if (!contacto) return NextResponse.json({ error: "Contacto no encontrado" }, { status: 404 });
 
   const citasCreadas = [];
@@ -87,6 +92,8 @@ export async function POST(request: NextRequest) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     citasCreadas.push(cita);
+
+    await enviarConfirmacionCitaPorCorreo(admin, perfil.cuenta_id, cita, contacto, profesional);
   }
 
   await registrarActividad({

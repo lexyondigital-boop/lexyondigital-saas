@@ -15,6 +15,7 @@ export const LABEL_CATEGORIA: Record<string, string> = {
   etiquetas: "Etiquetas",
   variables: "Variables",
   pipeline: "Pipeline",
+  correo: "Correo",
 };
 
 export const LABEL_ACCION: Record<string, string> = {
@@ -53,6 +54,11 @@ export const LABEL_ACCION: Record<string, string> = {
   resubmit_template: "Reenvió una plantilla a Meta",
   assign_contact: "Asignó un contacto",
   load_campaign_contacts: "Cargó contactos a una campaña",
+  disconnect_email: "Desconectó el correo de la cuenta",
+  save_smtp_email: "Configuró el SMTP de la cuenta",
+  create_plantilla_email: "Creó una plantilla de correo",
+  edit_plantilla_email: "Editó una plantilla de correo",
+  delete_plantilla_email: "Eliminó una plantilla de correo",
 };
 
 export function agruparPorCategoria(permisos: Permiso[]): Record<string, Permiso[]> {

@@ -19,7 +19,7 @@ export default async function ConfiguracionPage() {
 
   return (
     <AppShell email={user.email} role={perfil.rol} permisos={permisos} cuentaId={perfil.cuenta_id}>
-      <ConfiguracionCuentaView />
+      <ConfiguracionCuentaView permisos={permisos} />
     </AppShell>
   );
 }

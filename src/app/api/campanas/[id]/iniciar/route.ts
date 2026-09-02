@@ -24,7 +24,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const { data: campana, error: campanaError } = await supabase
     .from("campanas")
-    .select("id, cuenta_id, etiqueta_id, template_id, status")
+    .select("id, cuenta_id, etiqueta_id, template_id, canal, plantilla_email_id, status")
     .eq("id", id)
     .single();
 
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Campaña no encontrada" }, { status: 404 });
   }
 
-  if (!campana.template_id) {
+  if (campana.canal === "correo" ? !campana.plantilla_email_id : !campana.template_id) {
     return NextResponse.json({ error: "Asigna una plantilla antes de iniciar la campaña" }, { status: 400 });
   }
 

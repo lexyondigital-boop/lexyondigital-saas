@@ -10,7 +10,7 @@ export default async function PlantillasPage() {
 
   return (
     <AppShell email={user.email} role={perfil.rol} permisos={permisos} cuentaId={perfil.cuenta_id}>
-      <PlantillasView cuentaId={perfil.cuenta_id} />
+      <PlantillasView cuentaId={perfil.cuenta_id} permisos={permisos} />
     </AppShell>
   );
 }
