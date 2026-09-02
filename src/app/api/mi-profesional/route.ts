@@ -3,6 +3,16 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const DIAS_VALIDOS = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"];
+const REDES_VALIDAS = ["facebook", "instagram", "tiktok"];
+
+function limpiarRedesSociales(valor: unknown): Record<string, string> | null {
+  if (!valor || typeof valor !== "object" || Array.isArray(valor)) return null;
+  const limpio: Record<string, string> = {};
+  for (const [clave, url] of Object.entries(valor as Record<string, unknown>)) {
+    if (REDES_VALIDAS.includes(clave) && typeof url === "string" && url.trim()) limpio[clave] = url.trim();
+  }
+  return limpio;
+}
 
 async function obtenerPropioProfesionalId(userId: string) {
   const supabase = await createClient();
@@ -55,6 +65,12 @@ export async function PATCH(request: NextRequest) {
     cambios.dias_disponibles = body.dias_disponibles;
   }
   if (typeof body.duracion_cita_minutos === "number") cambios.duracion_cita_minutos = body.duracion_cita_minutos;
+  if (typeof body.logo_url === "string") cambios.logo_url = body.logo_url.trim() || null;
+  if (typeof body.color_marca === "string") cambios.color_marca = body.color_marca.trim() || null;
+  if (body.redes_sociales !== undefined) {
+    const redes = limpiarRedesSociales(body.redes_sociales);
+    if (redes) cambios.redes_sociales = redes;
+  }
 
   if (Object.keys(cambios).length === 0) return NextResponse.json({ ok: true });
 

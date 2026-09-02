@@ -25,6 +25,9 @@ type ProfesionalPropio = {
   horario_fin: string;
   dias_disponibles: string[];
   duracion_cita_minutos: number;
+  logo_url: string | null;
+  color_marca: string | null;
+  redes_sociales: { facebook?: string; instagram?: string; tiktok?: string };
 };
 
 const DIAS: { valor: string; etiqueta: string }[] = [
@@ -283,6 +286,53 @@ function PestanaDisponibilidad() {
         <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Biografía (opcional)</span>
         <textarea value={datos.biografia ?? ""} onChange={(e) => setDatos({ ...datos, biografia: e.target.value })} rows={2} className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]" />
       </label>
+
+      <div className="space-y-3 border-t border-[var(--color-borde)] pt-4">
+        <h3 className="text-sm font-semibold text-[var(--color-texto)]">Marca personal</h3>
+        <p className="text-xs text-[var(--color-texto-mute)]">Se usa en los correos de tus citas (confirmación, reagendamiento, cancelación) si la plantilla las incluye.</p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Logo (URL)</span>
+            <input
+              value={datos.logo_url ?? ""}
+              onChange={(e) => setDatos({ ...datos, logo_url: e.target.value })}
+              placeholder="https://..."
+              className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Color de marca</span>
+            <input type="color" value={datos.color_marca ?? "#6b2fa0"} onChange={(e) => setDatos({ ...datos, color_marca: e.target.value })} className="h-9 w-16 rounded border border-[var(--color-borde)] bg-transparent" />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Facebook (URL)</span>
+            <input
+              value={datos.redes_sociales.facebook ?? ""}
+              onChange={(e) => setDatos({ ...datos, redes_sociales: { ...datos.redes_sociales, facebook: e.target.value } })}
+              placeholder="https://facebook.com/..."
+              className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Instagram (URL)</span>
+            <input
+              value={datos.redes_sociales.instagram ?? ""}
+              onChange={(e) => setDatos({ ...datos, redes_sociales: { ...datos.redes_sociales, instagram: e.target.value } })}
+              placeholder="https://instagram.com/..."
+              className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">TikTok (URL)</span>
+            <input
+              value={datos.redes_sociales.tiktok ?? ""}
+              onChange={(e) => setDatos({ ...datos, redes_sociales: { ...datos.redes_sociales, tiktok: e.target.value } })}
+              placeholder="https://tiktok.com/@..."
+              className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+            />
+          </label>
+        </div>
+      </div>
 
       {guardado && <p className="text-sm text-[var(--color-marca)]">Guardado.</p>}
       {error && <p className="text-sm text-red-500">{error}</p>}

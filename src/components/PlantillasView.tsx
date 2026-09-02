@@ -324,6 +324,7 @@ function FormularioPlantillaEmail({
   const [cuerpoHtml, setCuerpoHtml] = useState(plantilla?.cuerpo_html ?? "");
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mostrarGenerador, setMostrarGenerador] = useState(false);
   const INPUT_LOCAL =
     "w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]";
 
@@ -373,11 +374,26 @@ function FormularioPlantillaEmail({
       </label>
 
       <label className="block">
-        <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Cuerpo (HTML)</span>
+        <div className="mb-1.5 flex items-center justify-between">
+          <span className="text-sm font-medium text-[var(--color-texto)]">Cuerpo (HTML)</span>
+          <button
+            type="button"
+            onClick={() => setMostrarGenerador(true)}
+            className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2.5 py-1 text-xs font-medium text-[var(--color-texto)] hover:opacity-80"
+          >
+            ✨ Generar con IA
+          </button>
+        </div>
         <textarea rows={8} value={cuerpoHtml} onChange={(e) => setCuerpoHtml(e.target.value)} className={INPUT_LOCAL} />
         <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
           Variables disponibles: {"{{nombre}}"}, {"{{correo_electronico}}"}
-          {tipo !== "campana" && <> , {"{{cita_fecha}}"}, {"{{cita_hora_inicio}}"}, {"{{profesional_nombre}}"}, {"{{tipo_cita}}"}</>}
+          {tipo !== "campana" && (
+            <>
+              {" "}
+              , {"{{cita_fecha}}"}, {"{{cita_hora_inicio}}"}, {"{{profesional_nombre}}"}, {"{{tipo_cita}}"}, {"{{profesional_logo}}"}, {"{{profesional_color}}"},{" "}
+              {"{{profesional_facebook}}"}, {"{{profesional_instagram}}"}, {"{{profesional_tiktok}}"}
+            </>
+          )}
           , además de cualquier variable personalizada de Variables.
         </span>
       </label>
@@ -396,6 +412,122 @@ function FormularioPlantillaEmail({
         <button onClick={onCancelar} className="rounded-lg px-4 py-2 text-sm font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
           Cancelar
         </button>
+      </div>
+
+      {mostrarGenerador && (
+        <GeneradorPlantillaEmailModal
+          tipo={tipo}
+          onUsar={(generado) => {
+            setAsunto(generado.asunto);
+            setCuerpoHtml(generado.cuerpo_html);
+            setMostrarGenerador(false);
+          }}
+          onCancelar={() => setMostrarGenerador(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function GeneradorPlantillaEmailModal({
+  tipo,
+  onUsar,
+  onCancelar,
+}: {
+  tipo: "confirmacion_cita" | "reagendamiento_cita" | "cancelacion_cita" | "campana";
+  onUsar: (generado: { asunto: string; cuerpo_html: string }) => void;
+  onCancelar: () => void;
+}) {
+  const [descripcion, setDescripcion] = useState("");
+  const [generando, setGenerando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [borrador, setBorrador] = useState<{ asunto: string; cuerpo_html: string } | null>(null);
+
+  async function generar() {
+    setGenerando(true);
+    setError(null);
+    const res = await fetch("/api/plantillas-email/generar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tipo, descripcion }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setGenerando(false);
+    if (!res.ok) {
+      setError(data.error ?? "No se pudo generar la plantilla");
+      return;
+    }
+    setBorrador({ asunto: data.asunto, cuerpo_html: data.cuerpo_html });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6">
+        <h2 className="mb-4 text-base font-semibold text-[var(--color-texto)]">Generar plantilla con IA</h2>
+
+        {!borrador ? (
+          <div className="space-y-4">
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Describe cómo quieres el correo</span>
+              <textarea
+                rows={4}
+                value={descripcion}
+                onChange={(e) => setDescripcion(e.target.value)}
+                placeholder="Ej. Diseño moderno, colores azul y blanco, que incluya el logo y las redes sociales del profesional."
+                className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+              />
+            </label>
+
+            {error && <p className="text-sm text-red-500">{error}</p>}
+
+            <div className="flex gap-3">
+              <button
+                onClick={generar}
+                disabled={generando || !descripcion.trim()}
+                style={{ boxShadow: "var(--halo-accion)" }}
+                className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
+              >
+                {generando ? "Generando…" : "Generar"}
+              </button>
+              <button onClick={onCancelar} className="rounded-lg px-4 py-2 text-sm font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Asunto</span>
+              <input
+                value={borrador.asunto}
+                onChange={(e) => setBorrador({ ...borrador, asunto: e.target.value })}
+                className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Cuerpo (HTML)</span>
+              <textarea
+                rows={10}
+                value={borrador.cuerpo_html}
+                onChange={(e) => setBorrador({ ...borrador, cuerpo_html: e.target.value })}
+                className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+              />
+            </label>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => onUsar(borrador)}
+                style={{ boxShadow: "var(--halo-accion)" }}
+                className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90"
+              >
+                Usar esto
+              </button>
+              <button onClick={() => setBorrador(null)} className="rounded-lg px-4 py-2 text-sm font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
+                Volver
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

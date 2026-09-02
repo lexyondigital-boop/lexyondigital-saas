@@ -6,7 +6,7 @@ type AdminClient = ReturnType<typeof createAdminClient>;
 
 type Cita = { id: string; fecha: string; hora_inicio: string; hora_fin: string; tipo_cita: string | null; confirmacion_email_enviado?: boolean };
 type Contacto = { id: string; correo_electronico: string | null; nombre_completo: string | null; nombre: string | null };
-type Profesional = { nombre: string };
+type Profesional = { nombre: string; logo_url?: string | null; color_marca?: string | null; redes_sociales?: Record<string, string> | null };
 type TipoCorreoCita = "confirmacion_cita" | "reagendamiento_cita" | "cancelacion_cita";
 
 // Manda el correo asociado a una cita (confirmación, reagendamiento o
@@ -44,6 +44,11 @@ async function enviarCorreoDeCita(
     cita_hora_fin: cita.hora_fin,
     tipo_cita: cita.tipo_cita ?? "",
     profesional_nombre: profesional.nombre,
+    profesional_logo: profesional.logo_url ?? "",
+    profesional_color: profesional.color_marca ?? "",
+    profesional_facebook: profesional.redes_sociales?.facebook ?? "",
+    profesional_instagram: profesional.redes_sociales?.instagram ?? "",
+    profesional_tiktok: profesional.redes_sociales?.tiktok ?? "",
   };
 
   const resultado = await enviarCorreo({
