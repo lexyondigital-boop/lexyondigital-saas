@@ -22,6 +22,8 @@ type Config = {
   horario_fin: string;
   mensaje_fuera_horario: string | null;
   mensaje_transferencia: string | null;
+  enviar_bienvenida_inactivo: boolean;
+  mensaje_bienvenida_inactivo: string | null;
   trigger_palabras: string[];
   seguimiento_horas: number;
   profesionales_ids: string[] | null;
@@ -42,6 +44,8 @@ const CONFIG_DEFECTO: Config = {
   horario_fin: "20:00",
   mensaje_fuera_horario: "",
   mensaje_transferencia: "",
+  enviar_bienvenida_inactivo: true,
+  mensaje_bienvenida_inactivo: "",
   trigger_palabras: [],
   seguimiento_horas: 24,
   profesionales_ids: null,
@@ -262,6 +266,28 @@ function PestanaGeneral({ cuentaId }: { cuentaId: string }) {
           />
           Agente activo
         </label>
+      </div>
+
+      <div className="space-y-2 rounded-xl border border-[var(--color-borde)] p-4">
+        <label className="flex items-center gap-2 text-sm font-medium text-[var(--color-texto)]">
+          <input
+            type="checkbox"
+            checked={config.enviar_bienvenida_inactivo}
+            onChange={(e) => setConfig({ ...config, enviar_bienvenida_inactivo: e.target.checked })}
+          />
+          Enviar mensaje de bienvenida cuando el agente está inactivo
+        </label>
+        <p className="text-xs text-[var(--color-texto-mute)]">
+          Se manda solo al primer mensaje de un contacto nuevo, y solo si el agente está desactivado (si está activo, responde la IA). Usa {"{nombre}"} para incluir el nombre del contacto.
+        </p>
+        <textarea
+          rows={2}
+          disabled={!config.enviar_bienvenida_inactivo}
+          value={config.mensaje_bienvenida_inactivo ?? ""}
+          onChange={(e) => setConfig({ ...config, mensaje_bienvenida_inactivo: e.target.value })}
+          placeholder="Hola {nombre}, gracias por escribirnos. En breve te atenderá alguien de nuestro equipo."
+          className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)] disabled:opacity-50"
+        />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">

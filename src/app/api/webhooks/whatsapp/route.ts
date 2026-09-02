@@ -144,16 +144,31 @@ async function procesarMensajeEntrante(body: unknown) {
     .single();
 
   if (esContactoNuevo) {
-    await enviarSaludoBienvenida({
-      supabase,
-      cuentaWhatsappId: cuentaWhatsapp.id,
-      cuentaId: cuentaWhatsapp.cuenta_id,
-      phoneNumberId: cuentaWhatsapp.phone_number_id,
-      telefono,
-      nombre,
-    });
-    // Al primer contacto se le manda el saludo fijo de arriba, no la IA.
-    return;
+    const { data: agenteConfig } = await supabase
+      .from("agente_config")
+      .select("activo, enviar_bienvenida_inactivo, mensaje_bienvenida_inactivo")
+      .eq("cuenta_id", cuentaWhatsapp.cuenta_id)
+      .maybeSingle();
+
+    // Si el agente está activo, el primer mensaje lo responde la IA como
+    // cualquier otro (sigue el flujo normal más abajo) -- el saludo fijo de
+    // aquí es solo un respaldo para cuando no hay IA respondiendo.
+    if (!agenteConfig?.activo) {
+      if (agenteConfig?.enviar_bienvenida_inactivo && agenteConfig.mensaje_bienvenida_inactivo) {
+        await enviarBienvenidaAgenteInactivo({
+          supabase,
+          cuentaWhatsappId: cuentaWhatsapp.id,
+          cuentaId: cuentaWhatsapp.cuenta_id,
+          phoneNumberId: cuentaWhatsapp.phone_number_id,
+          conversacionId: conversacion?.id ?? null,
+          contactoId: contacto.id,
+          telefono,
+          nombre,
+          mensaje: agenteConfig.mensaje_bienvenida_inactivo,
+        });
+      }
+      return;
+    }
   }
 
   if (conversacion?.id && mensajeInsertado && contenidoMensaje.disparaAgente && contenidoMensaje.contenido) {
@@ -275,20 +290,26 @@ async function obtenerOCrearConversacion(
   return nueva;
 }
 
-async function enviarSaludoBienvenida({
+async function enviarBienvenidaAgenteInactivo({
   supabase,
   cuentaWhatsappId,
   cuentaId,
   phoneNumberId,
+  conversacionId,
+  contactoId,
   telefono,
   nombre,
+  mensaje,
 }: {
   supabase: ReturnType<typeof createAdminClient>;
   cuentaWhatsappId: string;
   cuentaId: string;
   phoneNumberId: string;
+  conversacionId: string | null;
+  contactoId: string;
   telefono: string;
   nombre: string;
+  mensaje: string;
 }) {
   const { data: credencial } = await supabase
     .from("whatsapp_credenciales")
@@ -297,31 +318,46 @@ async function enviarSaludoBienvenida({
     .maybeSingle();
 
   if (!credencial) {
-    console.error(`Cuenta ${cuentaId}: no tiene whatsapp_credenciales para saludar a un contacto nuevo.`);
+    console.error(`Cuenta ${cuentaId}: no tiene whatsapp_credenciales para la bienvenida de agente inactivo.`);
     return;
   }
 
-  const { data: agenteConfig } = await supabase
-    .from("agente_config")
-    .select("nombre")
-    .eq("cuenta_id", cuentaId)
-    .maybeSingle();
-
-  const nombreAgente = agenteConfig?.nombre || "el equipo";
-  const saludoNombre = nombre ? `Hola ${nombre}` : "Hola";
+  // {nombre} es opcional en el mensaje configurado -- si el contacto no
+  // trajo nombre de perfil de WhatsApp, se limpia la coma/espacio que haya
+  // quedado colgando en vez de mandar "Hola , gracias...".
+  const texto = mensaje
+    .replace(/\{nombre\}/gi, nombre.trim())
+    .replace(/\s+,/g, ",")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 
   const resultado = await enviarMensajeTexto({
     phoneNumberId,
     accessToken: credencial.access_token,
     to: normalizarDestinatario(telefono),
-    texto: `${saludoNombre}, soy ${nombreAgente}. ¿En qué te puedo ayudar?`,
+    texto,
   });
 
   if (!resultado.ok) {
     console.error(
-      `Cuenta ${cuentaId}: falló el saludo de bienvenida a ${telefono}:`,
+      `Cuenta ${cuentaId}: falló la bienvenida de agente inactivo a ${telefono}:`,
       JSON.stringify(resultado.raw),
     );
+  }
+
+  const { error } = await supabase.from("mensajes").insert({
+    cuenta_id: cuentaId,
+    conversacion_id: conversacionId,
+    contacto_id: contactoId,
+    direccion: "saliente",
+    tipo: "texto",
+    contenido: texto,
+    status: resultado.ok ? "enviado" : "fallido",
+    whatsapp_message_id: resultado.whatsappMessageId,
+  });
+
+  if (error) {
+    console.error(`Cuenta ${cuentaId}: no se pudo guardar la bienvenida de agente inactivo en mensajes:`, error.message);
   }
 }
 
