@@ -186,7 +186,7 @@ export async function procesarAgenteIA({
 
   const { data: conversacion } = await supabase
     .from("conversaciones")
-    .select("agente_ia_activo, agente_activado_en")
+    .select("agente_ia_activo, agente_activado_en, silenciado_fuera_horario")
     .eq("id", conversacionId)
     .single();
 
@@ -261,8 +261,21 @@ export async function procesarAgenteIA({
   const dentroDeHorario = inicio <= fin ? horaActual >= inicio && horaActual <= fin : horaActual >= inicio || horaActual <= fin;
 
   if (!dentroDeHorario) {
-    if (config.mensaje_fuera_horario) await responderDirecto(config.mensaje_fuera_horario);
+    // Se avisa una sola vez -- si ya se le mandó el mensaje de fuera de
+    // horario y el contacto sigue escribiendo (todavía fuera de horario), se
+    // queda callado en vez de repetirlo en cada mensaje nuevo.
+    if (!conversacion.silenciado_fuera_horario) {
+      if (config.mensaje_fuera_horario) await responderDirecto(config.mensaje_fuera_horario);
+      await supabase.from("conversaciones").update({ silenciado_fuera_horario: true }).eq("id", conversacionId);
+    }
     return;
+  }
+
+  if (conversacion.silenciado_fuera_horario) {
+    // Volvió a escribir ya dentro de horario -- se reactiva sola, a
+    // diferencia del apagado por transferencia a humano (ese sí requiere
+    // reactivación manual desde Conversaciones).
+    await supabase.from("conversaciones").update({ silenciado_fuera_horario: false }).eq("id", conversacionId);
   }
 
   const disparaTransferencia = (config.trigger_palabras ?? []).some((palabra: string) =>
