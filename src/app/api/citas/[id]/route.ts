@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { actualizarEventoGoogle, fechaHoraMexico } from "@/lib/google-calendar";
+import { enviarReagendamientoCitaPorCorreo } from "@/lib/email-citas";
 import { registrarActividad } from "@/lib/auditoria";
 
 // Reagendar: cambia fecha/hora de una cita existente (mismo profesional).
@@ -64,6 +66,24 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       detalles: { fecha, hora_inicio, hora_fin },
       request,
     });
+  }
+
+  if (cita.profesionales) {
+    const admin = createAdminClient();
+    const { data: contacto } = await admin
+      .from("contactos")
+      .select("id, correo_electronico, nombre_completo, nombre")
+      .eq("id", cita.contacto_id)
+      .maybeSingle();
+    if (contacto) {
+      await enviarReagendamientoCitaPorCorreo(
+        admin,
+        cita.cuenta_id,
+        { id: cita.id, fecha, hora_inicio, hora_fin, tipo_cita: cita.tipo_cita },
+        contacto,
+        cita.profesionales,
+      );
+    }
   }
 
   return NextResponse.json({ ok: true });

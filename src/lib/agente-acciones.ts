@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { crearEventoGoogle, actualizarEventoGoogle, eliminarEventoGoogle, obtenerOcupacionGoogle, fechaHoraMexico } from "@/lib/google-calendar";
 import { calcularSlotsDisponibles } from "@/lib/disponibilidad";
-import { enviarConfirmacionCitaPorCorreo } from "@/lib/email-citas";
+import { enviarConfirmacionCitaPorCorreo, enviarReagendamientoCitaPorCorreo, enviarCancelacionCitaPorCorreo } from "@/lib/email-citas";
 import { registrarActividad } from "@/lib/auditoria";
 import { construirBloqueAgenda } from "@/lib/agente-prompt-agenda";
 import { resolverVariablesDelPrompt, validarValorVariable, formatearDatosParaNotas } from "@/lib/agente-prompt-variables";
@@ -337,6 +337,17 @@ async function reagendarCita(admin: AdminClient, { cuentaId, contactoId, convers
     detalles: { origen: "agente_ia", conversacion_id: conversacionId, fecha: input.fecha, hora_inicio: input.hora_inicio },
   });
 
+  const { data: contacto } = await admin.from("contactos").select("id, correo_electronico, nombre_completo, nombre").eq("id", contactoId).maybeSingle();
+  if (contacto && cita.profesionales) {
+    await enviarReagendamientoCitaPorCorreo(
+      admin,
+      cuentaId,
+      { id: cita.id, fecha: input.fecha, hora_inicio: input.hora_inicio, hora_fin: input.hora_fin, tipo_cita: cita.tipo_cita },
+      contacto,
+      cita.profesionales,
+    );
+  }
+
   return { ok: true, cita_id: cita.id, fecha: input.fecha, hora_inicio: input.hora_inicio, hora_fin: input.hora_fin };
 }
 
@@ -372,6 +383,11 @@ async function cancelarCita(admin: AdminClient, { cuentaId, contactoId, conversa
     recursoId: cita.id,
     detalles: { origen: "agente_ia", conversacion_id: conversacionId },
   });
+
+  const { data: contacto } = await admin.from("contactos").select("id, correo_electronico, nombre_completo, nombre").eq("id", contactoId).maybeSingle();
+  if (contacto && cita.profesionales) {
+    await enviarCancelacionCitaPorCorreo(admin, cuentaId, cita, contacto, cita.profesionales);
+  }
 
   return { ok: true };
 }

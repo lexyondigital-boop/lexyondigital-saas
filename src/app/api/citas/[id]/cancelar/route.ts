@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { eliminarEventoGoogle } from "@/lib/google-calendar";
+import { enviarCancelacionCitaPorCorreo } from "@/lib/email-citas";
 import { registrarActividad } from "@/lib/auditoria";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -32,6 +34,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       recursoId: id,
       request,
     });
+  }
+
+  if (cita.profesionales) {
+    const admin = createAdminClient();
+    const { data: contacto } = await admin
+      .from("contactos")
+      .select("id, correo_electronico, nombre_completo, nombre")
+      .eq("id", cita.contacto_id)
+      .maybeSingle();
+    if (contacto) {
+      await enviarCancelacionCitaPorCorreo(admin, cita.cuenta_id, cita, contacto, cita.profesionales);
+    }
   }
 
   return NextResponse.json({ ok: true });

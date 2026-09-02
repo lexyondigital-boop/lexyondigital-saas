@@ -203,12 +203,17 @@ export function PlantillasView({ cuentaId, permisos }: { cuentaId: string; permi
   );
 }
 
-const LABEL_TIPO_EMAIL = { confirmacion_cita: "Confirmación de cita", campana: "Campaña" } as const;
+const LABEL_TIPO_EMAIL = {
+  confirmacion_cita: "Confirmación de cita",
+  reagendamiento_cita: "Reagendamiento de cita",
+  cancelacion_cita: "Cancelación de cita",
+  campana: "Campaña",
+} as const;
 
 type PlantillaEmail = {
   id: string;
   nombre: string;
-  tipo: "confirmacion_cita" | "campana";
+  tipo: "confirmacion_cita" | "reagendamiento_cita" | "cancelacion_cita" | "campana";
   asunto: string;
   cuerpo_html: string;
   activa: boolean;
@@ -314,7 +319,7 @@ function FormularioPlantillaEmail({
   onCancelar: () => void;
 }) {
   const [nombre, setNombre] = useState(plantilla?.nombre ?? "");
-  const [tipo, setTipo] = useState<"confirmacion_cita" | "campana">(plantilla?.tipo ?? "confirmacion_cita");
+  const [tipo, setTipo] = useState<"confirmacion_cita" | "reagendamiento_cita" | "cancelacion_cita" | "campana">(plantilla?.tipo ?? "confirmacion_cita");
   const [asunto, setAsunto] = useState(plantilla?.asunto ?? "");
   const [cuerpoHtml, setCuerpoHtml] = useState(plantilla?.cuerpo_html ?? "");
   const [guardando, setGuardando] = useState(false);
@@ -351,11 +356,13 @@ function FormularioPlantillaEmail({
         <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Se usa para</span>
         <select value={tipo} onChange={(e) => setTipo(e.target.value as typeof tipo)} className={INPUT_LOCAL}>
           <option value="confirmacion_cita">Confirmación de cita</option>
+          <option value="reagendamiento_cita">Reagendamiento de cita</option>
+          <option value="cancelacion_cita">Cancelación de cita</option>
           <option value="campana">Campaña</option>
         </select>
-        {tipo === "confirmacion_cita" && (
+        {tipo !== "campana" && (
           <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
-            Solo puede haber una plantilla activa de este tipo -- se manda automáticamente al agendar una cita si el contacto tiene correo.
+            Solo puede haber una plantilla activa de este tipo -- se manda automáticamente {tipo === "confirmacion_cita" ? "al agendar" : tipo === "reagendamiento_cita" ? "al reagendar" : "al cancelar"} una cita si el contacto tiene correo.
           </span>
         )}
       </label>
@@ -370,7 +377,7 @@ function FormularioPlantillaEmail({
         <textarea rows={8} value={cuerpoHtml} onChange={(e) => setCuerpoHtml(e.target.value)} className={INPUT_LOCAL} />
         <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
           Variables disponibles: {"{{nombre}}"}, {"{{correo_electronico}}"}
-          {tipo === "confirmacion_cita" && <> , {"{{cita_fecha}}"}, {"{{cita_hora_inicio}}"}, {"{{profesional_nombre}}"}, {"{{tipo_cita}}"}</>}
+          {tipo !== "campana" && <> , {"{{cita_fecha}}"}, {"{{cita_hora_inicio}}"}, {"{{profesional_nombre}}"}, {"{{tipo_cita}}"}</>}
           , además de cualquier variable personalizada de Variables.
         </span>
       </label>
