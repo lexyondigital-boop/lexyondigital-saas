@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/Badge";
 import { AsistentePlantillaModal } from "@/components/AsistentePlantillaModal";
+import { renderizarPreview } from "@/lib/plantillas-email-preview";
+import { PLANTILLAS_EMAIL_PREDETERMINADAS } from "@/lib/plantillas-email-predeterminadas";
 
 export type Boton = { type: "QUICK_REPLY" | "URL" | "PHONE_NUMBER"; text: string; url?: string; phone_number?: string };
 export type Tarjeta = { media_tipo: "imagen" | "video"; media_url: string; media_handle: string | null; body: string; body_ejemplos: string[]; botones: Boton[] };
@@ -307,6 +309,43 @@ function PlantillasEmailSection({ cuentaId }: { cuentaId: string }) {
   );
 }
 
+function EditorHtmlConPreview({ value, onChange, rows = 8 }: { value: string; onChange: (v: string) => void; rows?: number }) {
+  const [vista, setVista] = useState<"editar" | "preview">("editar");
+  const INPUT_LOCAL =
+    "w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]";
+
+  return (
+    <div>
+      <div className="mb-1.5 flex gap-2">
+        <button
+          type="button"
+          onClick={() => setVista("editar")}
+          className={`rounded-lg border px-2.5 py-1 text-xs font-medium ${vista === "editar" ? "border-[var(--color-marca)] bg-[var(--color-marca)] text-white" : "border-[var(--color-borde)] text-[var(--color-texto-mute)]"}`}
+        >
+          Editar
+        </button>
+        <button
+          type="button"
+          onClick={() => setVista("preview")}
+          className={`rounded-lg border px-2.5 py-1 text-xs font-medium ${vista === "preview" ? "border-[var(--color-marca)] bg-[var(--color-marca)] text-white" : "border-[var(--color-borde)] text-[var(--color-texto-mute)]"}`}
+        >
+          Vista previa
+        </button>
+      </div>
+      {vista === "editar" ? (
+        <textarea rows={rows} value={value} onChange={(e) => onChange(e.target.value)} className={INPUT_LOCAL} />
+      ) : (
+        <iframe
+          srcDoc={renderizarPreview(value)}
+          sandbox=""
+          title="Vista previa del correo"
+          className="h-96 w-full rounded-lg border border-[var(--color-borde)] bg-white"
+        />
+      )}
+    </div>
+  );
+}
+
 function FormularioPlantillaEmail({
   cuentaId,
   plantilla,
@@ -348,6 +387,30 @@ function FormularioPlantillaEmail({
     <div className="mb-6 max-w-xl space-y-4 rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6">
       <h2 className="text-base font-semibold text-[var(--color-texto)]">{plantilla ? "Editar plantilla de correo" : "Nueva plantilla de correo"}</h2>
 
+      {!plantilla && (
+        <div>
+          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Empezar desde una plantilla predeterminada (opcional)</span>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {PLANTILLAS_EMAIL_PREDETERMINADAS.map((p) => (
+              <div key={p.id} className="rounded-lg border border-[var(--color-borde)] p-3 text-center">
+                <p className="mb-2 text-xs font-medium text-[var(--color-texto)]">{p.nombre}</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAsunto(p.asunto);
+                    setCuerpoHtml(p.cuerpo_html);
+                    if (!nombre.trim()) setNombre(p.nombre);
+                  }}
+                  className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2.5 py-1 text-xs font-medium text-[var(--color-texto)] hover:opacity-80"
+                >
+                  Usar esta
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <label className="block">
         <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Nombre</span>
         <input value={nombre} onChange={(e) => setNombre(e.target.value)} className={INPUT_LOCAL} />
@@ -384,7 +447,7 @@ function FormularioPlantillaEmail({
             ✨ Generar con IA
           </button>
         </div>
-        <textarea rows={8} value={cuerpoHtml} onChange={(e) => setCuerpoHtml(e.target.value)} className={INPUT_LOCAL} />
+        <EditorHtmlConPreview value={cuerpoHtml} onChange={setCuerpoHtml} />
         <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
           Variables disponibles: {"{{nombre}}"}, {"{{correo_electronico}}"}
           {tipo !== "campana" && (
@@ -506,12 +569,7 @@ function GeneradorPlantillaEmailModal({
             </label>
             <label className="block">
               <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Cuerpo (HTML)</span>
-              <textarea
-                rows={10}
-                value={borrador.cuerpo_html}
-                onChange={(e) => setBorrador({ ...borrador, cuerpo_html: e.target.value })}
-                className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
-              />
+              <EditorHtmlConPreview value={borrador.cuerpo_html} onChange={(v) => setBorrador({ ...borrador, cuerpo_html: v })} rows={10} />
             </label>
 
             <div className="flex gap-3">
