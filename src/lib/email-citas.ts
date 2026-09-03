@@ -6,8 +6,22 @@ type AdminClient = ReturnType<typeof createAdminClient>;
 
 type Cita = { id: string; fecha: string; hora_inicio: string; hora_fin: string; tipo_cita: string | null; confirmacion_email_enviado?: boolean };
 type Contacto = { id: string; correo_electronico: string | null; nombre_completo: string | null; nombre: string | null };
-type Profesional = { nombre: string; logo_url?: string | null; color_marca?: string | null; redes_sociales?: Record<string, string> | null };
+type Profesional = {
+  nombre: string;
+  logo_url?: string | null;
+  color_marca?: string | null;
+  redes_sociales?: Record<string, string> | null;
+  enviar_confirmacion_email?: boolean;
+  enviar_reagendamiento_email?: boolean;
+  enviar_cancelacion_email?: boolean;
+};
 type TipoCorreoCita = "confirmacion_cita" | "reagendamiento_cita" | "cancelacion_cita";
+
+const CAMPO_ACTIVACION_POR_TIPO: Record<TipoCorreoCita, keyof Profesional> = {
+  confirmacion_cita: "enviar_confirmacion_email",
+  reagendamiento_cita: "enviar_reagendamiento_email",
+  cancelacion_cita: "enviar_cancelacion_email",
+};
 
 // Manda el correo asociado a una cita (confirmación, reagendamiento o
 // cancelación), si la cuenta tiene correo conectado, tiene una plantilla
@@ -23,6 +37,7 @@ async function enviarCorreoDeCita(
   profesional: Profesional,
 ): Promise<void> {
   if (!contacto.correo_electronico) return;
+  if (profesional[CAMPO_ACTIVACION_POR_TIPO[tipo]] === false) return;
 
   const { data: plantilla } = await admin
     .from("plantillas_email")

@@ -31,6 +31,9 @@ type ProfesionalDetalle = Profesional & {
   logo_url: string | null;
   color_marca: string | null;
   redes_sociales: { facebook?: string; instagram?: string; tiktok?: string };
+  enviar_confirmacion_email: boolean;
+  enviar_reagendamiento_email: boolean;
+  enviar_cancelacion_email: boolean;
 };
 
 const DIAS: { valor: string; etiqueta: string }[] = [
@@ -340,6 +343,7 @@ function FormularioEditarProfesional({ id, onGuardado, onCancelar }: { id: strin
   const [detalle, setDetalle] = useState<ProfesionalDetalle | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [conectando, setConectando] = useState(false);
+  const [subiendoLogo, setSubiendoLogo] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -349,6 +353,21 @@ function FormularioEditarProfesional({ id, onGuardado, onCancelar }: { id: strin
       setDetalle(data.profesional ?? null);
     })();
   }, [id]);
+
+  async function subirLogo(archivo: File) {
+    setSubiendoLogo(true);
+    setError(null);
+    const formData = new FormData();
+    formData.append("archivo", archivo);
+    const res = await fetch(`/api/profesionales/${id}/logo`, { method: "POST", body: formData });
+    const data = await res.json().catch(() => ({}));
+    setSubiendoLogo(false);
+    if (!res.ok) {
+      setError(data.error ?? "No se pudo subir el logo");
+      return;
+    }
+    setDetalle((prev) => (prev ? { ...prev, logo_url: data.url } : prev));
+  }
 
   if (!detalle) {
     return <div className="mt-5 rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6 text-sm text-[var(--color-texto-mute)]">Cargando…</div>;
@@ -382,6 +401,9 @@ function FormularioEditarProfesional({ id, onGuardado, onCancelar }: { id: strin
         logo_url: detalle.logo_url,
         color_marca: detalle.color_marca,
         redes_sociales: detalle.redes_sociales,
+        enviar_confirmacion_email: detalle.enviar_confirmacion_email,
+        enviar_reagendamiento_email: detalle.enviar_reagendamiento_email,
+        enviar_cancelacion_email: detalle.enviar_cancelacion_email,
       }),
     });
     setEnviando(false);
@@ -485,13 +507,33 @@ function FormularioEditarProfesional({ id, onGuardado, onCancelar }: { id: strin
         <p className="text-xs text-[var(--color-texto-mute)]">Se usa en los correos de las citas de este profesional (confirmación, reagendamiento, cancelación) si la plantilla las incluye.</p>
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="block">
-            <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Logo (URL)</span>
-            <input
-              value={detalle.logo_url ?? ""}
-              onChange={(e) => setDetalle({ ...detalle, logo_url: e.target.value })}
-              placeholder="https://..."
-              className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
-            />
+            <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Logo (URL o subir imagen)</span>
+            <div className="flex gap-2">
+              <input
+                value={detalle.logo_url ?? ""}
+                onChange={(e) => setDetalle({ ...detalle, logo_url: e.target.value })}
+                placeholder="https://..."
+                className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+              />
+              <input
+                type="file"
+                accept="image/jpeg,image/png"
+                id={`subir-logo-${id}`}
+                disabled={subiendoLogo}
+                className="hidden"
+                onChange={(e) => {
+                  const archivo = e.target.files?.[0];
+                  if (archivo) subirLogo(archivo);
+                  e.target.value = "";
+                }}
+              />
+              <label
+                htmlFor={`subir-logo-${id}`}
+                className="shrink-0 cursor-pointer rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm font-medium text-[var(--color-texto)] hover:opacity-80"
+              >
+                {subiendoLogo ? "Subiendo…" : "Subir"}
+              </label>
+            </div>
           </label>
           <label className="block">
             <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Color de marca</span>
@@ -523,6 +565,22 @@ function FormularioEditarProfesional({ id, onGuardado, onCancelar }: { id: strin
               placeholder="https://tiktok.com/@..."
               className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
             />
+          </label>
+        </div>
+
+        <div className="space-y-2 pt-2">
+          <span className="block text-sm font-medium text-[var(--color-texto)]">Correos automáticos de sus citas</span>
+          <label className="flex items-center gap-2 text-sm text-[var(--color-texto)]">
+            <input type="checkbox" checked={detalle.enviar_confirmacion_email} onChange={(e) => setDetalle({ ...detalle, enviar_confirmacion_email: e.target.checked })} />
+            Confirmación de cita
+          </label>
+          <label className="flex items-center gap-2 text-sm text-[var(--color-texto)]">
+            <input type="checkbox" checked={detalle.enviar_reagendamiento_email} onChange={(e) => setDetalle({ ...detalle, enviar_reagendamiento_email: e.target.checked })} />
+            Reagendamiento de cita
+          </label>
+          <label className="flex items-center gap-2 text-sm text-[var(--color-texto)]">
+            <input type="checkbox" checked={detalle.enviar_cancelacion_email} onChange={(e) => setDetalle({ ...detalle, enviar_cancelacion_email: e.target.checked })} />
+            Cancelación de cita
           </label>
         </div>
       </div>

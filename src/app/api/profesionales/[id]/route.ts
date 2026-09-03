@@ -68,6 +68,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const redes = limpiarRedesSociales(body.redes_sociales);
     if (redes) cambios.redes_sociales = redes;
   }
+  if (typeof body.enviar_confirmacion_email === "boolean") cambios.enviar_confirmacion_email = body.enviar_confirmacion_email;
+  if (typeof body.enviar_reagendamiento_email === "boolean") cambios.enviar_reagendamiento_email = body.enviar_reagendamiento_email;
+  if (typeof body.enviar_cancelacion_email === "boolean") cambios.enviar_cancelacion_email = body.enviar_cancelacion_email;
 
   if (Object.keys(cambios).length === 0) return NextResponse.json({ ok: true });
 

@@ -24,6 +24,9 @@ export const VALORES_EJEMPLO: Record<string, string> = {
   profesional_tiktok: "https://tiktok.com/@tunegocio",
 };
 
-export function renderizarPreview(html: string): string {
-  return reemplazarVariables(html, VALORES_EJEMPLO);
+// `overrides` sustituye valores puntuales (ej. los 5 de marca de un
+// profesional real elegido en la vista previa) sin perder el resto de los
+// datos de ejemplo genéricos.
+export function renderizarPreview(html: string, overrides?: Record<string, string>): string {
+  return reemplazarVariables(html, { ...VALORES_EJEMPLO, ...overrides });
 }

@@ -309,10 +309,46 @@ function PlantillasEmailSection({ cuentaId }: { cuentaId: string }) {
   );
 }
 
-function EditorHtmlConPreview({ value, onChange, rows = 8 }: { value: string; onChange: (v: string) => void; rows?: number }) {
+type ProfesionalLitePreview = { id: string; nombre: string; logo_url: string | null; color_marca: string | null; redes_sociales: { facebook?: string; instagram?: string; tiktok?: string } | null };
+
+function EditorHtmlConPreview({ value, onChange, cuentaId, rows = 8 }: { value: string; onChange: (v: string) => void; cuentaId: string; rows?: number }) {
   const [vista, setVista] = useState<"editar" | "preview">("editar");
+  const [profesionales, setProfesionales] = useState<ProfesionalLitePreview[]>([]);
+  const [profesionalId, setProfesionalId] = useState("");
+  const [overrides, setOverrides] = useState<{ profesional_color: string; profesional_logo: string; profesional_facebook: string; profesional_instagram: string; profesional_tiktok: string }>({
+    profesional_color: "",
+    profesional_logo: "",
+    profesional_facebook: "",
+    profesional_instagram: "",
+    profesional_tiktok: "",
+  });
   const INPUT_LOCAL =
     "w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]";
+
+  useEffect(() => {
+    createClient()
+      .from("profesionales")
+      .select("id, nombre, logo_url, color_marca, redes_sociales")
+      .eq("cuenta_id", cuentaId)
+      .eq("estado", "activo")
+      .order("nombre")
+      .then(({ data }) => setProfesionales((data as ProfesionalLitePreview[]) ?? []));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function elegirProfesional(id: string) {
+    setProfesionalId(id);
+    const p = profesionales.find((x) => x.id === id);
+    setOverrides({
+      profesional_color: p?.color_marca ?? "",
+      profesional_logo: p?.logo_url ?? "",
+      profesional_facebook: p?.redes_sociales?.facebook ?? "",
+      profesional_instagram: p?.redes_sociales?.instagram ?? "",
+      profesional_tiktok: p?.redes_sociales?.tiktok ?? "",
+    });
+  }
+
+  const overridesLimpios = Object.fromEntries(Object.entries(overrides).filter(([, v]) => v.trim()));
 
   return (
     <div>
@@ -335,12 +371,54 @@ function EditorHtmlConPreview({ value, onChange, rows = 8 }: { value: string; on
       {vista === "editar" ? (
         <textarea rows={rows} value={value} onChange={(e) => onChange(e.target.value)} className={INPUT_LOCAL} />
       ) : (
-        <iframe
-          srcDoc={renderizarPreview(value)}
-          sandbox=""
-          title="Vista previa del correo"
-          className="h-96 w-full rounded-lg border border-[var(--color-borde)] bg-white"
-        />
+        <div className="space-y-3">
+          {profesionales.length > 0 && (
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Previsualizar con</span>
+              <select value={profesionalId} onChange={(e) => elegirProfesional(e.target.value)} className={INPUT_LOCAL}>
+                <option value="">Datos de ejemplo genéricos</option>
+                {profesionales.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nombre}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            <label className="block">
+              <span className="mb-1 block text-xs text-[var(--color-texto-mute)]">Color</span>
+              <input
+                type="color"
+                value={overrides.profesional_color || "#6b2fa0"}
+                onChange={(e) => setOverrides({ ...overrides, profesional_color: e.target.value })}
+                className="h-9 w-full rounded border border-[var(--color-borde)] bg-transparent"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs text-[var(--color-texto-mute)]">Logo</span>
+              <input value={overrides.profesional_logo} onChange={(e) => setOverrides({ ...overrides, profesional_logo: e.target.value })} className={INPUT_LOCAL} />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs text-[var(--color-texto-mute)]">Facebook</span>
+              <input value={overrides.profesional_facebook} onChange={(e) => setOverrides({ ...overrides, profesional_facebook: e.target.value })} className={INPUT_LOCAL} />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs text-[var(--color-texto-mute)]">Instagram</span>
+              <input value={overrides.profesional_instagram} onChange={(e) => setOverrides({ ...overrides, profesional_instagram: e.target.value })} className={INPUT_LOCAL} />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs text-[var(--color-texto-mute)]">TikTok</span>
+              <input value={overrides.profesional_tiktok} onChange={(e) => setOverrides({ ...overrides, profesional_tiktok: e.target.value })} className={INPUT_LOCAL} />
+            </label>
+          </div>
+          <iframe
+            srcDoc={renderizarPreview(value, overridesLimpios)}
+            sandbox=""
+            title="Vista previa del correo"
+            className="h-96 w-full rounded-lg border border-[var(--color-borde)] bg-white"
+          />
+        </div>
       )}
     </div>
   );
@@ -447,7 +525,7 @@ function FormularioPlantillaEmail({
             ✨ Generar con IA
           </button>
         </div>
-        <EditorHtmlConPreview value={cuerpoHtml} onChange={setCuerpoHtml} />
+        <EditorHtmlConPreview value={cuerpoHtml} onChange={setCuerpoHtml} cuentaId={cuentaId} />
         <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
           Variables disponibles: {"{{nombre}}"}, {"{{correo_electronico}}"}
           {tipo !== "campana" && (
@@ -480,6 +558,7 @@ function FormularioPlantillaEmail({
       {mostrarGenerador && (
         <GeneradorPlantillaEmailModal
           tipo={tipo}
+          cuentaId={cuentaId}
           onUsar={(generado) => {
             setAsunto(generado.asunto);
             setCuerpoHtml(generado.cuerpo_html);
@@ -494,10 +573,12 @@ function FormularioPlantillaEmail({
 
 function GeneradorPlantillaEmailModal({
   tipo,
+  cuentaId,
   onUsar,
   onCancelar,
 }: {
   tipo: "confirmacion_cita" | "reagendamiento_cita" | "cancelacion_cita" | "campana";
+  cuentaId: string;
   onUsar: (generado: { asunto: string; cuerpo_html: string }) => void;
   onCancelar: () => void;
 }) {
@@ -569,7 +650,7 @@ function GeneradorPlantillaEmailModal({
             </label>
             <label className="block">
               <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Cuerpo (HTML)</span>
-              <EditorHtmlConPreview value={borrador.cuerpo_html} onChange={(v) => setBorrador({ ...borrador, cuerpo_html: v })} rows={10} />
+              <EditorHtmlConPreview value={borrador.cuerpo_html} onChange={(v) => setBorrador({ ...borrador, cuerpo_html: v })} cuentaId={cuentaId} rows={10} />
             </label>
 
             <div className="flex gap-3">
