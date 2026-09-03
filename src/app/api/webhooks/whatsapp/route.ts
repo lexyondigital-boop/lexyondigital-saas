@@ -64,7 +64,7 @@ async function procesarMensajeEntrante(body: unknown) {
   const contactoMeta = value.contacts?.[0];
   const phoneNumberId: string | undefined = value.metadata?.phone_number_id;
 
-  if (!phoneNumberId || !["text", "audio", "image"].includes(mensaje.type)) return;
+  if (!phoneNumberId || !["text", "audio", "image", "button"].includes(mensaje.type)) return;
 
   const supabase = createAdminClient();
 
@@ -201,6 +201,14 @@ async function interpretarMensaje(
 ): Promise<ContenidoMensaje | null> {
   if (mensaje.type === "text") {
     const texto = mensaje.text?.body ?? "";
+    return { tipo: "texto", contenido: texto, mediaUrl: null, mediaMimeType: null, disparaAgente: true };
+  }
+
+  // Toque de un botón de respuesta rápida de una plantilla (ej. "Sí, ya
+  // funciona" / "No, sigue la falla") -- Meta lo manda como su propio tipo
+  // "button", no como "text", aunque para nosotros es texto normal entrante.
+  if (mensaje.type === "button") {
+    const texto = mensaje.button?.text ?? "";
     return { tipo: "texto", contenido: texto, mediaUrl: null, mediaMimeType: null, disparaAgente: true };
   }
 
