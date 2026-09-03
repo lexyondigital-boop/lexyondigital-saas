@@ -10,7 +10,7 @@ export default async function ContactosPage() {
 
   return (
     <AppShell email={user.email} role={perfil.rol} permisos={permisos} cuentaId={perfil.cuenta_id}>
-      <ContactosView cuentaId={perfil.cuenta_id} />
+      <ContactosView cuentaId={perfil.cuenta_id} puedeExportar={!!permisos.export_contacts} />
     </AppShell>
   );
 }

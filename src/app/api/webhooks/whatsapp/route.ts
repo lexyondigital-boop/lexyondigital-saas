@@ -108,14 +108,25 @@ async function procesarMensajeEntrante(body: unknown) {
     const { data } = await supabase
       .from("contactos")
       .insert({ cuenta_id: cuentaWhatsapp.cuenta_id, telefono, nombre, status: "activo" })
-      .select("id, campana_status")
+      .select("id, campana_status, nombre")
       .single();
     contacto = data;
-  } else if (["enviado", "entregado", "leido"].includes(contacto.campana_status ?? "")) {
-    // El contacto ya estaba en una campaña (se le mandó algo y no había
-    // contestado) -- al escribir, pasa a "respondió", el estado más
-    // avanzado de campana_status (ver RANGO_CAMPANA_STATUS más abajo).
-    await supabase.from("contactos").update({ campana_status: "respondio" }).eq("id", contacto.id);
+  } else {
+    // El nombre de perfil de WhatsApp debe reflejar siempre lo que el
+    // cliente tiene configurado ahí, independiente de nombre_completo --
+    // antes solo se guardaba al crear el contacto, así que uno creado
+    // primero por una campaña (sin nombre) nunca lo recibía al contestar.
+    const cambios: Record<string, unknown> = {};
+    if (nombre && contacto.nombre !== nombre) cambios.nombre = nombre;
+    if (["enviado", "entregado", "leido"].includes(contacto.campana_status ?? "")) {
+      // El contacto ya estaba en una campaña (se le mandó algo y no había
+      // contestado) -- al escribir, pasa a "respondió", el estado más
+      // avanzado de campana_status (ver RANGO_CAMPANA_STATUS más abajo).
+      cambios.campana_status = "respondio";
+    }
+    if (Object.keys(cambios).length > 0) {
+      await supabase.from("contactos").update(cambios).eq("id", contacto.id);
+    }
   }
 
   if (!contacto) return;
@@ -262,7 +273,7 @@ async function buscarContacto(
 ) {
   const { data } = await supabase
     .from("contactos")
-    .select("id, campana_status")
+    .select("id, campana_status, nombre")
     .eq("cuenta_id", cuentaId)
     .eq("telefono", telefono)
     .maybeSingle();

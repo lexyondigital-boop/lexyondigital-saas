@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import Papa from "papaparse";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/Badge";
 import { CampoTelefono } from "@/components/CampoTelefono";
@@ -89,7 +90,7 @@ function valorPersonalizadoMostrable(campo: CampoPersonalizado, valor: string | 
   return valor;
 }
 
-export function ContactosView({ cuentaId }: { cuentaId: string }) {
+export function ContactosView({ cuentaId, puedeExportar = false }: { cuentaId: string; puedeExportar?: boolean }) {
   const supabase = createClient();
   const [contactos, setContactos] = useState<Contacto[]>([]);
   const [etiquetasCatalogo, setEtiquetasCatalogo] = useState<string[]>([]);
@@ -263,6 +264,25 @@ export function ContactosView({ cuentaId }: { cuentaId: string }) {
     if (error) cargar();
   }
 
+  function descargarCsv() {
+    fetch("/api/contactos/exportar", { method: "POST" }).catch(() => {});
+
+    const encabezados = columnasVisibles.map((c) => etiquetaColumna(c.id));
+    const filas = filtrados.map((c) =>
+      columnasVisibles.map((col) =>
+        valorTextoColumna(col.id, c, etapaDeContacto(c.id), perfiles, camposPersonalizados, valoresPorContacto[c.id] ?? {}),
+      ),
+    );
+    const csv = Papa.unparse({ fields: encabezados, data: filas });
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `contactos-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div>
       <div className="mb-6 flex items-center justify-between gap-4">
@@ -355,6 +375,14 @@ export function ContactosView({ cuentaId }: { cuentaId: string }) {
           >
             Columnas
           </button>
+          {puedeExportar && (
+            <button
+              onClick={descargarCsv}
+              className="shrink-0 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-4 py-2 text-sm font-medium text-[var(--color-texto)] transition-opacity hover:opacity-80"
+            >
+              Descargar CSV
+            </button>
+          )}
           <button
             onClick={() => {
               setEditando(null);
@@ -582,6 +610,52 @@ function ModalEnviarPlantilla({ contacto, onCerrar }: { contacto: Contacto; onCe
       </div>
     </div>
   );
+}
+
+// Espeja el switch de CeldaContacto pero en texto plano -- para las
+// columnas con Badge/select ahí, aquí se resuelve a la etiqueta legible
+// en vez de JSX, para que el CSV exportado no traiga componentes.
+function valorTextoColumna(
+  columnaId: string,
+  contacto: Contacto,
+  etapa: EtapaDeContacto,
+  perfiles: PerfilLite[],
+  camposPersonalizados: CampoPersonalizado[],
+  valoresPersonalizados: Record<string, string>,
+): string {
+  if (columnaId.startsWith("campo:")) {
+    const campoId = columnaId.slice("campo:".length);
+    const campo = camposPersonalizados.find((c) => c.id === campoId);
+    if (!campo) return "";
+    return valorPersonalizadoMostrable(campo, valoresPersonalizados[campoId]);
+  }
+
+  switch (columnaId) {
+    case "nombre":
+      return contacto.nombre ?? "";
+    case "nombre_completo":
+      return contacto.nombre_completo ?? "";
+    case "telefono":
+      return contacto.telefono;
+    case "correo_electronico":
+      return contacto.correo_electronico ?? "";
+    case "etiquetas":
+      return contacto.etiquetas.join("; ");
+    case "etapa_pipeline":
+      return etapa?.nombre ?? "";
+    case "canal_origen":
+      return contacto.canal_origen ?? "";
+    case "campana_status":
+      return contacto.campana_status ? (LABEL_CAMPANA_STATUS[contacto.campana_status] ?? contacto.campana_status) : "";
+    case "status":
+      return contacto.status === "activo" ? "Activo" : "Inactivo";
+    case "asignado_a":
+      return perfiles.find((p) => p.id === contacto.asignado_a)?.nombre ?? "";
+    case "created_at":
+      return new Date(contacto.created_at).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" });
+    default:
+      return "";
+  }
 }
 
 function CeldaContacto({
