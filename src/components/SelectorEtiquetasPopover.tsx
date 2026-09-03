@@ -45,6 +45,11 @@ export function SelectorEtiquetasPopover({
     onCambio(nuevas);
   }
 
+  // Un contacto puede traer una etiqueta que ya no existe en el catálogo
+  // (ej. se aplicó desde una plantilla y luego se borró del catálogo) --
+  // sin esto no había forma de quitarla, porque el catálogo no la lista.
+  const huerfanas = etiquetas.filter((nombre) => !catalogo.some((c) => c.nombre === nombre));
+
   return (
     <div className="relative" ref={popoverRef}>
       <button type="button" onClick={() => setAbierto((v) => !v)} className="flex flex-wrap items-center gap-1">
@@ -59,15 +64,23 @@ export function SelectorEtiquetasPopover({
       </button>
       {abierto && (
         <div className="absolute left-0 top-full z-20 mt-1 w-56 rounded-lg border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-2 shadow-lg">
-          {catalogo.length === 0 ? (
+          {catalogo.length === 0 && huerfanas.length === 0 ? (
             <p className="px-1 py-1 text-xs text-[var(--color-texto-mute)]">Todavía no hay etiquetas creadas.</p>
           ) : (
-            catalogo.map((et) => (
-              <label key={et.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-xs hover:bg-[var(--color-bg-elevada)]">
-                <input type="checkbox" checked={etiquetas.includes(et.nombre)} onChange={() => alternar(et.nombre)} />
-                <ChipMini nombre={et.nombre} color={et.color} />
-              </label>
-            ))
+            <>
+              {catalogo.map((et) => (
+                <label key={et.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-xs hover:bg-[var(--color-bg-elevada)]">
+                  <input type="checkbox" checked={etiquetas.includes(et.nombre)} onChange={() => alternar(et.nombre)} />
+                  <ChipMini nombre={et.nombre} color={et.color} />
+                </label>
+              ))}
+              {huerfanas.map((nombre) => (
+                <label key={nombre} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-xs hover:bg-[var(--color-bg-elevada)]">
+                  <input type="checkbox" checked onChange={() => alternar(nombre)} />
+                  <ChipMini nombre={nombre} color="#8b5cf6" />
+                </label>
+              ))}
+            </>
           )}
         </div>
       )}

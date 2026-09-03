@@ -634,6 +634,11 @@ function EtiquetaYEtapaContacto({ cuentaId, contactoId }: { cuentaId: string; co
     await supabase.from("contactos").update({ etiquetas: nuevas }).eq("id", contactoId);
   }
 
+  // Una etiqueta que ya no existe en el catálogo (ej. se aplicó desde una
+  // plantilla y luego se borró del catálogo) no aparecería aquí para
+  // poder quitarla -- se agrega aparte para que siga siendo removible.
+  const etiquetasHuerfanas = etiquetasContacto.filter((nombre) => !catalogoEtiquetas.some((c) => c.nombre === nombre));
+
   async function cambiarEtapa(etapaId: string) {
     if (!deal) return;
     setDeal({ ...deal, etapa_id: etapaId || null });
@@ -663,15 +668,23 @@ function EtiquetaYEtapaContacto({ cuentaId, contactoId }: { cuentaId: string; co
         </button>
         {editandoEtiquetas && (
           <div className="absolute left-0 top-full z-20 mt-1 w-56 rounded-lg border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-2 shadow-lg">
-            {catalogoEtiquetas.length === 0 ? (
+            {catalogoEtiquetas.length === 0 && etiquetasHuerfanas.length === 0 ? (
               <p className="px-1 py-1 text-xs text-[var(--color-texto-mute)]">Todavía no hay etiquetas creadas.</p>
             ) : (
-              catalogoEtiquetas.map((et) => (
-                <label key={et.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-xs hover:bg-[var(--color-bg-elevada)]">
-                  <input type="checkbox" checked={etiquetasContacto.includes(et.nombre)} onChange={() => alternarEtiqueta(et.nombre)} />
-                  <ChipMini nombre={et.nombre} color={et.color} />
-                </label>
-              ))
+              <>
+                {catalogoEtiquetas.map((et) => (
+                  <label key={et.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-xs hover:bg-[var(--color-bg-elevada)]">
+                    <input type="checkbox" checked={etiquetasContacto.includes(et.nombre)} onChange={() => alternarEtiqueta(et.nombre)} />
+                    <ChipMini nombre={et.nombre} color={et.color} />
+                  </label>
+                ))}
+                {etiquetasHuerfanas.map((nombre) => (
+                  <label key={nombre} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-xs hover:bg-[var(--color-bg-elevada)]">
+                    <input type="checkbox" checked onChange={() => alternarEtiqueta(nombre)} />
+                    <ChipMini nombre={nombre} color="#8b5cf6" />
+                  </label>
+                ))}
+              </>
             )}
           </div>
         )}

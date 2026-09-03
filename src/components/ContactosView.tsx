@@ -799,6 +799,12 @@ function ContactoForm({
     setEtiquetas((prev) => (prev.includes(nombre) ? prev.filter((e) => e !== nombre) : [...prev, nombre]));
   }
 
+  // Un contacto puede traer una etiqueta que ya no existe en el catálogo
+  // (ej. se aplicó desde una plantilla y luego se borró del catálogo) --
+  // sin esto, no había forma de quitarla desde aquí porque el catálogo no
+  // la lista.
+  const etiquetasParaMostrar = [...etiquetasCatalogo, ...etiquetas.filter((et) => !etiquetasCatalogo.includes(et))];
+
   function alternarCasilla(campoId: string, opcion: string) {
     setValoresPersonalizados((prev) => {
       const actuales = (prev[campoId] ?? "").split(",").map((v) => v.trim()).filter(Boolean);
@@ -926,13 +932,13 @@ function ContactoForm({
 
       <div>
         <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Etiquetas</span>
-        {etiquetasCatalogo.length === 0 ? (
+        {etiquetasParaMostrar.length === 0 ? (
           <p className="text-xs text-[var(--color-texto-mute)]">
             Todavía no hay etiquetas creadas — créalas primero en la sección Etiquetas.
           </p>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {etiquetasCatalogo.map((et) => {
+            {etiquetasParaMostrar.map((et) => {
               const activa = etiquetas.includes(et);
               return (
                 <button
