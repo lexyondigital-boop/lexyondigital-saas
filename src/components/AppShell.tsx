@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Logo } from "@/components/Logo";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import { LogoutButton } from "@/components/LogoutButton";
+import { InactivityWatcher } from "@/components/InactivityWatcher";
 import { NotificacionesConversaciones } from "@/components/NotificacionesConversaciones";
 import { NotificacionesPipeline } from "@/components/NotificacionesPipeline";
 import {
@@ -99,6 +100,7 @@ export function AppShell({
 
   return (
     <div className="flex min-h-screen bg-[var(--color-bg)]">
+      <InactivityWatcher />
       {menuAbierto && (
         <div onClick={() => setMenuAbierto(false)} className="fixed inset-0 z-40 bg-black/40 md:hidden" aria-hidden="true" />
       )}

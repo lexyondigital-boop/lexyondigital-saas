@@ -18,7 +18,14 @@ export async function POST(request: NextRequest) {
   const { data: perfil } = await supabase.from("perfiles").select("cuenta_id").eq("id", user.id).maybeSingle();
 
   if (perfil) {
-    await registrarActividad({ cuentaId: perfil.cuenta_id, perfilId: user.id, accion: "logout", request });
+    const { motivo } = (await request.json().catch(() => ({}))) as { motivo?: string };
+    await registrarActividad({
+      cuentaId: perfil.cuenta_id,
+      perfilId: user.id,
+      accion: "logout",
+      detalles: motivo ? { motivo } : undefined,
+      request,
+    });
   }
 
   return NextResponse.json({ ok: true });
