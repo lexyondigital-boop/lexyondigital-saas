@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/Badge";
 import { AsistentePlantillaModal } from "@/components/AsistentePlantillaModal";
 import { renderizarPreview } from "@/lib/plantillas-email-preview";
 import { PLANTILLAS_EMAIL_PREDETERMINADAS } from "@/lib/plantillas-email-predeterminadas";
+import EditorVisualUnlayer, { type EditorVisualUnlayerRef } from "@/components/EditorVisualUnlayer";
 
 export type Boton = { type: "QUICK_REPLY" | "URL" | "PHONE_NUMBER"; text: string; url?: string; phone_number?: string };
 export type Tarjeta = { media_tipo: "imagen" | "video"; media_url: string; media_handle: string | null; body: string; body_ejemplos: string[]; botones: Boton[] };
@@ -218,6 +219,7 @@ type PlantillaEmail = {
   tipo: "confirmacion_cita" | "reagendamiento_cita" | "cancelacion_cita" | "campana";
   asunto: string;
   cuerpo_html: string;
+  diseno_json: unknown | null;
   activa: boolean;
 };
 
@@ -439,55 +441,49 @@ function FormularioPlantillaEmail({
   const [tipo, setTipo] = useState<"confirmacion_cita" | "reagendamiento_cita" | "cancelacion_cita" | "campana">(plantilla?.tipo ?? "confirmacion_cita");
   const [asunto, setAsunto] = useState(plantilla?.asunto ?? "");
   const [cuerpoHtml, setCuerpoHtml] = useState(plantilla?.cuerpo_html ?? "");
+  const [disenoJson, setDisenoJson] = useState<unknown | null>(plantilla?.diseno_json ?? null);
+  const [modo, setModo] = useState<"visual" | "html">(plantilla && !plantilla.diseno_json ? "html" : "visual");
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mostrarGenerador, setMostrarGenerador] = useState(false);
+  const editorVisualRef = useRef<EditorVisualUnlayerRef>(null);
   const INPUT_LOCAL =
     "w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]";
 
   async function guardar() {
     setGuardando(true);
     setError(null);
-    const body = { nombre, tipo, asunto, cuerpo_html: cuerpoHtml };
-    const res = plantilla
-      ? await fetch(`/api/plantillas-email/${plantilla.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
-      : await fetch("/api/plantillas-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, cuenta_id: cuentaId }) });
-    const data = await res.json().catch(() => ({}));
-    setGuardando(false);
-    if (!res.ok) {
-      setError(data.error ?? "No se pudo guardar");
-      return;
+    try {
+      let htmlFinal = cuerpoHtml;
+      let disenoFinal = disenoJson;
+      if (modo === "visual") {
+        if (!editorVisualRef.current) throw new Error("El editor visual no está listo");
+        const exportado = await editorVisualRef.current.exportar();
+        htmlFinal = exportado.html;
+        disenoFinal = exportado.diseno;
+        setCuerpoHtml(htmlFinal);
+        setDisenoJson(disenoFinal);
+      }
+      const body = { nombre, tipo, asunto, cuerpo_html: htmlFinal, diseno_json: disenoFinal };
+      const res = plantilla
+        ? await fetch(`/api/plantillas-email/${plantilla.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+        : await fetch("/api/plantillas-email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, cuenta_id: cuentaId }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "No se pudo guardar");
+        return;
+      }
+      onGuardado();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo guardar");
+    } finally {
+      setGuardando(false);
     }
-    onGuardado();
   }
 
   return (
     <div className="mb-6 max-w-xl space-y-4 rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6">
       <h2 className="text-base font-semibold text-[var(--color-texto)]">{plantilla ? "Editar plantilla de correo" : "Nueva plantilla de correo"}</h2>
-
-      {!plantilla && (
-        <div>
-          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Empezar desde una plantilla predeterminada (opcional)</span>
-          <div className="grid gap-3 sm:grid-cols-3">
-            {PLANTILLAS_EMAIL_PREDETERMINADAS.map((p) => (
-              <div key={p.id} className="rounded-lg border border-[var(--color-borde)] p-3 text-center">
-                <p className="mb-2 text-xs font-medium text-[var(--color-texto)]">{p.nombre}</p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAsunto(p.asunto);
-                    setCuerpoHtml(p.cuerpo_html);
-                    if (!nombre.trim()) setNombre(p.nombre);
-                  }}
-                  className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2.5 py-1 text-xs font-medium text-[var(--color-texto)] hover:opacity-80"
-                >
-                  Usar esta
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       <label className="block">
         <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Nombre</span>
@@ -514,37 +510,90 @@ function FormularioPlantillaEmail({
         <input value={asunto} onChange={(e) => setAsunto(e.target.value)} className={INPUT_LOCAL} />
       </label>
 
-      <label className="block">
+      <div>
         <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-sm font-medium text-[var(--color-texto)]">Cuerpo (HTML)</span>
-          <button
-            type="button"
-            onClick={() => setMostrarGenerador(true)}
-            className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2.5 py-1 text-xs font-medium text-[var(--color-texto)] hover:opacity-80"
-          >
-            ✨ Generar con IA
-          </button>
+          <span className="text-sm font-medium text-[var(--color-texto)]">Cuerpo del correo</span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setModo("visual")}
+              className={`rounded-lg border px-2.5 py-1 text-xs font-medium ${modo === "visual" ? "border-[var(--color-marca)] bg-[var(--color-marca)] text-white" : "border-[var(--color-borde)] text-[var(--color-texto-mute)]"}`}
+            >
+              Editor visual
+            </button>
+            <button
+              type="button"
+              onClick={() => setModo("html")}
+              className={`rounded-lg border px-2.5 py-1 text-xs font-medium ${modo === "html" ? "border-[var(--color-marca)] bg-[var(--color-marca)] text-white" : "border-[var(--color-borde)] text-[var(--color-texto-mute)]"}`}
+            >
+              HTML avanzado
+            </button>
+          </div>
         </div>
-        <EditorHtmlConPreview value={cuerpoHtml} onChange={setCuerpoHtml} cuentaId={cuentaId} />
-        <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
-          Variables disponibles: {"{{nombre}}"}, {"{{correo_electronico}}"}
-          {tipo !== "campana" && (
-            <>
-              {" "}
-              , {"{{cita_fecha}}"}, {"{{cita_hora_inicio}}"}, {"{{profesional_nombre}}"}, {"{{tipo_cita}}"}, {"{{profesional_logo}}"}, {"{{profesional_color}}"},{" "}
-              {"{{profesional_facebook}}"}, {"{{profesional_instagram}}"}, {"{{profesional_tiktok}}"}
-            </>
-          )}
-          , además de cualquier variable personalizada de Variables.
-        </span>
-      </label>
+
+        {modo === "visual" ? (
+          <>
+            <EditorVisualUnlayer ref={editorVisualRef} tipo={tipo} disenoInicial={disenoJson} />
+            <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
+              Arrastra bloques e inserta variables (nombre, fecha, marca del profesional…) desde el selector de variables de la barra de herramientas.
+            </span>
+          </>
+        ) : (
+          <div className="space-y-3">
+            {!plantilla && (
+              <div>
+                <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Empezar desde una plantilla predeterminada (opcional)</span>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {PLANTILLAS_EMAIL_PREDETERMINADAS.map((p) => (
+                    <div key={p.id} className="rounded-lg border border-[var(--color-borde)] p-3 text-center">
+                      <p className="mb-2 text-xs font-medium text-[var(--color-texto)]">{p.nombre}</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAsunto(p.asunto);
+                          setCuerpoHtml(p.cuerpo_html);
+                          if (!nombre.trim()) setNombre(p.nombre);
+                        }}
+                        className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2.5 py-1 text-xs font-medium text-[var(--color-texto)] hover:opacity-80"
+                      >
+                        Usar esta
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setMostrarGenerador(true)}
+                className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2.5 py-1 text-xs font-medium text-[var(--color-texto)] hover:opacity-80"
+              >
+                ✨ Generar con IA
+              </button>
+            </div>
+            <EditorHtmlConPreview value={cuerpoHtml} onChange={setCuerpoHtml} cuentaId={cuentaId} />
+            <span className="block text-xs text-[var(--color-texto-mute)]">
+              Variables disponibles: {"{{nombre}}"}, {"{{correo_electronico}}"}
+              {tipo !== "campana" && (
+                <>
+                  {" "}
+                  , {"{{cita_fecha}}"}, {"{{cita_hora_inicio}}"}, {"{{profesional_nombre}}"}, {"{{tipo_cita}}"}, {"{{profesional_logo}}"}, {"{{profesional_color}}"},{" "}
+                  {"{{profesional_facebook}}"}, {"{{profesional_instagram}}"}, {"{{profesional_tiktok}}"}
+                </>
+              )}
+              , además de cualquier variable personalizada de Variables.
+            </span>
+          </div>
+        )}
+      </div>
 
       {error && <p className="text-sm text-red-500">{error}</p>}
 
       <div className="flex gap-3">
         <button
           onClick={guardar}
-          disabled={guardando || !nombre.trim() || !asunto.trim() || !cuerpoHtml.trim()}
+          disabled={guardando || !nombre.trim() || !asunto.trim() || (modo === "html" && !cuerpoHtml.trim())}
           style={{ boxShadow: "var(--halo-accion)" }}
           className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
         >

@@ -4,22 +4,7 @@ import { requirePermiso } from "@/lib/require-permiso";
 import { descifrar } from "@/lib/cifrado";
 import { generarRespuestaIA, calcularCostoUsd, type ProveedorIA } from "@/lib/ia";
 import { resolverLlaveDePlataforma } from "@/lib/plataforma-secretos";
-
-const VARIABLES_POR_TIPO: Record<string, string[]> = {
-  confirmacion_cita: [
-    "nombre", "correo_electronico", "cita_fecha", "cita_hora_inicio", "cita_hora_fin", "tipo_cita",
-    "profesional_nombre", "profesional_logo", "profesional_color", "profesional_facebook", "profesional_instagram", "profesional_tiktok",
-  ],
-  reagendamiento_cita: [
-    "nombre", "correo_electronico", "cita_fecha", "cita_hora_inicio", "cita_hora_fin", "tipo_cita",
-    "profesional_nombre", "profesional_logo", "profesional_color", "profesional_facebook", "profesional_instagram", "profesional_tiktok",
-  ],
-  cancelacion_cita: [
-    "nombre", "correo_electronico", "cita_fecha", "cita_hora_inicio", "cita_hora_fin", "tipo_cita",
-    "profesional_nombre", "profesional_logo", "profesional_color", "profesional_facebook", "profesional_instagram", "profesional_tiktok",
-  ],
-  campana: ["nombre", "correo_electronico"],
-};
+import { variablesPorTipo } from "@/lib/plantillas-email-variables";
 
 const NOMBRE_ACCION_POR_TIPO: Record<string, string> = {
   confirmacion_cita: "confirmar que una cita quedó agendada",
@@ -29,8 +14,8 @@ const NOMBRE_ACCION_POR_TIPO: Record<string, string> = {
 };
 
 function construirMetaPromptPlantillaEmail(tipo: string, descripcion: string): string {
-  const variables = VARIABLES_POR_TIPO[tipo] ?? VARIABLES_POR_TIPO.campana;
-  const lineasVariables = variables.map((v) => `{{${v}}}`).join(", ");
+  const variables = variablesPorTipo(tipo);
+  const lineasVariables = variables.map((v) => `{{${v.clave}}}`).join(", ");
   const accion = NOMBRE_ACCION_POR_TIPO[tipo] ?? NOMBRE_ACCION_POR_TIPO.campana;
 
   return `Eres un experto en diseñar plantillas de correo HTML para negocios (clínicas, despachos, inmobiliarias). Vas a redactar el asunto y el cuerpo HTML de una plantilla cuyo propósito es: ${accion}.

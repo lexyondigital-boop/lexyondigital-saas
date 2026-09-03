@@ -21,10 +21,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const body = await request.json();
   const cambios: Record<string, unknown> = {};
   if (typeof body.nombre === "string") cambios.nombre = body.nombre.trim();
-  if (body.tipo === "confirmacion_cita" || body.tipo === "campana") cambios.tipo = body.tipo;
+  if (["confirmacion_cita", "reagendamiento_cita", "cancelacion_cita", "campana"].includes(body.tipo)) cambios.tipo = body.tipo;
   if (typeof body.asunto === "string") cambios.asunto = body.asunto.trim();
   if (typeof body.cuerpo_html === "string") cambios.cuerpo_html = body.cuerpo_html;
   if (typeof body.activa === "boolean") cambios.activa = body.activa;
+  if ("diseno_json" in body) cambios.diseno_json = body.diseno_json ?? null;
 
   if (Object.keys(cambios).length === 0) {
     return NextResponse.json({ error: "Nada que actualizar" }, { status: 400 });

@@ -23,11 +23,12 @@ export async function POST(request: NextRequest) {
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const body = await request.json();
-  const { nombre, tipo, asunto, cuerpo_html } = body as {
+  const { nombre, tipo, asunto, cuerpo_html, diseno_json } = body as {
     nombre?: string;
-    tipo?: "confirmacion_cita" | "campana";
+    tipo?: "confirmacion_cita" | "reagendamiento_cita" | "cancelacion_cita" | "campana";
     asunto?: string;
     cuerpo_html?: string;
+    diseno_json?: unknown;
   };
 
   if (!nombre?.trim() || !tipo || !asunto?.trim() || !cuerpo_html?.trim()) {
@@ -37,7 +38,14 @@ export async function POST(request: NextRequest) {
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("plantillas_email")
-    .insert({ cuenta_id: auth.perfil.cuenta_id, nombre: nombre.trim(), tipo, asunto: asunto.trim(), cuerpo_html })
+    .insert({
+      cuenta_id: auth.perfil.cuenta_id,
+      nombre: nombre.trim(),
+      tipo,
+      asunto: asunto.trim(),
+      cuerpo_html,
+      diseno_json: diseno_json ?? null,
+    })
     .select()
     .single();
 
