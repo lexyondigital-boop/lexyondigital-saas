@@ -5,6 +5,7 @@ import { procesarAgenteIA } from "@/lib/agente-ia-runtime";
 import { descargarYGuardarMedia } from "@/lib/media-whatsapp";
 import { transcribirAudio } from "@/lib/transcripcion";
 import { resolverLlaveDePlataforma } from "@/lib/plataforma-secretos";
+import { obtenerOCrearConversacion } from "@/lib/conversaciones";
 
 // Verificación de webhook de Meta. A diferencia del workflow de n8n que
 // reemplaza (que respondía el hub.challenge sin validar nada), aquí sí se
@@ -124,6 +125,7 @@ async function procesarMensajeEntrante(body: unknown) {
     cuentaWhatsapp.cuenta_id,
     contacto.id,
     telefono,
+    { ventanaActiva: true },
   );
 
   const { data: mensajeInsertado } = await supabase
@@ -265,37 +267,6 @@ async function buscarContacto(
     .eq("telefono", telefono)
     .maybeSingle();
   return data;
-}
-
-async function obtenerOCrearConversacion(
-  supabase: ReturnType<typeof createAdminClient>,
-  cuentaId: string,
-  contactoId: string,
-  telefono: string,
-) {
-  const { data: existente } = await supabase
-    .from("conversaciones")
-    .select("id")
-    .eq("contacto_id", contactoId)
-    .eq("status", "abierta")
-    .maybeSingle();
-
-  if (existente) return existente;
-
-  const { data: nueva } = await supabase
-    .from("conversaciones")
-    .insert({
-      cuenta_id: cuentaId,
-      contacto_id: contactoId,
-      telefono,
-      status: "abierta",
-      agente_ia_activo: true,
-      ventana_activa: true,
-    })
-    .select("id")
-    .single();
-
-  return nueva;
 }
 
 async function enviarBienvenidaAgenteInactivo({

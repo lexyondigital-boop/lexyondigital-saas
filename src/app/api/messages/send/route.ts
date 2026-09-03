@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enviarMensajeTexto, enviarMensajePlantilla, normalizarDestinatario } from "@/lib/meta";
 import { resolverParametrosPlantilla } from "@/lib/variables-contacto";
+import { obtenerOCrearConversacion } from "@/lib/conversaciones";
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
@@ -16,15 +17,16 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { conversacion_id, tipo, texto, template_id } = body as {
+  const { conversacion_id, contacto_id, tipo, texto, template_id } = body as {
     conversacion_id?: string;
+    contacto_id?: string;
     tipo?: "texto" | "template";
     texto?: string;
     template_id?: string;
   };
 
-  if (!conversacion_id) {
-    return NextResponse.json({ error: "Falta conversacion_id" }, { status: 400 });
+  if (!conversacion_id && !contacto_id) {
+    return NextResponse.json({ error: "Falta conversacion_id o contacto_id" }, { status: 400 });
   }
   if (tipo === "template" && !template_id) {
     return NextResponse.json({ error: "Falta template_id" }, { status: 400 });
@@ -33,23 +35,47 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Falta texto" }, { status: 400 });
   }
 
-  // Esta consulta pasa por RLS con la sesión del usuario: si la conversación
-  // no pertenece a su cuenta, simplemente no aparece — así queda validado
-  // el acceso sin lógica extra.
-  const { data: conversacion, error: conversacionError } = await supabase
-    .from("conversaciones")
-    .select("id, cuenta_id, telefono, contacto_id")
-    .eq("id", conversacion_id)
-    .single();
-
-  if (conversacionError || !conversacion) {
-    return NextResponse.json({ error: "Conversación no encontrada" }, { status: 404 });
-  }
-
   // A partir de aquí se usa el cliente admin: necesitamos leer el
   // access_token de Meta, que las políticas RLS no deben exponer a
   // consultas arbitrarias del cliente.
   const admin = createAdminClient();
+
+  let conversacion: { id: string; cuenta_id: string; telefono: string; contacto_id: string | null };
+
+  if (conversacion_id) {
+    // Esta consulta pasa por RLS con la sesión del usuario: si la
+    // conversación no pertenece a su cuenta, simplemente no aparece — así
+    // queda validado el acceso sin lógica extra.
+    const { data, error: conversacionError } = await supabase
+      .from("conversaciones")
+      .select("id, cuenta_id, telefono, contacto_id")
+      .eq("id", conversacion_id)
+      .single();
+
+    if (conversacionError || !data) {
+      return NextResponse.json({ error: "Conversación no encontrada" }, { status: 404 });
+    }
+    conversacion = data;
+  } else {
+    // Igual pasa por RLS: un contacto que no sea de la cuenta del usuario
+    // simplemente no aparece. Se usa para el botón "Enviar plantilla" de la
+    // tabla de Contactos, donde todavía no existe ninguna conversación.
+    const { data: contacto, error: contactoError } = await supabase
+      .from("contactos")
+      .select("id, cuenta_id, telefono")
+      .eq("id", contacto_id)
+      .single();
+
+    if (contactoError || !contacto) {
+      return NextResponse.json({ error: "Contacto no encontrado" }, { status: 404 });
+    }
+
+    const nueva = await obtenerOCrearConversacion(admin, contacto.cuenta_id, contacto.id, contacto.telefono);
+    if (!nueva) {
+      return NextResponse.json({ error: "No se pudo abrir la conversación" }, { status: 500 });
+    }
+    conversacion = { id: nueva.id, cuenta_id: contacto.cuenta_id, telefono: contacto.telefono, contacto_id: contacto.id };
+  }
 
   const { data: cuentaWhatsapp } = await admin
     .from("cuentas_whatsapp")
@@ -121,7 +147,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Meta rechazó el envío", mensaje }, { status: 502 });
     }
 
-    return NextResponse.json({ ok: true, mensaje });
+    return NextResponse.json({ ok: true, mensaje, conversacion_id: conversacion.id });
   }
 
   const resultado = await enviarMensajeTexto({
@@ -154,5 +180,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Meta rechazó el envío", mensaje }, { status: 502 });
   }
 
-  return NextResponse.json({ ok: true, mensaje });
+  return NextResponse.json({ ok: true, mensaje, conversacion_id: conversacion.id });
 }

@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/Badge";
 import { CampoTelefono } from "@/components/CampoTelefono";
+import { SelectorEtiquetasPopover, type EtiquetaCatalogo } from "@/components/SelectorEtiquetasPopover";
 import type { CampoPersonalizado } from "@/lib/campos-personalizados";
 
 type Contacto = {
@@ -91,6 +93,7 @@ export function ContactosView({ cuentaId }: { cuentaId: string }) {
   const supabase = createClient();
   const [contactos, setContactos] = useState<Contacto[]>([]);
   const [etiquetasCatalogo, setEtiquetasCatalogo] = useState<string[]>([]);
+  const [catalogoEtiquetas, setCatalogoEtiquetas] = useState<EtiquetaCatalogo[]>([]);
   const [camposPersonalizados, setCamposPersonalizados] = useState<CampoPersonalizado[]>([]);
   const [valoresPorContacto, setValoresPorContacto] = useState<Record<string, Record<string, string>>>({});
   const [etapas, setEtapas] = useState<EtapaLite[]>([]);
@@ -107,12 +110,13 @@ export function ContactosView({ cuentaId }: { cuentaId: string }) {
   const [editando, setEditando] = useState<Contacto | null>(null);
   const [mostrarForm, setMostrarForm] = useState(false);
   const [mostrarColumnas, setMostrarColumnas] = useState(false);
+  const [enviandoPlantillaA, setEnviandoPlantillaA] = useState<Contacto | null>(null);
 
   async function cargar() {
     setCargando(true);
     const [{ data: c }, { data: e }, { data: cp }, { data: vp }, { data: et }, { data: d }, { data: p }] = await Promise.all([
       supabase.from("contactos").select("*").order("created_at", { ascending: false }),
-      supabase.from("etiquetas").select("nombre").order("nombre"),
+      supabase.from("etiquetas").select("id, nombre, color").order("nombre"),
       supabase.from("campos_personalizados").select("*").order("orden"),
       supabase.from("valores_campos_personalizados").select("contacto_id, campo_id, valor"),
       supabase.from("etapas_pipeline").select("id, nombre, color, orden").order("orden"),
@@ -121,6 +125,7 @@ export function ContactosView({ cuentaId }: { cuentaId: string }) {
     ]);
     setContactos(c ?? []);
     setEtiquetasCatalogo((e ?? []).map((x) => x.nombre));
+    setCatalogoEtiquetas((e as EtiquetaCatalogo[]) ?? []);
     setCamposPersonalizados((cp as CampoPersonalizado[]) ?? []);
     setEtapas((et as EtapaLite[]) ?? []);
     setPerfiles((p as PerfilLite[]) ?? []);
@@ -250,6 +255,12 @@ export function ContactosView({ cuentaId }: { cuentaId: string }) {
       body: JSON.stringify({ asignado_a: perfilId }),
     });
     if (!res.ok) cargar();
+  }
+
+  async function actualizarEtiquetas(contactoId: string, nuevas: string[]) {
+    setContactos((prev) => prev.map((c) => (c.id === contactoId ? { ...c, etiquetas: nuevas } : c)));
+    const { error } = await supabase.from("contactos").update({ etiquetas: nuevas }).eq("id", contactoId);
+    if (error) cargar();
   }
 
   return (
@@ -450,11 +461,19 @@ export function ContactosView({ cuentaId }: { cuentaId: string }) {
                         valoresPersonalizados={valoresPorContacto[c.id] ?? {}}
                         etapa={etapaDeContacto(c.id)}
                         perfiles={perfiles}
+                        catalogoEtiquetas={catalogoEtiquetas}
                         onAsignar={(perfilId) => asignar(c.id, perfilId)}
+                        onCambioEtiquetas={(nuevas) => actualizarEtiquetas(c.id, nuevas)}
                       />
                     </td>
                   ))}
                   <td className="px-5 py-3.5 text-right">
+                    <button
+                      onClick={() => setEnviandoPlantillaA(c)}
+                      className="mr-3 text-sm font-medium text-[var(--color-marca)] hover:underline"
+                    >
+                      Enviar plantilla
+                    </button>
                     <button
                       onClick={() => {
                         setMostrarForm(false);
@@ -477,6 +496,90 @@ export function ContactosView({ cuentaId }: { cuentaId: string }) {
           </table>
         )}
       </div>
+
+      {enviandoPlantillaA && (
+        <ModalEnviarPlantilla contacto={enviandoPlantillaA} onCerrar={() => setEnviandoPlantillaA(null)} />
+      )}
+    </div>
+  );
+}
+
+function ModalEnviarPlantilla({ contacto, onCerrar }: { contacto: Contacto; onCerrar: () => void }) {
+  const supabase = createClient();
+  const router = useRouter();
+  const [templates, setTemplates] = useState<{ id: string; name: string }[]>([]);
+  const [templateId, setTemplateId] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase
+      .from("templates")
+      .select("id, name")
+      .eq("status", "approved")
+      .then(({ data }) => setTemplates(data ?? []));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function enviar() {
+    if (!templateId) return;
+    setEnviando(true);
+    setError(null);
+    const res = await fetch("/api/messages/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contacto_id: contacto.id, tipo: "template", template_id: templateId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setEnviando(false);
+    if (!res.ok) {
+      setError(data.error ?? "No se pudo enviar la plantilla");
+      return;
+    }
+    router.push(`/conversaciones?conversacion_id=${data.conversacion_id}`);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-sm rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6">
+        <h2 className="mb-1 text-base font-semibold text-[var(--color-texto)]">Enviar plantilla</h2>
+        <p className="mb-4 text-sm text-[var(--color-texto-mute)]">
+          A {contacto.nombre_completo || contacto.nombre || contacto.telefono} -- esto abre (o reusa) su conversación.
+        </p>
+
+        {templates.length === 0 ? (
+          <p className="text-sm text-[var(--color-texto-mute)]">No hay plantillas aprobadas todavía.</p>
+        ) : (
+          <select
+            value={templateId}
+            onChange={(e) => setTemplateId(e.target.value)}
+            className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+          >
+            <option value="">Elegir plantilla…</option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {error && <p className="mt-2 text-sm text-red-500">{error}</p>}
+
+        <div className="mt-4 flex gap-3">
+          <button
+            onClick={enviar}
+            disabled={enviando || !templateId}
+            style={{ boxShadow: "var(--halo-accion)" }}
+            className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
+          >
+            {enviando ? "Enviando…" : "Enviar"}
+          </button>
+          <button onClick={onCerrar} className="rounded-lg px-4 py-2 text-sm font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
+            Cancelar
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -488,7 +591,9 @@ function CeldaContacto({
   valoresPersonalizados,
   etapa,
   perfiles,
+  catalogoEtiquetas,
   onAsignar,
+  onCambioEtiquetas,
 }: {
   columnaId: string;
   contacto: Contacto;
@@ -496,7 +601,9 @@ function CeldaContacto({
   valoresPersonalizados: Record<string, string>;
   etapa: EtapaDeContacto;
   perfiles: PerfilLite[];
+  catalogoEtiquetas: EtiquetaCatalogo[];
   onAsignar: (perfilId: string | null) => void;
+  onCambioEtiquetas: (nuevas: string[]) => void;
 }) {
   if (columnaId.startsWith("campo:")) {
     const campoId = columnaId.slice("campo:".length);
@@ -515,19 +622,7 @@ function CeldaContacto({
     case "correo_electronico":
       return <span>{contacto.correo_electronico ?? "—"}</span>;
     case "etiquetas":
-      return (
-        <div className="flex flex-wrap gap-1">
-          {contacto.etiquetas.length === 0 ? (
-            <span className="text-[var(--color-texto-mute)]">—</span>
-          ) : (
-            contacto.etiquetas.map((et) => (
-              <Badge key={et} tono="ia">
-                {et}
-              </Badge>
-            ))
-          )}
-        </div>
-      );
+      return <SelectorEtiquetasPopover etiquetas={contacto.etiquetas} catalogo={catalogoEtiquetas} onCambio={onCambioEtiquetas} />;
     case "etapa_pipeline":
       if (!etapa) return <span className="text-[var(--color-texto-mute)]">—</span>;
       return (

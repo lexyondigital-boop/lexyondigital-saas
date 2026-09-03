@@ -28,9 +28,11 @@ export function resolverColumnasCsv(camposPersonalizados: CampoPersonalizado[]):
 
 export function generarCsvPlantilla(columnas: ColumnaCsv[]): string {
   const headers = columnas.map((c) => c.header);
+  // La columna de Etiquetas se deja vacía a propósito: es opcional, y un
+  // valor de ejemplo aquí se subiría como etiqueta real si el usuario
+  // olvida borrarlo al llenar su CSV.
   const ejemplo = columnas.map((c) => {
     if (c.tipo === "fija" && c.clave === "telefono") return "9811234567";
-    if (c.tipo === "fija" && c.clave === "etiquetas") return "tag1;tag2";
     return "";
   });
   return Papa.unparse({ fields: headers, data: [ejemplo] });

@@ -11,7 +11,7 @@ type ConversacionCruda = {
   agente_ia_activo: boolean;
   contacto_id: string;
   created_at: string;
-  contactos: { nombre: string | null } | { nombre: string | null }[] | null;
+  contactos: { nombre: string | null; nombre_completo: string | null } | { nombre: string | null; nombre_completo: string | null }[] | null;
 };
 
 type Conversacion = {
@@ -40,7 +40,9 @@ type Mensaje = {
 
 function nombreDe(c: ConversacionCruda): string | null {
   const rel = Array.isArray(c.contactos) ? c.contactos[0] : c.contactos;
-  return rel?.nombre ?? null;
+  // El nombre completo (capturado por el equipo, ej. al subir un CSV de
+  // campaña) tiene prioridad sobre el nombre crudo de perfil de WhatsApp.
+  return rel?.nombre_completo ?? rel?.nombre ?? null;
 }
 
 // Palomitas estilo WhatsApp: una gris (enviado), dos grises (entregado), dos
@@ -92,12 +94,13 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState("");
   const [seleccionada, setSeleccionada] = useState<string | null>(null);
+  const autoSeleccionHecha = useRef(false);
 
   async function cargarLista() {
     setCargando(true);
     const { data } = await supabase
       .from("conversaciones")
-      .select("id, telefono, status, agente_ia_activo, contacto_id, created_at, contactos(nombre)")
+      .select("id, telefono, status, agente_ia_activo, contacto_id, created_at, contactos(nombre, nombre_completo)")
       .order("created_at", { ascending: false });
 
     const lista: Conversacion[] = ((data as ConversacionCruda[]) ?? []).map((c) => ({
@@ -110,6 +113,16 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
       nombreContacto: nombreDe(c),
     }));
     setConversaciones(lista);
+
+    // Al llegar desde "Enviar plantilla" en la tabla de Contactos, la URL
+    // trae ?conversacion_id=<id> -- se selecciona sola una sola vez (no en
+    // cada refresh de la lista, para no pisar la selección manual del
+    // usuario más adelante).
+    if (!autoSeleccionHecha.current) {
+      autoSeleccionHecha.current = true;
+      const idQuery = new URLSearchParams(window.location.search).get("conversacion_id");
+      if (idQuery && lista.some((c) => c.id === idQuery)) setSeleccionada(idQuery);
+    }
 
     const { data: mensajesRecientes } = await supabase
       .from("mensajes")

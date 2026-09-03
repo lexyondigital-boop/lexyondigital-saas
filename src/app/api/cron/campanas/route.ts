@@ -4,6 +4,7 @@ import { enviarMensajePlantilla, normalizarDestinatario } from "@/lib/meta";
 import { moverDealEtapa, obtenerDealAbiertoDeContacto } from "@/lib/deals";
 import { resolverParametrosPlantilla, obtenerValoresContactoPorClave } from "@/lib/variables-contacto";
 import { enviarCorreo, reemplazarVariablesEmail, extraerClavesVariables } from "@/lib/email-envio";
+import { obtenerOCrearConversacion } from "@/lib/conversaciones";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -300,37 +301,6 @@ async function registrarEnvioFallido(
     template_nombre: template.name,
     status: "fallido",
   });
-}
-
-async function obtenerOCrearConversacion(
-  supabase: AdminClient,
-  cuentaId: string,
-  contactoId: string,
-  telefono: string,
-) {
-  const { data: existente } = await supabase
-    .from("conversaciones")
-    .select("id")
-    .eq("contacto_id", contactoId)
-    .eq("status", "abierta")
-    .maybeSingle();
-
-  if (existente) return existente;
-
-  const { data: nueva } = await supabase
-    .from("conversaciones")
-    .insert({
-      cuenta_id: cuentaId,
-      contacto_id: contactoId,
-      telefono,
-      status: "abierta",
-      agente_ia_activo: true,
-      ventana_activa: false,
-    })
-    .select("id")
-    .single();
-
-  return nueva;
 }
 
 async function finalizarCampana(supabase: AdminClient, campanaId: string) {
