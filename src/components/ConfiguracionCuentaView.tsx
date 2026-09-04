@@ -13,6 +13,7 @@ type CuentaWhatsapp = {
 
 type CuentaRetell = {
   modo: "master" | "propia";
+  numero_saliente: string | null;
   activo: boolean;
   connected_by: string | null;
   created_at: string;
@@ -180,6 +181,7 @@ function SeccionRetell() {
             <span className="text-[var(--color-texto-mute)]">Desde</span>
             <span className="text-[var(--color-texto)]">{new Date(conectado.created_at).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}</span>
           </div>
+          <SelectorNumeroSaliente numeroActual={conectado.numero_saliente} onGuardado={cargar} />
           <button onClick={desconectar} className="mt-2 text-sm font-medium text-red-500 hover:underline">
             Desconectar
           </button>
@@ -213,6 +215,79 @@ function SeccionRetell() {
             {conectando ? "Conectando…" : "Conectar"}
           </button>
         </div>
+      )}
+    </div>
+  );
+}
+
+// Los números disponibles salen de la propia cuenta de Retell conectada
+// (GET /v2/list-phone-numbers) en vez de que el admin lo copie/pegue a
+// mano -- así se evita un typo que tire silenciosamente cada llamada.
+function SelectorNumeroSaliente({ numeroActual, onGuardado }: { numeroActual: string | null; onGuardado: () => void }) {
+  const [numeros, setNumeros] = useState<{ phone_number: string; phone_number_pretty: string | null; nickname: string | null }[]>([]);
+  const [seleccionado, setSeleccionado] = useState(numeroActual ?? "");
+  const [cargando, setCargando] = useState(true);
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/integraciones/retell/numeros")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.error) setError(data.error);
+        setNumeros(data.numeros ?? []);
+      })
+      .finally(() => setCargando(false));
+  }, []);
+
+  async function guardar() {
+    if (!seleccionado) return;
+    setGuardando(true);
+    setError(null);
+    const res = await fetch("/api/integraciones/retell", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ numero_saliente: seleccionado }),
+    });
+    setGuardando(false);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "No se pudo guardar el número saliente");
+      return;
+    }
+    onGuardado();
+  }
+
+  return (
+    <div className="border-t border-[var(--color-borde)] pt-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[var(--color-texto-mute)]">Número saliente</span>
+        <span className="text-[var(--color-texto)]">{numeroActual ?? "Sin elegir"}</span>
+      </div>
+      {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
+      {cargando ? (
+        <p className="mt-2 text-xs text-[var(--color-texto-mute)]">Buscando números en Retell…</p>
+      ) : numeros.length > 0 ? (
+        <div className="mt-2 flex gap-2">
+          <select value={seleccionado} onChange={(e) => setSeleccionado(e.target.value)} className={INPUT}>
+            <option value="">Elegir número…</option>
+            {numeros.map((n) => (
+              <option key={n.phone_number} value={n.phone_number}>
+                {n.phone_number_pretty ?? n.phone_number}
+                {n.nickname ? ` (${n.nickname})` : ""}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={guardar}
+            disabled={guardando || !seleccionado || seleccionado === numeroActual}
+            className="shrink-0 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-xs font-medium text-[var(--color-texto)] hover:opacity-80 disabled:opacity-50"
+          >
+            {guardando ? "Guardando…" : "Guardar"}
+          </button>
+        </div>
+      ) : (
+        !error && <p className="mt-2 text-xs text-[var(--color-texto-mute)]">Esa cuenta de Retell todavía no tiene números.</p>
       )}
     </div>
   );

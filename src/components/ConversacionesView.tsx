@@ -259,6 +259,10 @@ function PanelConversacion({
   const [previaPlantilla, setPreviaPlantilla] = useState<{ body: string; header_tipo: string; footer_texto: string | null } | null>(null);
   const [cargandoPrevia, setCargandoPrevia] = useState(false);
   const [enviandoPlantilla, setEnviandoPlantilla] = useState(false);
+  const [plantillasVozPublicadas, setPlantillasVozPublicadas] = useState<{ id: string; nombre: string }[]>([]);
+  const [plantillaVozSeleccionada, setPlantillaVozSeleccionada] = useState("");
+  const [llamando, setLlamando] = useState(false);
+  const [errorLlamada, setErrorLlamada] = useState<string | null>(null);
   const finRef = useRef<HTMLDivElement>(null);
 
   async function cargarMensajes() {
@@ -327,6 +331,15 @@ function PanelConversacion({
   }, []);
 
   useEffect(() => {
+    supabase
+      .from("plantillas_voz")
+      .select("id, nombre")
+      .eq("publicada", true)
+      .then(({ data }) => setPlantillasVozPublicadas(data ?? []));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     if (!templateSeleccionado || !conversacion.contacto_id) {
       setPreviaPlantilla(null);
       return;
@@ -358,6 +371,24 @@ function PanelConversacion({
     } else {
       const data = await res.json().catch(() => ({}));
       alert(data.error ?? "No se pudo enviar la plantilla.");
+    }
+  }
+
+  async function llamarConPlantillaVoz() {
+    if (!plantillaVozSeleccionada) return;
+    setLlamando(true);
+    setErrorLlamada(null);
+    const res = await fetch("/api/llamadas-voz", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversacion_id: conversacion.id, plantilla_voz_id: plantillaVozSeleccionada }),
+    });
+    setLlamando(false);
+    if (res.ok) {
+      setPlantillaVozSeleccionada("");
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setErrorLlamada(data.error ?? "No se pudo iniciar la llamada.");
     }
   }
 
@@ -563,6 +594,33 @@ function PanelConversacion({
               {previaPlantilla.footer_texto && <p className="mt-1 text-xs text-[var(--color-texto-mute)]">{previaPlantilla.footer_texto}</p>}
             </div>
           )}
+        </div>
+      )}
+
+      {plantillasVozPublicadas.length > 0 && (
+        <div className="space-y-2 border-t border-[var(--color-borde)] p-4">
+          <div className="flex gap-2">
+            <select
+              value={plantillaVozSeleccionada}
+              onChange={(e) => setPlantillaVozSeleccionada(e.target.value)}
+              className="flex-1 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+            >
+              <option value="">Llamar con plantilla de voz…</option>
+              {plantillasVozPublicadas.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nombre}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={llamarConPlantillaVoz}
+              disabled={!plantillaVozSeleccionada || llamando}
+              className="shrink-0 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-4 py-2 text-sm font-semibold text-[var(--color-texto)] transition-opacity hover:opacity-80 disabled:opacity-50"
+            >
+              {llamando ? "Llamando…" : "Llamar"}
+            </button>
+          </div>
+          {errorLlamada && <p className="text-xs text-red-500">{errorLlamada}</p>}
         </div>
       )}
     </>

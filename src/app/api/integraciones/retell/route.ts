@@ -16,12 +16,33 @@ export async function GET() {
   const admin = createAdminClient();
   const { data } = await admin
     .from("cuentas_retell")
-    .select("modo, activo, connected_by, created_at")
+    .select("modo, numero_saliente, activo, connected_by, created_at")
     .eq("cuenta_id", auth.perfil.cuenta_id)
     .eq("activo", true)
     .maybeSingle();
 
   return NextResponse.json({ conectado: data ?? null });
+}
+
+// Guarda el número saliente elegido de entre los que devuelve
+// listarNumerosRetell -- solo tiene sentido una vez ya conectado.
+export async function PATCH(request: NextRequest) {
+  const auth = await requirePermiso("manage_integraciones");
+  if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  const { numero_saliente } = (await request.json()) as { numero_saliente?: string };
+  if (!numero_saliente?.trim()) {
+    return NextResponse.json({ error: "Falta el número saliente" }, { status: 400 });
+  }
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("cuentas_retell")
+    .update({ numero_saliente: numero_saliente.trim(), updated_at: new Date().toISOString() })
+    .eq("cuenta_id", auth.perfil.cuenta_id);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
 }
 
 export async function POST(request: NextRequest) {

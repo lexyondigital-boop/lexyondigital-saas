@@ -17,6 +17,7 @@ export const LABEL_CATEGORIA: Record<string, string> = {
   pipeline: "Pipeline",
   correo: "Correo",
   integraciones: "Integraciones",
+  agentes_voz: "Agentes de voz",
 };
 
 export const LABEL_ACCION: Record<string, string> = {
@@ -62,6 +63,12 @@ export const LABEL_ACCION: Record<string, string> = {
   delete_plantilla_email: "Eliminó una plantilla de correo",
   connect_retell: "Conectó Retell AI",
   disconnect_retell: "Desconectó Retell AI",
+  create_plantilla_voz: "Creó una plantilla de voz",
+  edit_plantilla_voz: "Editó una plantilla de voz",
+  delete_plantilla_voz: "Eliminó una plantilla de voz",
+  duplicar_plantilla_voz: "Duplicó una plantilla de voz",
+  publicar_plantilla_voz: "Publicó una plantilla de voz",
+  despublicar_plantilla_voz: "Despublicó una plantilla de voz",
 };
 
 export function agruparPorCategoria(permisos: Permiso[]): Record<string, Permiso[]> {

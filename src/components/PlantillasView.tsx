@@ -43,7 +43,7 @@ const LABEL_CATEGORIA = { MARKETING: "Marketing", UTILITY: "Utilidad", AUTHENTIC
 
 export function PlantillasView({ cuentaId, permisos }: { cuentaId: string; permisos: Record<string, boolean> }) {
   const supabase = createClient();
-  const [canal, setCanal] = useState<"whatsapp" | "correo">("whatsapp");
+  const [canal, setCanal] = useState<"whatsapp" | "correo" | "voz">("whatsapp");
   const [templates, setTemplates] = useState<Template[]>([]);
   const [cargando, setCargando] = useState(true);
   const [editando, setEditando] = useState<Template | null>(null);
@@ -99,7 +99,9 @@ export function PlantillasView({ cuentaId, permisos }: { cuentaId: string; permi
           <p className="mt-1 text-sm text-[var(--color-texto-mute)]">
             {canal === "whatsapp"
               ? "Se someten directamente a Meta para su revisión. Solo las “Aprobada” se pueden usar en campañas."
-              : "Plantillas de correo -- no requieren aprobación, se usan de inmediato en confirmaciones de cita y campañas."}
+              : canal === "correo"
+                ? "Plantillas de correo -- no requieren aprobación, se usan de inmediato en confirmaciones de cita y campañas."
+                : "Plantillas de voz para los agentes de Retell -- solo las publicadas se pueden usar para llamar."}
           </p>
         </div>
         {canal === "whatsapp" && (
@@ -116,7 +118,7 @@ export function PlantillasView({ cuentaId, permisos }: { cuentaId: string; permi
         )}
       </div>
 
-      {permisos.manage_email && (
+      {(permisos.manage_email || permisos.manage_plantillas_voz) && (
         <div className="mb-6 flex gap-2">
           <button
             onClick={() => setCanal("whatsapp")}
@@ -124,12 +126,22 @@ export function PlantillasView({ cuentaId, permisos }: { cuentaId: string; permi
           >
             WhatsApp
           </button>
-          <button
-            onClick={() => setCanal("correo")}
-            className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${canal === "correo" ? "border-[var(--color-marca)] bg-[var(--color-marca)] text-white" : "border-[var(--color-borde)] text-[var(--color-texto-mute)]"}`}
-          >
-            Correo
-          </button>
+          {permisos.manage_email && (
+            <button
+              onClick={() => setCanal("correo")}
+              className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${canal === "correo" ? "border-[var(--color-marca)] bg-[var(--color-marca)] text-white" : "border-[var(--color-borde)] text-[var(--color-texto-mute)]"}`}
+            >
+              Correo
+            </button>
+          )}
+          {permisos.manage_plantillas_voz && (
+            <button
+              onClick={() => setCanal("voz")}
+              className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${canal === "voz" ? "border-[var(--color-marca)] bg-[var(--color-marca)] text-white" : "border-[var(--color-borde)] text-[var(--color-texto-mute)]"}`}
+            >
+              Voz
+            </button>
+          )}
         </div>
       )}
 
@@ -137,6 +149,8 @@ export function PlantillasView({ cuentaId, permisos }: { cuentaId: string; permi
 
       {canal === "correo" ? (
         <PlantillasEmailSection cuentaId={cuentaId} />
+      ) : canal === "voz" ? (
+        <PlantillasVozSection />
       ) : (
         <>
       {mostrarAsistente && (
@@ -306,6 +320,267 @@ function PlantillasEmailSection({ cuentaId }: { cuentaId: string }) {
             </div>
           ))
         )}
+      </div>
+    </div>
+  );
+}
+
+const AGENTES_TIPO_VOZ: { valor: string; etiqueta: string; disponible: boolean }[] = [
+  { valor: "servicio", etiqueta: "Servicio", disponible: true },
+  { valor: "citas", etiqueta: "Recordatorio de citas", disponible: false },
+  { valor: "venta", etiqueta: "Venta", disponible: false },
+  { valor: "cobranza", etiqueta: "Cobranza", disponible: false },
+  { valor: "legal", etiqueta: "Legal", disponible: false },
+];
+
+const CATEGORIAS_VOZ: { valor: string; etiqueta: string }[] = [
+  { valor: "legal", etiqueta: "Legal" },
+  { valor: "medicos", etiqueta: "Médicos" },
+  { valor: "inmobiliario", etiqueta: "Inmobiliarios" },
+  { valor: "servicios", etiqueta: "Servicios" },
+  { valor: "cobranza", etiqueta: "Cobranza" },
+  { valor: "ventas", etiqueta: "Ventas" },
+];
+
+type PlantillaVoz = {
+  id: string;
+  nombre: string;
+  copyscript: string;
+  objetivo: string | null;
+  agente_tipo: string;
+  categoria: string;
+  publicada: boolean;
+};
+
+function PlantillasVozSection() {
+  const [plantillas, setPlantillas] = useState<PlantillaVoz[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [editando, setEditando] = useState<PlantillaVoz | "nueva" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function cargar() {
+    setCargando(true);
+    const res = await fetch("/api/plantillas-voz");
+    const data = await res.json().catch(() => ({}));
+    setPlantillas(data.plantillas ?? []);
+    setCargando(false);
+  }
+
+  useEffect(() => {
+    cargar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function eliminar(id: string) {
+    if (!confirm("¿Eliminar esta plantilla de voz?")) return;
+    setError(null);
+    const res = await fetch(`/api/plantillas-voz/${id}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(data.error ?? "No se pudo eliminar");
+      return;
+    }
+    cargar();
+  }
+
+  async function duplicar(id: string) {
+    setError(null);
+    const res = await fetch(`/api/plantillas-voz/${id}/duplicar`, { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(data.error ?? "No se pudo duplicar");
+      return;
+    }
+    cargar();
+  }
+
+  async function alternarPublicada(p: PlantillaVoz) {
+    setError(null);
+    const res = await fetch(`/api/plantillas-voz/${p.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ publicada: !p.publicada }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(data.error ?? "No se pudo actualizar");
+      return;
+    }
+    cargar();
+  }
+
+  return (
+    <div>
+      <div className="mb-4 flex justify-end">
+        <button
+          onClick={() => setEditando("nueva")}
+          style={{ boxShadow: "var(--halo-accion)" }}
+          className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90"
+        >
+          Nueva plantilla de voz
+        </button>
+      </div>
+
+      {error && <p className="mb-4 text-sm text-red-500">{error}</p>}
+
+      {editando && (
+        <FormularioPlantillaVoz
+          plantilla={editando === "nueva" ? null : editando}
+          onGuardado={() => {
+            setEditando(null);
+            cargar();
+          }}
+          onCancelar={() => setEditando(null)}
+        />
+      )}
+
+      <div className="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {cargando ? (
+          <p className="text-sm text-[var(--color-texto-mute)]">Cargando…</p>
+        ) : plantillas.length === 0 ? (
+          <p className="text-sm text-[var(--color-texto-mute)]">Todavía no hay plantillas de voz.</p>
+        ) : (
+          plantillas.map((p) => (
+            <div key={p.id} className="rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-5">
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-[var(--color-texto)]">{p.nombre}</h3>
+                <Badge tono={p.publicada ? "en-vivo" : "mute"}>{p.publicada ? "Publicada" : "Borrador"}</Badge>
+              </div>
+              <p className="text-xs text-[var(--color-texto-mute)]">
+                {AGENTES_TIPO_VOZ.find((a) => a.valor === p.agente_tipo)?.etiqueta ?? p.agente_tipo} ·{" "}
+                {CATEGORIAS_VOZ.find((c) => c.valor === p.categoria)?.etiqueta ?? p.categoria}
+              </p>
+              <p className="mt-2 line-clamp-3 text-sm text-[var(--color-texto)]">{p.copyscript || "—"}</p>
+
+              <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-[var(--color-borde)] pt-3">
+                <button onClick={() => setEditando(p)} className="text-xs font-medium text-[var(--color-marca)] hover:underline">
+                  Editar
+                </button>
+                <button onClick={() => duplicar(p.id)} className="text-xs font-medium text-[var(--color-marca)] hover:underline">
+                  Duplicar
+                </button>
+                <button onClick={() => alternarPublicada(p)} className="text-xs font-medium text-[var(--color-marca)] hover:underline">
+                  {p.publicada ? "Despublicar" : "Publicar"}
+                </button>
+                <button onClick={() => eliminar(p.id)} className="text-xs font-medium text-red-500 hover:underline">
+                  Eliminar
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FormularioPlantillaVoz({
+  plantilla,
+  onGuardado,
+  onCancelar,
+}: {
+  plantilla: PlantillaVoz | null;
+  onGuardado: () => void;
+  onCancelar: () => void;
+}) {
+  const [nombre, setNombre] = useState(plantilla?.nombre ?? "");
+  const [copyscript, setCopyscript] = useState(plantilla?.copyscript ?? "");
+  const [objetivo, setObjetivo] = useState(plantilla?.objetivo ?? "");
+  const [agenteTipo, setAgenteTipo] = useState(plantilla?.agente_tipo ?? "servicio");
+  const [categoria, setCategoria] = useState(plantilla?.categoria ?? "servicios");
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const INPUT_LOCAL =
+    "w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]";
+
+  async function guardar() {
+    if (!nombre.trim()) {
+      setError("Falta el nombre");
+      return;
+    }
+    setGuardando(true);
+    setError(null);
+
+    const body = { nombre, copyscript, objetivo, agente_tipo: agenteTipo, categoria };
+    const res = plantilla
+      ? await fetch(`/api/plantillas-voz/${plantilla.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
+      : await fetch("/api/plantillas-voz", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+
+    const data = await res.json().catch(() => ({}));
+    setGuardando(false);
+    if (!res.ok) {
+      setError(data.error ?? "No se pudo guardar");
+      return;
+    }
+    onGuardado();
+  }
+
+  return (
+    <div className="mb-6 rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-5">
+      <div className="space-y-3">
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Nombre</span>
+          <input value={nombre} onChange={(e) => setNombre(e.target.value)} className={INPUT_LOCAL} />
+        </label>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Tipo de agente</span>
+            <select value={agenteTipo} onChange={(e) => setAgenteTipo(e.target.value)} className={INPUT_LOCAL}>
+              {AGENTES_TIPO_VOZ.map((a) => (
+                <option key={a.valor} value={a.valor} disabled={!a.disponible}>
+                  {a.etiqueta}
+                  {!a.disponible ? " (próximamente)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Categoría</span>
+            <select value={categoria} onChange={(e) => setCategoria(e.target.value)} className={INPUT_LOCAL}>
+              {CATEGORIAS_VOZ.map((c) => (
+                <option key={c.valor} value={c.valor}>
+                  {c.etiqueta}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Objetivo</span>
+          <input value={objetivo} onChange={(e) => setObjetivo(e.target.value)} className={INPUT_LOCAL} placeholder="Ej. Confirmar que el servicio sigue activo" />
+        </label>
+
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Copyscript</span>
+          <textarea value={copyscript} onChange={(e) => setCopyscript(e.target.value)} rows={8} className={INPUT_LOCAL} />
+        </label>
+
+        {error && <p className="text-sm text-red-500">{error}</p>}
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button onClick={onCancelar} className="rounded-lg border border-[var(--color-borde)] px-4 py-2 text-sm font-medium text-[var(--color-texto)] hover:opacity-80">
+            Cancelar
+          </button>
+          <button
+            onClick={guardar}
+            disabled={guardando}
+            style={{ boxShadow: "var(--halo-accion)" }}
+            className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
+          >
+            {guardando ? "Guardando…" : "Guardar"}
+          </button>
+        </div>
       </div>
     </div>
   );
