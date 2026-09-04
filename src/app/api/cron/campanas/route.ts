@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enviarMensajePlantilla, normalizarDestinatario } from "@/lib/meta";
 import { moverDealEtapa, obtenerDealAbiertoDeContacto } from "@/lib/deals";
-import { resolverParametrosPlantilla, obtenerValoresContactoPorClave } from "@/lib/variables-contacto";
+import { resolverParametrosPlantilla, obtenerValoresContactoPorClave, sustituirParametrosPlantilla } from "@/lib/variables-contacto";
 import { enviarCorreo, reemplazarVariablesEmail, extraerClavesVariables } from "@/lib/email-envio";
 import { obtenerOCrearConversacion } from "@/lib/conversaciones";
 
@@ -128,10 +128,10 @@ async function avanzarCampana(
   });
 
   if (resultado.ok) {
-    await registrarEnvioExitoso(supabase, { campana, pendiente, contacto, template, conversacionId: conversacion?.id, whatsappMessageId: resultado.whatsappMessageId });
+    await registrarEnvioExitoso(supabase, { campana, pendiente, contacto, template, parametros, conversacionId: conversacion?.id, whatsappMessageId: resultado.whatsappMessageId });
   } else {
     console.error(`Campaña ${campana.id}, contacto ${contacto.id}: falló el envío:`, JSON.stringify(resultado.raw));
-    await registrarEnvioFallido(supabase, { campana, pendiente, contacto, template, conversacionId: conversacion?.id });
+    await registrarEnvioFallido(supabase, { campana, pendiente, contacto, template, parametros, conversacionId: conversacion?.id });
   }
 
   return { campana_id: campana.id, contacto_id: contacto.id, ok: resultado.ok };
@@ -212,11 +212,12 @@ async function registrarEnvioExitoso(
     pendiente: { id: string };
     contacto: { id: string; etiquetas: string[] | null };
     template: { name: string; body: string | null; etiquetas_envio?: string[] | null; etapa_destino_id?: string | null };
+    parametros: string[];
     conversacionId?: string;
     whatsappMessageId: string | null;
   },
 ) {
-  const { campana, pendiente, contacto, template, conversacionId, whatsappMessageId } = params;
+  const { campana, pendiente, contacto, template, parametros, conversacionId, whatsappMessageId } = params;
 
   await supabase
     .from("campana_contactos")
@@ -254,7 +255,7 @@ async function registrarEnvioExitoso(
     contacto_id: contacto.id,
     direccion: "saliente",
     tipo: "template",
-    contenido: template.body,
+    contenido: sustituirParametrosPlantilla(template.body, parametros),
     template_nombre: template.name,
     status: "enviado",
     whatsapp_message_id: whatsappMessageId,
@@ -283,10 +284,11 @@ async function registrarEnvioFallido(
     pendiente: { id: string };
     contacto: { id: string };
     template: { name: string; body: string | null };
+    parametros: string[];
     conversacionId?: string;
   },
 ) {
-  const { campana, pendiente, contacto, template, conversacionId } = params;
+  const { campana, pendiente, contacto, template, parametros, conversacionId } = params;
 
   await supabase.from("campana_contactos").update({ status: "fallido" }).eq("id", pendiente.id);
   await supabase.from("contactos").update({ campana_status: "fallido" }).eq("id", contacto.id);
@@ -297,7 +299,7 @@ async function registrarEnvioFallido(
     contacto_id: contacto.id,
     direccion: "saliente",
     tipo: "template",
-    contenido: template.body,
+    contenido: sustituirParametrosPlantilla(template.body, parametros),
     template_nombre: template.name,
     status: "fallido",
   });

@@ -75,3 +75,12 @@ export async function resolverParametrosPlantilla(
   }
   return parametros;
 }
+
+// El registro que se guarda en `mensajes.contenido` debe reflejar el texto
+// real que le llegó al contacto (con los {{n}} ya resueltos), no el body
+// crudo de la plantilla -- si no, el chat en el CRM muestra literalmente
+// "{{1}}" aunque WhatsApp sí haya mandado el nombre real.
+export function sustituirParametrosPlantilla(body: string | null, parametros: string[]): string | null {
+  if (!body) return body;
+  return body.replace(/\{\{(\d+)\}\}/g, (match, indice) => parametros[Number(indice) - 1] ?? match);
+}

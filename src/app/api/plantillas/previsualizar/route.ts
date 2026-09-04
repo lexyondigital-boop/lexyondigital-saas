@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { resolverParametrosPlantilla } from "@/lib/variables-contacto";
+import { resolverParametrosPlantilla, sustituirParametrosPlantilla } from "@/lib/variables-contacto";
 
 // Vista previa de una plantilla ya sustituida con el dato REAL de un
 // contacto (cuando la posición está ligada a una variable y el contacto ya
@@ -38,10 +38,9 @@ export async function POST(request: NextRequest) {
   if (!contacto) return NextResponse.json({ error: "Contacto no encontrado" }, { status: 404 });
 
   const parametros = await resolverParametrosPlantilla(admin, perfil.cuenta_id, contacto_id, template);
-  const cuerpo = (template.body ?? "").replace(/\{\{(\d+)\}\}/g, (match: string, n: string) => parametros[Number(n) - 1] ?? match);
 
   return NextResponse.json({
-    body: cuerpo,
+    body: sustituirParametrosPlantilla(template.body, parametros) ?? "",
     header_tipo: template.header_tipo,
     header_media_url: template.header_media_url,
     footer_texto: template.footer_texto,

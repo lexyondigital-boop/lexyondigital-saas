@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enviarMensajeTexto, enviarMensajePlantilla, normalizarDestinatario } from "@/lib/meta";
-import { resolverParametrosPlantilla } from "@/lib/variables-contacto";
+import { resolverParametrosPlantilla, sustituirParametrosPlantilla } from "@/lib/variables-contacto";
 import { obtenerOCrearConversacion } from "@/lib/conversaciones";
 
 export async function POST(request: NextRequest) {
@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
         contacto_id: conversacion.contacto_id,
         direccion: "saliente",
         tipo: "template",
-        contenido: template.body,
+        contenido: sustituirParametrosPlantilla(template.body, parametros),
         template_nombre: template.name,
         status: resultado.ok ? "enviado" : "fallido",
         whatsapp_message_id: resultado.whatsappMessageId,
