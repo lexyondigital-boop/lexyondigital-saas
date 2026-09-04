@@ -16,6 +16,7 @@ export const LABEL_CATEGORIA: Record<string, string> = {
   variables: "Variables",
   pipeline: "Pipeline",
   correo: "Correo",
+  integraciones: "Integraciones",
 };
 
 export const LABEL_ACCION: Record<string, string> = {
@@ -59,6 +60,8 @@ export const LABEL_ACCION: Record<string, string> = {
   create_plantilla_email: "Creó una plantilla de correo",
   edit_plantilla_email: "Editó una plantilla de correo",
   delete_plantilla_email: "Eliminó una plantilla de correo",
+  connect_retell: "Conectó Retell AI",
+  disconnect_retell: "Desconectó Retell AI",
 };
 
 export function agruparPorCategoria(permisos: Permiso[]): Record<string, Permiso[]> {

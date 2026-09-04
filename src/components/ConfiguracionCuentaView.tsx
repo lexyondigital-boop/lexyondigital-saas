@@ -11,6 +11,12 @@ type CuentaWhatsapp = {
   created_at: string;
 };
 
+type CuentaRetell = {
+  activo: boolean;
+  connected_by: string | null;
+  created_at: string;
+};
+
 type CuentaCorreo = {
   proveedor: "google" | "smtp";
   remitente_nombre: string | null;
@@ -78,7 +84,116 @@ export function ConfiguracionCuentaView({ permisos }: { permisos: Record<string,
         </div>
 
         {permisos.manage_email && <SeccionCorreo />}
+        {permisos.manage_integraciones && <SeccionIntegraciones />}
       </div>
+    </div>
+  );
+}
+
+// Contenedor de integraciones -- por ahora solo Retell, pero se deja como
+// tarjeta propia para que sumar la siguiente integración sea agregar otra
+// fila adentro, no otra tarjeta suelta en el layout general.
+function SeccionIntegraciones() {
+  return (
+    <div className="max-w-md flex-1 rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6">
+      <h2 className="mb-3 text-sm font-semibold text-[var(--color-texto)]">Integraciones</h2>
+      <SeccionRetell />
+    </div>
+  );
+}
+
+function SeccionRetell() {
+  const [conectado, setConectado] = useState<CuentaRetell | null>(null);
+  const [cargando, setCargando] = useState(true);
+  const [apiKey, setApiKey] = useState("");
+  const [conectando, setConectando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function cargar() {
+    setCargando(true);
+    const res = await fetch("/api/integraciones/retell");
+    const data = await res.json().catch(() => ({}));
+    setConectado(data.conectado ?? null);
+    setCargando(false);
+  }
+
+  useEffect(() => {
+    cargar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function conectar() {
+    if (!apiKey.trim()) return;
+    setConectando(true);
+    setError(null);
+    const res = await fetch("/api/integraciones/retell", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: apiKey.trim() }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setConectando(false);
+    if (!res.ok) {
+      setError(data.error ?? "No se pudo conectar con Retell");
+      return;
+    }
+    setApiKey("");
+    cargar();
+  }
+
+  async function desconectar() {
+    if (!confirm("¿Desconectar Retell AI de esta cuenta?")) return;
+    setError(null);
+    const res = await fetch("/api/integraciones/retell", { method: "DELETE" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "No se pudo desconectar Retell");
+      return;
+    }
+    cargar();
+  }
+
+  return (
+    <div>
+      <h3 className="mb-1 text-sm font-medium text-[var(--color-texto)]">Retell AI</h3>
+      <p className="mb-3 text-xs text-[var(--color-texto-mute)]">Agente de voz por IA para llamadas telefónicas.</p>
+
+      {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
+
+      {cargando ? (
+        <p className="text-sm text-[var(--color-texto-mute)]">Cargando…</p>
+      ) : conectado ? (
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-[var(--color-texto-mute)]">Estado</span>
+            <Badge tono="en-vivo">Conectado</Badge>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-[var(--color-texto-mute)]">Desde</span>
+            <span className="text-[var(--color-texto)]">{new Date(conectado.created_at).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}</span>
+          </div>
+          <button onClick={desconectar} className="mt-2 text-sm font-medium text-red-500 hover:underline">
+            Desconectar
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="API key de Retell"
+            className={INPUT}
+          />
+          <button
+            onClick={conectar}
+            disabled={conectando || !apiKey.trim()}
+            className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm font-medium text-[var(--color-texto)] hover:opacity-80 disabled:opacity-50"
+          >
+            {conectando ? "Conectando…" : "Conectar"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
