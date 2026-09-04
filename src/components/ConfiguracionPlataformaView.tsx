@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/Badge";
 
 type Secreto = {
-  clave: "openai_api_key" | "anthropic_api_key";
+  clave: "openai_api_key" | "anthropic_api_key" | "retell_api_key";
   vence_en: string | null;
   updated_at: string;
 };
@@ -13,6 +13,7 @@ type Secreto = {
 const PROVEEDORES: { clave: Secreto["clave"]; etiqueta: string; placeholder: string }[] = [
   { clave: "openai_api_key", etiqueta: "OpenAI", placeholder: "sk-…" },
   { clave: "anthropic_api_key", etiqueta: "Claude (Anthropic)", placeholder: "sk-ant-…" },
+  { clave: "retell_api_key", etiqueta: "Retell AI (maestra)", placeholder: "key_…" },
 ];
 
 function diasParaVencer(vence_en: string | null): number | null {
@@ -44,8 +45,8 @@ export function ConfiguracionPlataformaView() {
     <div>
       <h1 className="text-xl font-bold text-[var(--color-texto)]">Configuración</h1>
       <p className="mt-1 text-sm text-[var(--color-texto-mute)]">
-        API keys de plataforma para el modo "Platform key" del Agente IA — se usan cuando una sub-cuenta no trae su
-        propia key. Solo visible para el super admin.
+        API keys de plataforma compartidas por todas las cuentas: el modo "Platform key" del Agente IA (OpenAI/Claude)
+        y la cuenta maestra de Retell AI para el plan incluido. Solo visible para el super admin.
       </p>
 
       <div className="mt-6 grid max-w-3xl gap-4 sm:grid-cols-2">

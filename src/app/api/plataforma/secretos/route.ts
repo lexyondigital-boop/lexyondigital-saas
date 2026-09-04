@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { cifrar } from "@/lib/cifrado";
 
-const CLAVES_VALIDAS = ["openai_api_key", "anthropic_api_key"] as const;
+const CLAVES_VALIDAS = ["openai_api_key", "anthropic_api_key", "retell_api_key"] as const;
 
 // Guarda/rota una API key de plataforma (modo "platform_key" del agente).
 // Solo super_admin -- se valida el rol aquí además de la política RLS de la

@@ -12,6 +12,7 @@ type CuentaWhatsapp = {
 };
 
 type CuentaRetell = {
+  modo: "master" | "propia";
   activo: boolean;
   connected_by: string | null;
   created_at: string;
@@ -105,6 +106,7 @@ function SeccionIntegraciones() {
 function SeccionRetell() {
   const [conectado, setConectado] = useState<CuentaRetell | null>(null);
   const [cargando, setCargando] = useState(true);
+  const [modo, setModo] = useState<"master" | "propia">("master");
   const [apiKey, setApiKey] = useState("");
   const [conectando, setConectando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,13 +125,13 @@ function SeccionRetell() {
   }, []);
 
   async function conectar() {
-    if (!apiKey.trim()) return;
+    if (modo === "propia" && !apiKey.trim()) return;
     setConectando(true);
     setError(null);
     const res = await fetch("/api/integraciones/retell", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ api_key: apiKey.trim() }),
+      body: JSON.stringify({ modo, api_key: modo === "propia" ? apiKey.trim() : undefined }),
     });
     const data = await res.json().catch(() => ({}));
     setConectando(false);
@@ -169,6 +171,12 @@ function SeccionRetell() {
             <Badge tono="en-vivo">Conectado</Badge>
           </div>
           <div className="flex items-center justify-between">
+            <span className="text-[var(--color-texto-mute)]">Plan</span>
+            <span className="text-[var(--color-texto)]">
+              {conectado.modo === "master" ? "Incluido (lexyondigital)" : "Propio (mi API de Retell)"}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
             <span className="text-[var(--color-texto-mute)]">Desde</span>
             <span className="text-[var(--color-texto)]">{new Date(conectado.created_at).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}</span>
           </div>
@@ -177,17 +185,29 @@ function SeccionRetell() {
           </button>
         </div>
       ) : (
-        <div className="flex flex-col gap-2">
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="API key de Retell"
-            className={INPUT}
-          />
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2 text-sm text-[var(--color-texto)]">
+            <label className="flex items-center gap-2">
+              <input type="radio" name="retell_modo" checked={modo === "master"} onChange={() => setModo("master")} />
+              Incluido con lexyondigital
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="radio" name="retell_modo" checked={modo === "propia"} onChange={() => setModo("propia")} />
+              Mi propia cuenta de Retell
+            </label>
+          </div>
+          {modo === "propia" && (
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="API key de Retell"
+              className={INPUT}
+            />
+          )}
           <button
             onClick={conectar}
-            disabled={conectando || !apiKey.trim()}
+            disabled={conectando || (modo === "propia" && !apiKey.trim())}
             className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm font-medium text-[var(--color-texto)] hover:opacity-80 disabled:opacity-50"
           >
             {conectando ? "Conectando…" : "Conectar"}
