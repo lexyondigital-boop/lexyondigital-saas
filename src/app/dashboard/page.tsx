@@ -1,6 +1,7 @@
 import { obtenerSesionApp } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
+import { ReportesDashboard } from "@/components/ReportesDashboard";
 
 export default async function DashboardPage() {
   const { user, perfil, permisos } = await obtenerSesionApp();
@@ -42,6 +43,8 @@ export default async function DashboardPage() {
           </div>
         ))}
       </div>
+
+      {permisos.view_analytics && <ReportesDashboard permisos={permisos} />}
     </AppShell>
   );
 }

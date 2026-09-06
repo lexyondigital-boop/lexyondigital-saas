@@ -69,6 +69,9 @@ export const LABEL_ACCION: Record<string, string> = {
   duplicar_plantilla_voz: "Duplicó una plantilla de voz",
   publicar_plantilla_voz: "Publicó una plantilla de voz",
   despublicar_plantilla_voz: "Despublicó una plantilla de voz",
+  create_reporte: "Creó un reporte",
+  edit_reporte: "Editó un reporte",
+  delete_reporte: "Eliminó un reporte",
 };
 
 export function agruparPorCategoria(permisos: Permiso[]): Record<string, Permiso[]> {

@@ -1,0 +1,71 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { requirePermiso } from "@/lib/require-permiso";
+import { registrarActividad } from "@/lib/auditoria";
+import { DIMENSIONES_POR_ENTIDAD, type EntidadReporte, type DimensionReporte, type TipoGraficoReporte, type AgruparFechaPor } from "@/lib/reportes";
+
+const ENTIDADES: EntidadReporte[] = ["contactos", "deals", "campanas"];
+const TIPOS_GRAFICO: TipoGraficoReporte[] = ["barras", "dona", "linea", "numero"];
+const AGRUPACIONES_FECHA: AgruparFechaPor[] = ["dia", "semana", "mes"];
+
+export async function GET() {
+  const auth = await requirePermiso("view_analytics");
+  if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("reportes").select("*").eq("cuenta_id", auth.perfil.cuenta_id).order("created_at", { ascending: false });
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ reportes: data ?? [] });
+}
+
+export async function POST(request: NextRequest) {
+  const auth = await requirePermiso("manage_reportes");
+  if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  const body = await request.json();
+  const { nombre, entidad, dimension, tipo_grafico, agrupar_fecha_por, filtros } = body as {
+    nombre?: string;
+    entidad?: string;
+    dimension?: string;
+    tipo_grafico?: string;
+    agrupar_fecha_por?: string | null;
+    filtros?: { rango_dias?: number | null };
+  };
+
+  if (!nombre?.trim()) return NextResponse.json({ error: "Falta el nombre" }, { status: 400 });
+  if (!ENTIDADES.includes(entidad as EntidadReporte)) return NextResponse.json({ error: "Entidad inválida" }, { status: 400 });
+  if (!DIMENSIONES_POR_ENTIDAD[entidad as EntidadReporte].includes(dimension as DimensionReporte)) {
+    return NextResponse.json({ error: "Esa dimensión no aplica a esta entidad" }, { status: 400 });
+  }
+  const tipoGraficoFinal = (tipo_grafico as TipoGraficoReporte) ?? "barras";
+  if (!TIPOS_GRAFICO.includes(tipoGraficoFinal)) return NextResponse.json({ error: "Tipo de gráfico inválido" }, { status: 400 });
+
+  const esFecha = dimension === "fecha_creacion" || dimension === "fecha_modificacion";
+  const agrupacionFinal = esFecha ? ((agrupar_fecha_por as AgruparFechaPor) ?? "dia") : null;
+  if (esFecha && !AGRUPACIONES_FECHA.includes(agrupacionFinal as AgruparFechaPor)) {
+    return NextResponse.json({ error: "Agrupación de fecha inválida" }, { status: 400 });
+  }
+
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("reportes")
+    .insert({
+      cuenta_id: auth.perfil.cuenta_id,
+      nombre: nombre.trim(),
+      entidad,
+      dimension,
+      tipo_grafico: tipoGraficoFinal,
+      agrupar_fecha_por: agrupacionFinal,
+      filtros: filtros ?? {},
+      creado_por: auth.user.id,
+    })
+    .select()
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  await registrarActividad({ cuentaId: auth.perfil.cuenta_id, perfilId: auth.user.id, accion: "create_reporte", recursoTipo: "reporte", recursoId: data.id, request });
+
+  return NextResponse.json({ reporte: data });
+}
