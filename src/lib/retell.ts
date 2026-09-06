@@ -124,3 +124,48 @@ export async function resolverCuentaRetell(
 export function telefonoAE164(telefono: string): string {
   return `+${normalizarDestinatario(telefono)}`;
 }
+
+const DESCONEXION_SIN_RESPUESTA = new Set([
+  "dial_no_answer",
+  "dial_busy",
+  "voicemail_reached",
+  "ivr_reached",
+  "inactivity",
+  "registered_call_timeout",
+]);
+
+const DESCONEXION_FALLIDA = new Set([
+  "dial_failed",
+  "invalid_destination",
+  "telephony_provider_permission_denied",
+  "telephony_provider_unavailable",
+  "sip_routing_error",
+  "no_valid_payment",
+  "concurrency_limit_reached",
+  "no_concurrency_fallback",
+  "scam_detected",
+  "marked_as_spam",
+]);
+
+// Retell no tiene un status "aceptó/rechazó/no contestó" -- lo inferimos de
+// call_status + disconnection_reason. El resto de motivos (colgó el usuario o
+// el agente, transferencia, límite de duración, etc.) sí fue una llamada real.
+export function mapearStatusLlamada(
+  callStatus: string,
+  disconnectionReason?: string | null,
+): "completada" | "fallida" | "sin_respuesta" {
+  if (callStatus === "error") return "fallida";
+  if (disconnectionReason && DESCONEXION_SIN_RESPUESTA.has(disconnectionReason)) return "sin_respuesta";
+  if (disconnectionReason && (DESCONEXION_FALLIDA.has(disconnectionReason) || disconnectionReason.startsWith("error_"))) {
+    return "fallida";
+  }
+  return "completada";
+}
+
+// call_analysis solo llega con el evento call_analyzed (después de
+// call_ended) -- call_successful es lo más cercano a "aceptó/rechazó" que
+// ofrece Retell sin depender de un esquema de análisis propio por agente.
+export function mapearResultadoLlamada(callAnalysis?: { call_successful?: boolean } | null): "acepto" | "rechazo" | "pendiente" {
+  if (!callAnalysis || callAnalysis.call_successful === undefined) return "pendiente";
+  return callAnalysis.call_successful ? "acepto" : "rechazo";
+}

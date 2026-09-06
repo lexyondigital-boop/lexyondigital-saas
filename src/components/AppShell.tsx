@@ -48,12 +48,12 @@ const NAV_TENANT: ItemNav[] = [
   { href: "/plantillas", label: "Plantillas", icon: IconDoc, disponible: true, requiere: "view_templates" },
   { href: "/calendarios", label: "Calendarios", icon: IconCalendar, disponible: true, requiere: "view_appointments" },
   { href: "/campanas", label: "Campañas", icon: IconMegaphone, disponible: true, requiere: "view_campaigns" },
-  { href: "/agentes-voz", label: "Agentes de Voz", icon: IconPhone, disponible: true, requiere: "view_agentes_voz" },
   { href: "/etiquetas", label: "Etiquetas", icon: IconTag, disponible: true, requiere: "view_tags" },
   { href: "/variables", label: "Variables", icon: IconBraces, disponible: true, requiere: "view_variables" },
   { href: "/usuarios", label: "Usuarios", icon: IconUsers, disponible: true, requiere: "manage_users" },
   { href: "/profesionales", label: "Profesionales", icon: IconBriefcase, disponible: true, requiere: "view_professionals" },
   { href: "/agente-ia", label: "Agente IA", icon: IconRobot, disponible: true, requiere: "access_agent_ia" },
+  { href: "/agentes-voz", label: "Agentes de Voz", icon: IconPhone, disponible: true, requiere: "view_agentes_voz" },
   { href: "/configuracion", label: "Configuración", icon: IconGear, disponible: true, requiere: "access_configuration" },
   { href: "/mi-perfil", label: "Mi perfil", icon: IconUser, disponible: true },
 ];
