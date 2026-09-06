@@ -38,17 +38,20 @@ export async function POST(request: NextRequest) {
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const body = await request.json();
-  const { nombre, copyscript, objetivo, agente_tipo, categoria, plantilla_base_clave, modo_agente, retell_agent_id, retell_voice_id } = body as {
-    nombre?: string;
-    copyscript?: string;
-    objetivo?: string;
-    agente_tipo?: string;
-    categoria?: string;
-    plantilla_base_clave?: string | null;
-    modo_agente?: string;
-    retell_agent_id?: string | null;
-    retell_voice_id?: string | null;
-  };
+  const { nombre, copyscript, objetivo, agente_tipo, categoria, plantilla_base_clave, modo_agente, retell_agent_id, retell_voice_id, retell_idioma, retell_colgar_buzon } =
+    body as {
+      nombre?: string;
+      copyscript?: string;
+      objetivo?: string;
+      agente_tipo?: string;
+      categoria?: string;
+      plantilla_base_clave?: string | null;
+      modo_agente?: string;
+      retell_agent_id?: string | null;
+      retell_voice_id?: string | null;
+      retell_idioma?: string;
+      retell_colgar_buzon?: boolean;
+    };
 
   if (!nombre?.trim()) return NextResponse.json({ error: "Falta el nombre" }, { status: 400 });
 
@@ -87,6 +90,8 @@ export async function POST(request: NextRequest) {
       modo_agente: modoAgenteFinal,
       retell_agent_id: modoAgenteFinal === "retell_propio" ? retell_agent_id : null,
       retell_voice_id: modoAgenteFinal === "generado" ? (retell_voice_id ?? null) : null,
+      retell_idioma: retell_idioma ?? "es-419",
+      retell_colgar_buzon: retell_colgar_buzon ?? true,
     })
     .select()
     .single();

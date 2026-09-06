@@ -353,7 +353,18 @@ type PlantillaVoz = {
   modo_agente: "generado" | "retell_propio";
   retell_agent_id: string | null;
   retell_voice_id: string | null;
+  retell_idioma: string;
+  retell_colgar_buzon: boolean;
 };
+
+const IDIOMAS_VOZ: { valor: string; etiqueta: string }[] = [
+  { valor: "es-419", etiqueta: "Español (Latinoamérica)" },
+  { valor: "es-ES", etiqueta: "Español (España)" },
+  { valor: "en-US", etiqueta: "Inglés (EE. UU.)" },
+  { valor: "en-GB", etiqueta: "Inglés (Reino Unido)" },
+  { valor: "pt-BR", etiqueta: "Portugués (Brasil)" },
+  { valor: "fr-FR", etiqueta: "Francés" },
+];
 
 type AgenteRetellLite = { agentId: string; nombre: string };
 type VozRetellLite = { voiceId: string; nombre: string; proveedor: string; acento: string | null; genero: string | null };
@@ -506,6 +517,8 @@ function FormularioPlantillaVoz({
   const [modoAgente, setModoAgente] = useState<"generado" | "retell_propio">(plantilla?.modo_agente ?? "generado");
   const [retellAgentId, setRetellAgentId] = useState(plantilla?.retell_agent_id ?? "");
   const [retellVoiceId, setRetellVoiceId] = useState(plantilla?.retell_voice_id ?? "");
+  const [retellIdioma, setRetellIdioma] = useState(plantilla?.retell_idioma ?? "es-419");
+  const [retellColgarBuzon, setRetellColgarBuzon] = useState(plantilla?.retell_colgar_buzon ?? true);
   const [agentes, setAgentes] = useState<AgenteRetellLite[]>([]);
   const [voces, setVoces] = useState<VozRetellLite[]>([]);
   const [cargandoOpciones, setCargandoOpciones] = useState(false);
@@ -560,6 +573,8 @@ function FormularioPlantillaVoz({
       modo_agente: modoAgente,
       retell_agent_id: modoAgente === "retell_propio" ? retellAgentId : undefined,
       retell_voice_id: modoAgente === "generado" ? retellVoiceId : undefined,
+      retell_idioma: modoAgente === "generado" ? retellIdioma : undefined,
+      retell_colgar_buzon: modoAgente === "generado" ? retellColgarBuzon : undefined,
     };
     const res = plantilla
       ? await fetch(`/api/plantillas-voz/${plantilla.id}`, {
@@ -654,6 +669,25 @@ function FormularioPlantillaVoz({
             </select>
             {errorOpciones && <p className="mt-1 text-xs text-red-500">{errorOpciones}</p>}
           </label>
+        )}
+
+        {modoAgente === "generado" && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Idioma del agente</span>
+              <select value={retellIdioma} onChange={(e) => setRetellIdioma(e.target.value)} className={INPUT_LOCAL}>
+                {IDIOMAS_VOZ.map((i) => (
+                  <option key={i.valor} value={i.valor}>
+                    {i.etiqueta}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="mt-5 flex items-center gap-2 text-sm text-[var(--color-texto)]">
+              <input type="checkbox" checked={retellColgarBuzon} onChange={(e) => setRetellColgarBuzon(e.target.checked)} />
+              Colgar automáticamente si detecta buzón de voz
+            </label>
+          </div>
         )}
 
         <label className="block">

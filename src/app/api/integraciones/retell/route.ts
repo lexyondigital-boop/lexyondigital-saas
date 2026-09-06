@@ -16,7 +16,7 @@ export async function GET() {
   const admin = createAdminClient();
   const { data } = await admin
     .from("cuentas_retell")
-    .select("modo, numero_saliente, activo, connected_by, created_at")
+    .select("modo, numero_saliente, intervalo_minimo_llamadas_minutos, activo, connected_by, created_at")
     .eq("cuenta_id", auth.perfil.cuenta_id)
     .eq("activo", true)
     .maybeSingle();
@@ -24,22 +24,32 @@ export async function GET() {
   return NextResponse.json({ conectado: data ?? null });
 }
 
-// Guarda el número saliente elegido de entre los que devuelve
-// listarNumerosRetell -- solo tiene sentido una vez ya conectado.
+const INTERVALOS_VALIDOS = [2, 5, 10] as const;
+
+// Guarda el número saliente y/o el intervalo mínimo entre llamadas al mismo
+// contacto (anti-spam) -- solo tiene sentido una vez ya conectado.
 export async function PATCH(request: NextRequest) {
   const auth = await requirePermiso("manage_integraciones");
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  const { numero_saliente } = (await request.json()) as { numero_saliente?: string };
-  if (!numero_saliente?.trim()) {
-    return NextResponse.json({ error: "Falta el número saliente" }, { status: 400 });
+  const { numero_saliente, intervalo_minimo_llamadas_minutos } = (await request.json()) as {
+    numero_saliente?: string;
+    intervalo_minimo_llamadas_minutos?: number;
+  };
+
+  if (!numero_saliente?.trim() && intervalo_minimo_llamadas_minutos === undefined) {
+    return NextResponse.json({ error: "Nada que guardar" }, { status: 400 });
+  }
+  if (intervalo_minimo_llamadas_minutos !== undefined && !INTERVALOS_VALIDOS.includes(intervalo_minimo_llamadas_minutos as (typeof INTERVALOS_VALIDOS)[number])) {
+    return NextResponse.json({ error: "Intervalo inválido" }, { status: 400 });
   }
 
+  const cambios: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (numero_saliente?.trim()) cambios.numero_saliente = numero_saliente.trim();
+  if (intervalo_minimo_llamadas_minutos !== undefined) cambios.intervalo_minimo_llamadas_minutos = intervalo_minimo_llamadas_minutos;
+
   const admin = createAdminClient();
-  const { error } = await admin
-    .from("cuentas_retell")
-    .update({ numero_saliente: numero_saliente.trim(), updated_at: new Date().toISOString() })
-    .eq("cuenta_id", auth.perfil.cuenta_id);
+  const { error } = await admin.from("cuentas_retell").update(cambios).eq("cuenta_id", auth.perfil.cuenta_id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });

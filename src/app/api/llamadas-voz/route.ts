@@ -79,6 +79,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: cuentaRetell.error }, { status: 409 });
   }
 
+  if (conversacion.contacto_id) {
+    const desde = new Date(Date.now() - cuentaRetell.intervaloMinimoLlamadas * 60_000).toISOString();
+    const { data: llamadaReciente } = await admin
+      .from("llamadas_voz")
+      .select("id")
+      .eq("contacto_id", conversacion.contacto_id)
+      .gte("created_at", desde)
+      .limit(1)
+      .maybeSingle();
+    if (llamadaReciente) {
+      return NextResponse.json(
+        { error: `Espera al menos ${cuentaRetell.intervaloMinimoLlamadas} minutos antes de volver a llamar a este contacto` },
+        { status: 429 },
+      );
+    }
+  }
+
   const { data: llamada, error: llamadaError } = await admin
     .from("llamadas_voz")
     .insert({

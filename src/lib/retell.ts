@@ -108,10 +108,10 @@ export async function resolverApiKeyRetell(admin: AdminClient, cuentaId: string)
 export async function resolverCuentaRetell(
   admin: AdminClient,
   cuentaId: string,
-): Promise<{ apiKey: string; numeroSaliente: string } | { error: string }> {
+): Promise<{ apiKey: string; numeroSaliente: string; intervaloMinimoLlamadas: number } | { error: string }> {
   const { data } = await admin
     .from("cuentas_retell")
-    .select("modo, api_key_cifrada, numero_saliente")
+    .select("modo, api_key_cifrada, numero_saliente, intervalo_minimo_llamadas_minutos")
     .eq("cuenta_id", cuentaId)
     .eq("activo", true)
     .maybeSingle();
@@ -122,7 +122,7 @@ export async function resolverCuentaRetell(
   const apiKey = data.modo === "propia" ? (data.api_key_cifrada ? descifrar(data.api_key_cifrada) : null) : await resolverLlaveMaestraRetell(admin);
   if (!apiKey) return { error: "No se pudo resolver la API key de Retell de esta cuenta" };
 
-  return { apiKey, numeroSaliente: data.numero_saliente };
+  return { apiKey, numeroSaliente: data.numero_saliente, intervaloMinimoLlamadas: data.intervalo_minimo_llamadas_minutos };
 }
 
 // contactos.telefono guarda el mismo formato que el wa_id de WhatsApp (sin
@@ -185,7 +185,7 @@ export async function listarVocesRetell(apiKey: string): Promise<{ ok: true; voc
 // usar el agente por defecto del número saliente.
 export async function sincronizarAgenteGenerado(
   apiKey: string,
-  params: { llmId: string | null; agentId: string | null; prompt: string; voiceId: string; nombre: string },
+  params: { llmId: string | null; agentId: string | null; prompt: string; voiceId: string; nombre: string; idioma: string; colgarBuzon: boolean },
 ): Promise<{ ok: true; llmId: string; agentId: string } | { ok: false; error: string }> {
   try {
     const resLlm = await fetch(
@@ -211,6 +211,8 @@ export async function sincronizarAgenteGenerado(
           response_engine: { type: "retell-llm", llm_id: llm.llm_id },
           voice_id: params.voiceId,
           agent_name: params.nombre,
+          language: params.idioma,
+          voicemail_option: params.colgarBuzon ? { action: { type: "hangup" } } : null,
         }),
       },
     );
@@ -239,6 +241,8 @@ export async function sincronizarPlantillaVozConRetell(
     retell_llm_id: string | null;
     retell_agent_id: string | null;
     retell_voice_id: string | null;
+    retell_idioma: string;
+    retell_colgar_buzon: boolean;
   },
 ): Promise<{ ok: true; retellLlmId: string; retellAgentId: string; sincronizadoEn: string } | { ok: false; error: string }> {
   if (!plantilla.retell_voice_id) return { ok: false, error: "Falta elegir la voz del agente" };
@@ -256,6 +260,8 @@ export async function sincronizarPlantillaVozConRetell(
     prompt,
     voiceId: plantilla.retell_voice_id,
     nombre: plantilla.nombre,
+    idioma: plantilla.retell_idioma,
+    colgarBuzon: plantilla.retell_colgar_buzon,
   });
   if (!resultado.ok) return resultado;
 

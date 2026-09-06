@@ -13,7 +13,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const { id } = await params;
   const body = await request.json();
-  const { nombre, copyscript, objetivo, agente_tipo, categoria, publicada, modo_agente, retell_agent_id, retell_voice_id } = body as {
+  const { nombre, copyscript, objetivo, agente_tipo, categoria, publicada, modo_agente, retell_agent_id, retell_voice_id, retell_idioma, retell_colgar_buzon } = body as {
     nombre?: string;
     copyscript?: string;
     objetivo?: string | null;
@@ -23,6 +23,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     modo_agente?: string;
     retell_agent_id?: string | null;
     retell_voice_id?: string | null;
+    retell_idioma?: string;
+    retell_colgar_buzon?: boolean;
   };
 
   if (agente_tipo && !AGENTES_TIPO_DISPONIBLES.includes(agente_tipo as (typeof AGENTES_TIPO_DISPONIBLES)[number])) {
@@ -60,6 +62,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (modo_agente !== undefined) cambios.modo_agente = modo_agente;
   if (modo_agente === "retell_propio") cambios.retell_agent_id = retell_agent_id;
   if (retell_voice_id !== undefined) cambios.retell_voice_id = retell_voice_id;
+  if (retell_idioma !== undefined) cambios.retell_idioma = retell_idioma;
+  if (retell_colgar_buzon !== undefined) cambios.retell_colgar_buzon = retell_colgar_buzon;
 
   const { data, error } = await admin
     .from("plantillas_voz")

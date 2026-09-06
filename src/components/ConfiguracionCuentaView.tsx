@@ -14,6 +14,7 @@ type CuentaWhatsapp = {
 type CuentaRetell = {
   modo: "master" | "propia";
   numero_saliente: string | null;
+  intervalo_minimo_llamadas_minutos: number;
   activo: boolean;
   connected_by: string | null;
   created_at: string;
@@ -182,6 +183,7 @@ function SeccionRetell() {
             <span className="text-[var(--color-texto)]">{new Date(conectado.created_at).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}</span>
           </div>
           <SelectorNumeroSaliente numeroActual={conectado.numero_saliente} onGuardado={cargar} />
+          <SelectorIntervaloLlamadas intervaloActual={conectado.intervalo_minimo_llamadas_minutos} onGuardado={cargar} />
           <button onClick={desconectar} className="mt-2 text-sm font-medium text-red-500 hover:underline">
             Desconectar
           </button>
@@ -289,6 +291,46 @@ function SelectorNumeroSaliente({ numeroActual, onGuardado }: { numeroActual: st
       ) : (
         !error && <p className="mt-2 text-xs text-[var(--color-texto-mute)]">Esa cuenta de Retell todavía no tiene números.</p>
       )}
+    </div>
+  );
+}
+
+// Cada cuánto se puede volver a llamar al mismo contacto -- evita que las
+// llamadas se sientan como spam si alguien insiste en marcar seguido.
+function SelectorIntervaloLlamadas({ intervaloActual, onGuardado }: { intervaloActual: number; onGuardado: () => void }) {
+  const [seleccionado, setSeleccionado] = useState(intervaloActual);
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function guardar(valor: number) {
+    setSeleccionado(valor);
+    setGuardando(true);
+    setError(null);
+    const res = await fetch("/api/integraciones/retell", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ intervalo_minimo_llamadas_minutos: valor }),
+    });
+    setGuardando(false);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "No se pudo guardar el intervalo");
+      return;
+    }
+    onGuardado();
+  }
+
+  return (
+    <div className="border-t border-[var(--color-borde)] pt-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[var(--color-texto-mute)]">Intervalo mínimo entre llamadas</span>
+        <select value={seleccionado} disabled={guardando} onChange={(e) => guardar(Number(e.target.value))} className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2 py-1 text-sm text-[var(--color-texto)]">
+          <option value={2}>2 minutos</option>
+          <option value={5}>5 minutos</option>
+          <option value={10}>10 minutos</option>
+        </select>
+      </div>
+      {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
     </div>
   );
 }
