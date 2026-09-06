@@ -106,11 +106,16 @@ function formatearEtiquetaFecha(valor: string): string {
   return valor;
 }
 
-function etiquetaConPorcentaje(datos: PuntoDato[]) {
+// Etiquetas flotantes sobre cada rebanada de la dona se encimaban entre sí
+// en cuanto había más de 2-3 categorías (sobre todo con una rebanada
+// chica junto a una grande) -- se muestran valor + porcentaje en la
+// leyenda de abajo en su lugar, que nunca se traslapa.
+function formatoLeyendaConValores(datos: PuntoDato[]) {
   const total = datos.reduce((s, d) => s + d.valor, 0);
-  return (props: { name?: string; value?: number }) => {
-    const valor = props.value ?? 0;
-    return `${props.name ?? ""}: ${valor} (${total > 0 ? Math.round((valor / total) * 100) : 0}%)`;
+  const mapa = new Map(datos.map((d) => [d.etiqueta, d.valor]));
+  return (nombre: string) => {
+    const valor = mapa.get(nombre) ?? 0;
+    return `${nombre}: ${valor} (${total > 0 ? Math.round((valor / total) * 100) : 0}%)`;
   };
 }
 
@@ -395,7 +400,7 @@ function TarjetaReporte({
       ) : reporte.tipo_grafico === "numero" ? (
         <p className="text-4xl font-bold text-[var(--color-texto)]">{datos[0]?.valor ?? 0}</p>
       ) : (
-        <div className="h-56">
+        <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
             {reporte.tipo_grafico === "linea" ? (
               <LineChart data={datos}>
@@ -408,16 +413,8 @@ function TarjetaReporte({
             ) : reporte.tipo_grafico === "dona" ? (
               <PieChart>
                 <Tooltip />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Pie
-                  data={datos}
-                  dataKey="valor"
-                  nameKey="etiqueta"
-                  innerRadius="50%"
-                  outerRadius="75%"
-                  label={etiquetaConPorcentaje(datos)}
-                  labelLine={false}
-                >
+                <Legend wrapperStyle={{ fontSize: 11 }} formatter={formatoLeyendaConValores(datos)} />
+                <Pie data={datos} dataKey="valor" nameKey="etiqueta" innerRadius="55%" outerRadius="80%">
                   {datos.map((_, i) => (
                     <Cell key={i} fill={COLORES[i % COLORES.length]} />
                   ))}
