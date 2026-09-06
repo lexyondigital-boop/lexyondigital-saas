@@ -128,7 +128,7 @@ function BadgeResultadoLlamada({ resultado }: { resultado: ResultadoLlamadaVoz |
 // conversación -- estado y resultado se actualizan solos vía Realtime en
 // cuanto Retell notifica al webhook.
 function TarjetaLlamadaVoz({ llamada }: { llamada: LlamadaVoz }) {
-  const [verTranscripcion, setVerTranscripcion] = useState(false);
+  const [popupAbierto, setPopupAbierto] = useState(false);
 
   return (
     <div className="flex justify-center">
@@ -146,24 +146,36 @@ function TarjetaLlamadaVoz({ llamada }: { llamada: LlamadaVoz }) {
         </div>
 
         {llamada.transcripcion && (
-          <button
-            onClick={() => setVerTranscripcion((v) => !v)}
-            className="mt-1.5 text-xs font-medium text-[var(--color-marca)] hover:underline"
-          >
-            {verTranscripcion ? "Ocultar transcripción" : "Ver transcripción"}
+          <button onClick={() => setPopupAbierto(true)} className="mt-1.5 text-xs font-medium text-[var(--color-marca)] hover:underline">
+            Ver transcripción
           </button>
-        )}
-        {verTranscripcion && llamada.transcripcion && (
-          <p className="mt-2 whitespace-pre-wrap text-xs text-[var(--color-texto)]">{llamada.transcripcion}</p>
-        )}
-        {verTranscripcion && llamada.audio_url && (
-          <audio controls src={llamada.audio_url} className="mt-2 w-full" style={{ height: 32 }} />
         )}
 
         <p className="mt-1.5 text-right text-[10px] text-[var(--color-texto-mute)]">
           {new Date(llamada.created_at).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
         </p>
       </div>
+
+      {popupAbierto && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setPopupAbierto(false)}>
+          <div
+            className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="mb-4 text-base font-semibold text-[var(--color-texto)]">
+              Transcripción — {llamada.plantilla?.nombre ?? "Llamada de voz"}
+            </h2>
+            <p className="whitespace-pre-wrap text-sm text-[var(--color-texto)]">{llamada.transcripcion}</p>
+            {llamada.audio_url && <audio className="mt-4 w-full" controls src={llamada.audio_url} />}
+            <button
+              onClick={() => setPopupAbierto(false)}
+              className="mt-4 text-sm font-medium text-[var(--color-marca)] hover:underline"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermiso } from "@/lib/require-permiso";
 import { registrarActividad } from "@/lib/auditoria";
-import { sincronizarPlantillaVozConRetell, type FuncionRetell } from "@/lib/retell";
+import { sincronizarPlantillaVozConRetell, resolverApiKeyRetell, asegurarWebhookAgente, type FuncionRetell } from "@/lib/retell";
 import { origenPublico } from "@/lib/origen-publico";
 
 const AGENTES_TIPO = ["servicio", "citas", "venta", "cobranza", "legal"] as const;
@@ -140,6 +140,12 @@ export async function POST(request: NextRequest) {
       if (actualizada) plantillaFinal = actualizada;
     } else {
       avisoRetell = sync.error;
+    }
+  } else if (modoAgenteFinal === "retell_propio" && retell_agent_id) {
+    const apiKey = await resolverApiKeyRetell(admin, auth.perfil.cuenta_id);
+    if (apiKey) {
+      const webhook = await asegurarWebhookAgente(apiKey, retell_agent_id, `${origenPublico(request)}/api/webhooks/retell`);
+      if (!webhook.ok) avisoRetell = webhook.error;
     }
   }
 

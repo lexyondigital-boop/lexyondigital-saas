@@ -151,6 +151,31 @@ export async function listarAgentesRetell(apiKey: string): Promise<{ ok: true; a
   }
 }
 
+// PATCH /update-agent/{id} pero solo con webhook_url -- para el modo
+// "agente propio" (el admin ya configuró el agente a mano en Retell) no
+// tocamos nada de su configuración, solo nos aseguramos de que Retell sepa
+// avisarnos cuándo termina una llamada.
+export async function asegurarWebhookAgente(
+  apiKey: string,
+  agentId: string,
+  webhookUrl: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`https://api.retellai.com/update-agent/${agentId}`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ webhook_url: webhookUrl }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return { ok: false, error: (data as { message?: string }).message ?? `Retell respondió con un error (${res.status}) al configurar el webhook` };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "No se pudo conectar con Retell para configurar el webhook" };
+  }
+}
+
 export type VozRetell = { voiceId: string; nombre: string; proveedor: string; acento: string | null; genero: string | null };
 
 // GET /list-voices -- catálogo de voces disponibles, para elegir la del
