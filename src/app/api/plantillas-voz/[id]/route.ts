@@ -6,7 +6,7 @@ import { sincronizarPlantillaVozConRetell, resolverApiKeyRetell, asegurarWebhook
 import { origenPublico } from "@/lib/origen-publico";
 import { validarConfiguracionLlamada } from "@/lib/plantillas-voz";
 
-const AGENTES_TIPO_DISPONIBLES = ["servicio"] as const;
+const AGENTES_TIPO = ["servicio", "citas", "venta", "cobranza", "legal"] as const;
 const MODOS_AGENTE = ["generado", "retell_propio"] as const;
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -61,8 +61,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     retell_duracion_anillo_ms?: number;
   };
 
-  if (agente_tipo && !AGENTES_TIPO_DISPONIBLES.includes(agente_tipo as (typeof AGENTES_TIPO_DISPONIBLES)[number])) {
-    return NextResponse.json({ error: "Ese tipo de agente todavía no está disponible (próximamente)" }, { status: 400 });
+  if (agente_tipo && !AGENTES_TIPO.includes(agente_tipo as (typeof AGENTES_TIPO)[number])) {
+    return NextResponse.json({ error: "Tipo de agente inválido" }, { status: 400 });
   }
   if (modo_agente !== undefined && !MODOS_AGENTE.includes(modo_agente as (typeof MODOS_AGENTE)[number])) {
     return NextResponse.json({ error: "Modo de agente inválido" }, { status: 400 });

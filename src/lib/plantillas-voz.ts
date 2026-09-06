@@ -3,10 +3,10 @@
 
 export const AGENTES_TIPO_VOZ: { valor: string; etiqueta: string; disponible: boolean }[] = [
   { valor: "servicio", etiqueta: "Servicio", disponible: true },
-  { valor: "citas", etiqueta: "Recordatorio de citas", disponible: false },
-  { valor: "venta", etiqueta: "Venta", disponible: false },
-  { valor: "cobranza", etiqueta: "Cobranza", disponible: false },
-  { valor: "legal", etiqueta: "Legal", disponible: false },
+  { valor: "citas", etiqueta: "Recordatorio de citas", disponible: true },
+  { valor: "venta", etiqueta: "Venta", disponible: true },
+  { valor: "cobranza", etiqueta: "Cobranza", disponible: true },
+  { valor: "legal", etiqueta: "Legal", disponible: true },
 ];
 
 export const CATEGORIAS_VOZ: { valor: string; etiqueta: string }[] = [

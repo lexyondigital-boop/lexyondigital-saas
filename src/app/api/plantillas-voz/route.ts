@@ -7,7 +7,6 @@ import { origenPublico } from "@/lib/origen-publico";
 import { validarConfiguracionLlamada } from "@/lib/plantillas-voz";
 
 const AGENTES_TIPO = ["servicio", "citas", "venta", "cobranza", "legal"] as const;
-const AGENTES_TIPO_DISPONIBLES = ["servicio"] as const;
 const CATEGORIAS = ["legal", "medicos", "inmobiliario", "servicios", "cobranza", "ventas"] as const;
 const MODOS_AGENTE = ["generado", "retell_propio"] as const;
 
@@ -106,9 +105,6 @@ export async function POST(request: NextRequest) {
   const agenteTipoFinal = agente_tipo ?? "servicio";
   if (!AGENTES_TIPO.includes(agenteTipoFinal as (typeof AGENTES_TIPO)[number])) {
     return NextResponse.json({ error: "Tipo de agente inválido" }, { status: 400 });
-  }
-  if (!AGENTES_TIPO_DISPONIBLES.includes(agenteTipoFinal as (typeof AGENTES_TIPO_DISPONIBLES)[number])) {
-    return NextResponse.json({ error: "Ese tipo de agente todavía no está disponible (próximamente)" }, { status: 400 });
   }
 
   const categoriaFinal = categoria ?? "servicios";

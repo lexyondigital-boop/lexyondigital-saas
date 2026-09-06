@@ -4,7 +4,7 @@ import { requireSuperAdmin } from "@/lib/require-super-admin";
 import { validarConfiguracionLlamada } from "@/lib/plantillas-voz";
 import type { FuncionRetell } from "@/lib/retell";
 
-const AGENTES_TIPO_DISPONIBLES = ["servicio"] as const;
+const AGENTES_TIPO = ["servicio", "citas", "venta", "cobranza", "legal"] as const;
 const STATUS = ["activa", "deprecada"] as const;
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -57,8 +57,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     retell_funciones?: FuncionRetell[];
   };
 
-  if (agente_tipo && !AGENTES_TIPO_DISPONIBLES.includes(agente_tipo as (typeof AGENTES_TIPO_DISPONIBLES)[number])) {
-    return NextResponse.json({ error: "Ese tipo de agente todavía no está disponible (próximamente)" }, { status: 400 });
+  if (agente_tipo && !AGENTES_TIPO.includes(agente_tipo as (typeof AGENTES_TIPO)[number])) {
+    return NextResponse.json({ error: "Tipo de agente inválido" }, { status: 400 });
   }
   if (status !== undefined && !STATUS.includes(status as (typeof STATUS)[number])) {
     return NextResponse.json({ error: "Estado inválido" }, { status: 400 });
