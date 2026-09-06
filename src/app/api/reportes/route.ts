@@ -2,9 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermiso } from "@/lib/require-permiso";
 import { registrarActividad } from "@/lib/auditoria";
-import { DIMENSIONES_POR_ENTIDAD, type EntidadReporte, type DimensionReporte, type TipoGraficoReporte, type AgruparFechaPor } from "@/lib/reportes";
+import {
+  DIMENSIONES_POR_ENTIDAD,
+  TIPOS_CAMPO_REPORTABLES,
+  type EntidadReporte,
+  type DimensionReporte,
+  type TipoGraficoReporte,
+  type AgruparFechaPor,
+} from "@/lib/reportes";
 
-const ENTIDADES: EntidadReporte[] = ["contactos", "deals", "campanas"];
+const ENTIDADES: EntidadReporte[] = ["contactos", "deals", "campanas", "conversaciones"];
 const TIPOS_GRAFICO: TipoGraficoReporte[] = ["barras", "dona", "linea", "numero"];
 const AGRUPACIONES_FECHA: AgruparFechaPor[] = ["dia", "semana", "mes"];
 
@@ -24,13 +31,14 @@ export async function POST(request: NextRequest) {
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const body = await request.json();
-  const { nombre, entidad, dimension, tipo_grafico, agrupar_fecha_por, filtros } = body as {
+  const { nombre, entidad, dimension, campo_personalizado_id, tipo_grafico, agrupar_fecha_por, filtros } = body as {
     nombre?: string;
     entidad?: string;
     dimension?: string;
+    campo_personalizado_id?: string | null;
     tipo_grafico?: string;
     agrupar_fecha_por?: string | null;
-    filtros?: { rango_dias?: number | null };
+    filtros?: { rango_dias?: number | null; etiqueta?: string | null };
   };
 
   if (!nombre?.trim()) return NextResponse.json({ error: "Falta el nombre" }, { status: 400 });
@@ -41,13 +49,31 @@ export async function POST(request: NextRequest) {
   const tipoGraficoFinal = (tipo_grafico as TipoGraficoReporte) ?? "barras";
   if (!TIPOS_GRAFICO.includes(tipoGraficoFinal)) return NextResponse.json({ error: "Tipo de gráfico inválido" }, { status: 400 });
 
-  const esFecha = dimension === "fecha_creacion" || dimension === "fecha_modificacion";
+  const admin = createAdminClient();
+
+  let esFecha = dimension === "fecha_creacion" || dimension === "fecha_modificacion";
+  let campoPersonalizadoIdFinal: string | null = null;
+
+  if (dimension === "campo_personalizado") {
+    if (!campo_personalizado_id) return NextResponse.json({ error: "Falta elegir el campo personalizado" }, { status: 400 });
+    const { data: campo } = await admin
+      .from("campos_personalizados")
+      .select("id, tipo")
+      .eq("id", campo_personalizado_id)
+      .eq("cuenta_id", auth.perfil.cuenta_id)
+      .maybeSingle();
+    if (!campo || !TIPOS_CAMPO_REPORTABLES.includes(campo.tipo as (typeof TIPOS_CAMPO_REPORTABLES)[number])) {
+      return NextResponse.json({ error: "Ese campo personalizado no se puede usar para agrupar" }, { status: 400 });
+    }
+    campoPersonalizadoIdFinal = campo.id;
+    esFecha = campo.tipo === "date";
+  }
+
   const agrupacionFinal = esFecha ? ((agrupar_fecha_por as AgruparFechaPor) ?? "dia") : null;
   if (esFecha && !AGRUPACIONES_FECHA.includes(agrupacionFinal as AgruparFechaPor)) {
     return NextResponse.json({ error: "Agrupación de fecha inválida" }, { status: 400 });
   }
 
-  const admin = createAdminClient();
   const { data, error } = await admin
     .from("reportes")
     .insert({
@@ -55,6 +81,7 @@ export async function POST(request: NextRequest) {
       nombre: nombre.trim(),
       entidad,
       dimension,
+      campo_personalizado_id: campoPersonalizadoIdFinal,
       tipo_grafico: tipoGraficoFinal,
       agrupar_fecha_por: agrupacionFinal,
       filtros: filtros ?? {},

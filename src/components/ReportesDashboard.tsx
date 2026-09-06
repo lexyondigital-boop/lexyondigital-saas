@@ -2,20 +2,32 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { BarChart, Bar, PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { createClient } from "@/lib/supabase/client";
 
-type EntidadReporte = "contactos" | "deals" | "campanas";
-type DimensionReporte = "etapa_pipeline" | "etiqueta" | "asignado_a" | "canal_origen" | "status" | "fecha_creacion" | "fecha_modificacion";
+type EntidadReporte = "contactos" | "deals" | "campanas" | "conversaciones";
+type DimensionReporte =
+  | "etapa_pipeline"
+  | "etiqueta"
+  | "asignado_a"
+  | "canal_origen"
+  | "status"
+  | "campana_status"
+  | "fecha_creacion"
+  | "fecha_modificacion"
+  | "campo_personalizado";
 type TipoGraficoReporte = "barras" | "dona" | "linea" | "numero";
 type AgruparFechaPor = "dia" | "semana" | "mes";
+type CampoPersonalizadoReportable = { id: string; nombre: string; tipo: "select" | "checkbox" | "date" };
 
 type Reporte = {
   id: string;
   nombre: string;
   entidad: EntidadReporte;
   dimension: DimensionReporte;
+  campo_personalizado_id: string | null;
   tipo_grafico: TipoGraficoReporte;
   agrupar_fecha_por: AgruparFechaPor | null;
-  filtros: { rango_dias?: number | null };
+  filtros: { rango_dias?: number | null; etiqueta?: string | null };
 };
 
 type PuntoDato = { etiqueta: string; valor: number };
@@ -27,6 +39,7 @@ const DIMENSIONES_POR_ENTIDAD: Record<EntidadReporte, { valor: DimensionReporte;
     { valor: "asignado_a", etiqueta: "Usuario asignado" },
     { valor: "canal_origen", etiqueta: "Canal de origen" },
     { valor: "status", etiqueta: "Estado" },
+    { valor: "campana_status", etiqueta: "Estado de campaña" },
     { valor: "fecha_creacion", etiqueta: "Fecha de creación" },
     { valor: "fecha_modificacion", etiqueta: "Fecha de modificación" },
   ],
@@ -42,9 +55,18 @@ const DIMENSIONES_POR_ENTIDAD: Record<EntidadReporte, { valor: DimensionReporte;
     { valor: "fecha_creacion", etiqueta: "Fecha de creación" },
     { valor: "fecha_modificacion", etiqueta: "Fecha de modificación" },
   ],
+  conversaciones: [
+    { valor: "status", etiqueta: "Abiertas / cerradas" },
+    { valor: "fecha_creacion", etiqueta: "Fecha de creación" },
+  ],
 };
 
-const ETIQUETA_ENTIDAD: Record<EntidadReporte, string> = { contactos: "Contactos", deals: "Deals", campanas: "Campañas" };
+const ETIQUETA_ENTIDAD: Record<EntidadReporte, string> = {
+  contactos: "Contactos",
+  deals: "Deals",
+  campanas: "Campañas",
+  conversaciones: "Conversaciones",
+};
 const COLORES = ["#8b5cf6", "#22c55e", "#f59e0b", "#ef4444", "#3b82f6", "#ec4899", "#14b8a6", "#a855f7"];
 
 const INPUT_LOCAL =
@@ -368,19 +390,38 @@ function FormularioReporte({
 }) {
   const [nombre, setNombre] = useState(reporte?.nombre ?? "");
   const [entidad, setEntidad] = useState<EntidadReporte>(reporte?.entidad ?? "contactos");
-  const [dimension, setDimension] = useState<DimensionReporte>(reporte?.dimension ?? "etiqueta");
+  const [seleccionDimension, setSeleccionDimension] = useState<string>(
+    reporte?.dimension === "campo_personalizado" ? `campo:${reporte.campo_personalizado_id}` : (reporte?.dimension ?? "etiqueta"),
+  );
   const [tipoGrafico, setTipoGrafico] = useState<TipoGraficoReporte>(reporte?.tipo_grafico ?? "barras");
   const [agruparFechaPor, setAgruparFechaPor] = useState<AgruparFechaPor>(reporte?.agrupar_fecha_por ?? "dia");
   const [rangoDias, setRangoDias] = useState<string>(reporte?.filtros?.rango_dias ? String(reporte.filtros.rango_dias) : "");
+  const [filtroEtiqueta, setFiltroEtiqueta] = useState<string>(reporte?.filtros?.etiqueta ?? "");
+  const [camposPersonalizados, setCamposPersonalizados] = useState<CampoPersonalizadoReportable[]>([]);
+  const [catalogoEtiquetas, setCatalogoEtiquetas] = useState<{ id: string; nombre: string }[]>([]);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    fetch("/api/reportes/campos-personalizados")
+      .then((r) => r.json())
+      .then((data) => setCamposPersonalizados(data.campos ?? []));
+    createClient()
+      .from("etiquetas")
+      .select("id, nombre")
+      .order("nombre")
+      .then(({ data }) => setCatalogoEtiquetas(data ?? []));
+  }, []);
+
   const opcionesDimension = DIMENSIONES_POR_ENTIDAD[entidad];
-  const esFecha = dimension === "fecha_creacion" || dimension === "fecha_modificacion";
+  const esCampoPersonalizado = seleccionDimension.startsWith("campo:");
+  const campoSeleccionado = esCampoPersonalizado ? camposPersonalizados.find((c) => c.id === seleccionDimension.slice(6)) : undefined;
+  const esFecha = seleccionDimension === "fecha_creacion" || seleccionDimension === "fecha_modificacion" || campoSeleccionado?.tipo === "date";
 
   useEffect(() => {
-    if (!opcionesDimension.some((o) => o.valor === dimension)) {
-      setDimension(opcionesDimension[0].valor);
+    if (esCampoPersonalizado) return;
+    if (!opcionesDimension.some((o) => o.valor === seleccionDimension)) {
+      setSeleccionDimension(opcionesDimension[0].valor);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entidad]);
@@ -401,10 +442,14 @@ function FormularioReporte({
     const body = {
       nombre,
       entidad,
-      dimension,
+      dimension: esCampoPersonalizado ? "campo_personalizado" : seleccionDimension,
+      campo_personalizado_id: esCampoPersonalizado ? seleccionDimension.slice(6) : null,
       tipo_grafico: tipoGrafico,
       agrupar_fecha_por: esFecha ? agruparFechaPor : null,
-      filtros: { rango_dias: rangoDias ? Number(rangoDias) : null },
+      filtros: {
+        rango_dias: rangoDias ? Number(rangoDias) : null,
+        etiqueta: entidad === "contactos" && filtroEtiqueta ? filtroEtiqueta : null,
+      },
     };
 
     const res = reporte
@@ -441,15 +486,38 @@ function FormularioReporte({
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Agrupar por</span>
-            <select value={dimension} onChange={(e) => setDimension(e.target.value as DimensionReporte)} className={INPUT_LOCAL}>
+            <select value={seleccionDimension} onChange={(e) => setSeleccionDimension(e.target.value)} className={INPUT_LOCAL}>
               {opcionesDimension.map((o) => (
                 <option key={o.valor} value={o.valor}>
                   {o.etiqueta}
                 </option>
               ))}
+              {entidad === "contactos" && camposPersonalizados.length > 0 && (
+                <optgroup label="Campos personalizados">
+                  {camposPersonalizados.map((c) => (
+                    <option key={c.id} value={`campo:${c.id}`}>
+                      {c.nombre}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </label>
         </div>
+
+        {entidad === "contactos" && (
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Filtrar solo por esta etiqueta (opcional)</span>
+            <select value={filtroEtiqueta} onChange={(e) => setFiltroEtiqueta(e.target.value)} className={INPUT_LOCAL}>
+              <option value="">Todos los contactos</option>
+              {catalogoEtiquetas.map((et) => (
+                <option key={et.id} value={et.nombre}>
+                  {et.nombre}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block">

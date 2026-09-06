@@ -12,7 +12,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
   const { data: reporte } = await admin
     .from("reportes")
-    .select("id, nombre, entidad, dimension, tipo_grafico, agrupar_fecha_por, filtros")
+    .select("id, nombre, entidad, dimension, campo_personalizado_id, tipo_grafico, agrupar_fecha_por, filtros")
     .eq("id", id)
     .eq("cuenta_id", auth.perfil.cuenta_id)
     .maybeSingle();
