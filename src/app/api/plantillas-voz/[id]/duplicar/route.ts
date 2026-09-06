@@ -12,7 +12,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const { data: original, error: errorOriginal } = await admin
     .from("plantillas_voz")
-    .select("nombre, copyscript, objetivo, agente_tipo, categoria, plantilla_base_clave")
+    .select("nombre, copyscript, objetivo, agente_tipo, categoria, plantilla_madre_id")
     .eq("id", id)
     .eq("cuenta_id", auth.perfil.cuenta_id)
     .maybeSingle();

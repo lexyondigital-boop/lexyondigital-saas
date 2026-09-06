@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
     objetivo,
     agente_tipo,
     categoria,
-    plantilla_base_clave,
+    plantilla_madre_id,
     modo_agente,
     retell_agent_id,
     retell_voice_id,
@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
     objetivo?: string;
     agente_tipo?: string;
     categoria?: string;
-    plantilla_base_clave?: string | null;
+    plantilla_madre_id?: string | null;
     modo_agente?: string;
     retell_agent_id?: string | null;
     retell_voice_id?: string | null;
@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
       objetivo: objetivo?.trim() || null,
       agente_tipo: agenteTipoFinal,
       categoria: categoriaFinal,
-      plantilla_base_clave: plantilla_base_clave ?? null,
+      plantilla_madre_id: plantilla_madre_id ?? null,
       modo_agente: modoAgenteFinal,
       retell_agent_id: modoAgenteFinal === "retell_propio" ? retell_agent_id : null,
       retell_voice_id: modoAgenteFinal === "generado" ? (retell_voice_id ?? null) : null,
