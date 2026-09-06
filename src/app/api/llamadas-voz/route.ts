@@ -1,7 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requirePermiso } from "@/lib/require-permiso";
 import { resolverCuentaRetell, crearLlamadaRetell, telefonoAE164 } from "@/lib/retell";
+
+// Historial de llamadas para el panel de Agentes de Voz.
+export async function GET() {
+  const auth = await requirePermiso("view_agentes_voz");
+  if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("llamadas_voz")
+    .select(
+      "id, status, resultado, duracion_segundos, transcripcion, audio_url, created_at, contacto:contactos(nombre, telefono), plantilla:plantillas_voz(nombre)"
+    )
+    .eq("cuenta_id", auth.perfil.cuenta_id)
+    .order("created_at", { ascending: false })
+    .limit(200);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ llamadas: data ?? [] });
+}
 
 // Dispara una llamada manual con una plantilla de voz desde una
 // conversación abierta -- mismo espíritu que /api/messages/send con
