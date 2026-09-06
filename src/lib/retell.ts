@@ -161,6 +161,13 @@ export async function asegurarWebhookAgente(
   webhookUrl: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
+    // Igual que con los agentes "generados": si ya está publicado, Retell
+    // bloquea el PATCH -- hay que abrir un borrador nuevo primero, y como acá
+    // sí necesitamos que el webhook_url quede en vivo (no solo en el
+    // borrador), se publica esa versión nueva al final.
+    const borrador = await abrirBorradorSiPublicado(apiKey, agentId);
+    if (!borrador.ok) return borrador;
+
     const res = await fetch(`https://api.retellai.com/update-agent/${agentId}`, {
       method: "PATCH",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -170,6 +177,8 @@ export async function asegurarWebhookAgente(
       const data = await res.json().catch(() => ({}));
       return { ok: false, error: (data as { message?: string }).message ?? `Retell respondió con un error (${res.status}) al configurar el webhook` };
     }
+    const agente = (await res.json()) as { agent_id: string; version: number };
+    await publicarAgenteRetell(apiKey, agente.agent_id, agente.version);
     return { ok: true };
   } catch {
     return { ok: false, error: "No se pudo conectar con Retell para configurar el webhook" };
@@ -246,6 +255,34 @@ async function publicarAgenteRetell(apiKey: string, agentId: string, version: nu
   }
 }
 
+// Una vez publicado, Retell bloquea PATCH tanto en el agente como en su LLM
+// ("Cannot update published agent/LLM") -- como ahora publicamos siempre
+// después de cada guardado, TODA edición posterior llega con el agente ya
+// publicado. Antes de tocar nada hay que abrir una versión de borrador nueva
+// (create-agent-version) a partir de la última -- el mismo llm_id se
+// reutiliza, solo gana una versión interna editable.
+async function abrirBorradorSiPublicado(apiKey: string, agentId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const resGet = await fetch(`https://api.retellai.com/get-agent/${agentId}`, { headers: { Authorization: `Bearer ${apiKey}` } });
+    if (!resGet.ok) return { ok: true }; // si no se pudo leer, se intenta seguir igual -- update-agent dará el error real si aplica.
+    const agenteActual = (await resGet.json()) as { version: number; is_published: boolean };
+    if (!agenteActual.is_published) return { ok: true };
+
+    const resVersion = await fetch(`https://api.retellai.com/create-agent-version/${agentId}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ base_version: agenteActual.version }),
+    });
+    if (!resVersion.ok) {
+      const data = await resVersion.json().catch(() => ({}));
+      return { ok: false, error: (data as { message?: string }).message ?? `Retell respondió con un error (${resVersion.status}) al abrir un borrador nuevo` };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "No se pudo conectar con Retell" };
+  }
+}
+
 export async function sincronizarAgenteGenerado(
   apiKey: string,
   params: {
@@ -263,6 +300,11 @@ export async function sincronizarAgenteGenerado(
   },
 ): Promise<{ ok: true; llmId: string; agentId: string } | { ok: false; error: string }> {
   try {
+    if (params.agentId) {
+      const borrador = await abrirBorradorSiPublicado(apiKey, params.agentId);
+      if (!borrador.ok) return borrador;
+    }
+
     const resLlm = await fetch(
       params.llmId ? `https://api.retellai.com/update-retell-llm/${params.llmId}` : "https://api.retellai.com/create-retell-llm",
       {
