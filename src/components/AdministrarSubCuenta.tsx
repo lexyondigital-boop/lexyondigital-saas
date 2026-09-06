@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
+import { AGENTES_TIPO_VOZ, CATEGORIAS_VOZ } from "@/lib/plantillas-voz";
 
 type Cuenta = {
   id: string;
@@ -38,7 +39,7 @@ type Usuario = {
 
 type Datos = { cuenta: Cuenta; whatsapp: Whatsapp; usuarios: Usuario[] };
 
-type Tab = "general" | "whatsapp" | "usuarios";
+type Tab = "general" | "whatsapp" | "usuarios" | "agentes_voz";
 
 export function AdministrarSubCuenta({ id }: { id: string }) {
   const [datos, setDatos] = useState<Datos | null>(null);
@@ -134,6 +135,7 @@ export function AdministrarSubCuenta({ id }: { id: string }) {
           ["general", "General"],
           ["whatsapp", "WhatsApp"],
           ["usuarios", "Usuarios"],
+          ["agentes_voz", "Agentes de Voz"],
         ] as [Tab, string][]).map(([valor, etiqueta]) => (
           <button
             key={valor}
@@ -152,6 +154,7 @@ export function AdministrarSubCuenta({ id }: { id: string }) {
       {tab === "general" && <PestanaGeneral id={id} cuenta={cuenta} onCambio={cargar} />}
       {tab === "whatsapp" && <PestanaWhatsapp id={id} whatsapp={datos.whatsapp} onCambio={cargar} />}
       {tab === "usuarios" && <PestanaUsuarios id={id} usuarios={datos.usuarios} onCambio={cargar} />}
+      {tab === "agentes_voz" && <PestanaAgentesVoz id={id} />}
     </div>
   );
 }
@@ -679,5 +682,89 @@ function NuevoUsuarioForm({ id, onCreado }: { id: string; onCreado: () => void }
         {enviando ? "Creando…" : "Crear usuario"}
       </button>
     </form>
+  );
+}
+
+type PlantillaMaestraVisibilidad = {
+  id: string;
+  nombre: string;
+  agente_tipo: string;
+  categoria: string;
+  status: "activa" | "deprecada";
+  visible: boolean;
+};
+
+// Control por excepción: todas las plantillas maestras activas se ven por
+// defecto en Agentes de Voz de esta sub-cuenta -- aquí se ocultan las que no
+// aplican. Las plantillas creadas después de una acción "ocultar" no se ven
+// afectadas por ella (el default sigue siendo visible para todo lo nuevo).
+function PestanaAgentesVoz({ id }: { id: string }) {
+  const [plantillas, setPlantillas] = useState<PlantillaMaestraVisibilidad[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function cargar() {
+    const res = await fetch(`/api/cuentas/${id}/plantillas-voz-maestras`);
+    const data = await res.json().catch(() => ({}));
+    setPlantillas(data.plantillas ?? []);
+  }
+
+  useEffect(() => {
+    cargar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  async function alternarVisible(p: PlantillaMaestraVisibilidad) {
+    setError(null);
+    const res = await fetch(`/api/cuentas/${id}/plantillas-voz-maestras`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ plantilla_maestra_id: p.id, visible: !p.visible }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "No se pudo actualizar");
+      return;
+    }
+    cargar();
+  }
+
+  return (
+    <div className="max-w-2xl">
+      <p className="mb-4 text-sm text-[var(--color-texto-mute)]">
+        Qué plantillas maestras de Agentes de Voz puede usar esta sub-cuenta como punto de partida al crear un agente.
+        Por defecto todas las plantillas activas están disponibles -- aquí se ocultan las que no apliquen.
+      </p>
+      {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
+
+      {plantillas === null ? (
+        <p className="text-sm text-[var(--color-texto-mute)]">Cargando…</p>
+      ) : plantillas.length === 0 ? (
+        <p className="text-sm text-[var(--color-texto-mute)]">Todavía no hay plantillas maestras creadas.</p>
+      ) : (
+        <div className="space-y-3">
+          {plantillas.map((p) => (
+            <div
+              key={p.id}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-4"
+            >
+              <div>
+                <p className="text-sm font-medium text-[var(--color-texto)]">{p.nombre}</p>
+                <p className="text-xs text-[var(--color-texto-mute)]">
+                  {AGENTES_TIPO_VOZ.find((a) => a.valor === p.agente_tipo)?.etiqueta ?? p.agente_tipo} ·{" "}
+                  {CATEGORIAS_VOZ.find((c) => c.valor === p.categoria)?.etiqueta ?? p.categoria}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                {p.status === "deprecada" && <Badge tono="mute">Deprecada</Badge>}
+                <Badge tono={p.visible ? "en-vivo" : "mute"}>{p.visible ? "Visible" : "Oculta"}</Badge>
+                <button onClick={() => alternarVisible(p)} className="text-xs font-medium text-[var(--color-marca)] hover:underline">
+                  {p.visible ? "Ocultar" : "Mostrar"}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

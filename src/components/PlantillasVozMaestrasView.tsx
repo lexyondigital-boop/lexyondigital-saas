@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/Badge";
+import { GeneradorCopyscriptModal } from "@/components/GeneradorCopyscriptModal";
 import {
   AGENTES_TIPO_VOZ,
   CATEGORIAS_VOZ,
@@ -208,6 +209,7 @@ function FormularioPlantillaMaestra({
   const [voces, setVoces] = useState<VozRetellLite[]>([]);
   const [cargandoVoces, setCargandoVoces] = useState(false);
   const [errorVoces, setErrorVoces] = useState<string | null>(null);
+  const [mostrarGeneradorCopyscript, setMostrarGeneradorCopyscript] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -366,7 +368,12 @@ function FormularioPlantillaMaestra({
         </label>
 
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Copyscript</span>
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-xs font-medium text-[var(--color-texto-mute)]">Copyscript</span>
+            <button type="button" onClick={() => setMostrarGeneradorCopyscript(true)} className="text-xs font-medium text-[var(--color-marca)] hover:underline">
+              ✨ Generar con IA
+            </button>
+          </div>
           <textarea value={copyscript} onChange={(e) => setCopyscript(e.target.value)} rows={8} className={INPUT_LOCAL} />
         </label>
 
@@ -637,6 +644,18 @@ function FormularioPlantillaMaestra({
           </button>
         </div>
       </div>
+
+      {mostrarGeneradorCopyscript && (
+        <GeneradorCopyscriptModal
+          categoria={categoria}
+          objetivo={objetivo}
+          onUsar={(texto) => {
+            setCopyscript(texto);
+            setMostrarGeneradorCopyscript(false);
+          }}
+          onCancelar={() => setMostrarGeneradorCopyscript(false)}
+        />
+      )}
     </div>
   );
 }
