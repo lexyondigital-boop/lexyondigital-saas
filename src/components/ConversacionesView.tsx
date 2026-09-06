@@ -114,7 +114,8 @@ function IconoEstadoMensaje({ status }: { status: string }) {
 function BadgeStatusLlamada({ status }: { status: StatusLlamadaVoz }) {
   if (status === "completada") return <Badge tono="en-vivo">{ETIQUETA_STATUS_LLAMADA[status]}</Badge>;
   if (status === "en_progreso") return <Badge tono="aviso">{ETIQUETA_STATUS_LLAMADA[status]}</Badge>;
-  return <span className="text-xs font-medium text-red-500">{ETIQUETA_STATUS_LLAMADA[status]}</span>;
+  if (status === "fallida") return <span className="text-xs font-medium text-red-500">{ETIQUETA_STATUS_LLAMADA[status]}</span>;
+  return <Badge tono="mute">{ETIQUETA_STATUS_LLAMADA[status]}</Badge>;
 }
 
 function BadgeResultadoLlamada({ resultado }: { resultado: ResultadoLlamadaVoz | null }) {

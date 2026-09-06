@@ -2,8 +2,24 @@
 
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/Badge";
-import { AGENTES_TIPO_VOZ, CATEGORIAS_VOZ, IDIOMAS_VOZ } from "@/lib/plantillas-voz";
-import { ETIQUETA_STATUS_LLAMADA, ETIQUETA_RESULTADO_LLAMADA, formatearDuracionLlamada } from "@/lib/llamadas-voz";
+import {
+  AGENTES_TIPO_VOZ,
+  CATEGORIAS_VOZ,
+  IDIOMAS_VOZ,
+  OPCIONES_DTMF_TIMEOUT,
+  OPCIONES_DTMF_LIMITE_DIGITOS,
+  OPCIONES_DTMF_CLAVE_TERMINACION,
+  OPCIONES_FIN_SILENCIO,
+  OPCIONES_DURACION_MAXIMA,
+  OPCIONES_DURACION_ANILLO,
+} from "@/lib/plantillas-voz";
+import {
+  ETIQUETA_STATUS_LLAMADA,
+  ETIQUETA_RESULTADO_LLAMADA,
+  formatearDuracionLlamada,
+  type StatusLlamadaVoz,
+  type ResultadoLlamadaVoz,
+} from "@/lib/llamadas-voz";
 
 type Categoria = {
   valor: string;
@@ -23,8 +39,8 @@ const CATEGORIAS: Categoria[] = [
 
 type Llamada = {
   id: string;
-  status: "en_progreso" | "completada" | "fallida" | "sin_respuesta";
-  resultado: "acepto" | "rechazo" | "pendiente" | null;
+  status: StatusLlamadaVoz;
+  resultado: ResultadoLlamadaVoz | null;
   duracion_segundos: number | null;
   transcripcion: string | null;
   audio_url: string | null;
@@ -36,7 +52,8 @@ type Llamada = {
 function BadgeStatus({ status }: { status: Llamada["status"] }) {
   if (status === "completada") return <Badge tono="en-vivo">{ETIQUETA_STATUS_LLAMADA[status]}</Badge>;
   if (status === "en_progreso") return <Badge tono="aviso">{ETIQUETA_STATUS_LLAMADA[status]}</Badge>;
-  return <span className="text-xs font-medium text-red-500">{ETIQUETA_STATUS_LLAMADA[status]}</span>;
+  if (status === "fallida") return <span className="text-xs font-medium text-red-500">{ETIQUETA_STATUS_LLAMADA[status]}</span>;
+  return <Badge tono="mute">{ETIQUETA_STATUS_LLAMADA[status]}</Badge>;
 }
 
 function BadgeResultado({ resultado }: { resultado: Llamada["resultado"] }) {
@@ -76,6 +93,15 @@ type PlantillaVozAgente = {
   retell_idioma: string;
   retell_colgar_buzon: boolean;
   retell_funciones: FuncionRetell[];
+  retell_colgar_ivr: boolean;
+  retell_pantalla_llamadas: boolean;
+  retell_dtmf_activo: boolean;
+  retell_dtmf_timeout_ms: number;
+  retell_dtmf_clave_terminacion: string | null;
+  retell_dtmf_limite_digitos: number | null;
+  retell_fin_silencio_ms: number;
+  retell_duracion_maxima_ms: number;
+  retell_duracion_anillo_ms: number;
 };
 
 type AgenteRetellLite = { agentId: string; nombre: string };
@@ -151,7 +177,10 @@ function ServiciosWorkspace({ onVolver, permisos }: { onVolver: () => void; perm
           { etiqueta: "Total de llamadas", valor: stats.total },
           { etiqueta: "En progreso", valor: stats.enProgreso },
           { etiqueta: "Completadas", valor: stats.completadas },
-          { etiqueta: "Fallidas / sin respuesta", valor: stats.fallidas },
+          { etiqueta: "Fallidas", valor: stats.fallidas },
+          { etiqueta: "Buzón de voz", valor: stats.buzon },
+          { etiqueta: "Rechazadas", valor: stats.rechazadas },
+          { etiqueta: "No contestó", valor: stats.noContesto },
           { etiqueta: "Aceptó", valor: stats.acepto },
           { etiqueta: "Rechazó", valor: stats.rechazo },
           { etiqueta: "Duración promedio", valor: stats.duracionPromedio },
@@ -386,6 +415,16 @@ function FormularioAgenteVoz({
   const [retellVoiceId, setRetellVoiceId] = useState(plantilla?.retell_voice_id ?? "");
   const [retellIdioma, setRetellIdioma] = useState(plantilla?.retell_idioma ?? "es-419");
   const [retellColgarBuzon, setRetellColgarBuzon] = useState(plantilla?.retell_colgar_buzon ?? true);
+  const [retellColgarIvr, setRetellColgarIvr] = useState(plantilla?.retell_colgar_ivr ?? true);
+  const [retellPantallaLlamadas, setRetellPantallaLlamadas] = useState(plantilla?.retell_pantalla_llamadas ?? false);
+  const [retellDtmfActivo, setRetellDtmfActivo] = useState(plantilla?.retell_dtmf_activo ?? false);
+  const [retellDtmfTimeoutMs, setRetellDtmfTimeoutMs] = useState(plantilla?.retell_dtmf_timeout_ms ?? 2500);
+  const [retellDtmfClaveTerminacion, setRetellDtmfClaveTerminacion] = useState<string | null>(plantilla?.retell_dtmf_clave_terminacion ?? null);
+  const [retellDtmfLimiteDigitos, setRetellDtmfLimiteDigitos] = useState<number | null>(plantilla?.retell_dtmf_limite_digitos ?? null);
+  const [retellFinSilencioMs, setRetellFinSilencioMs] = useState(plantilla?.retell_fin_silencio_ms ?? 600000);
+  const [retellDuracionMaximaMs, setRetellDuracionMaximaMs] = useState(plantilla?.retell_duracion_maxima_ms ?? 3600000);
+  const [retellDuracionAnilloMs, setRetellDuracionAnilloMs] = useState(plantilla?.retell_duracion_anillo_ms ?? 30000);
+  const [mostrarConfigLlamadas, setMostrarConfigLlamadas] = useState(false);
   const [funciones, setFunciones] = useState<FuncionRetell[]>(
     plantilla?.retell_funciones ?? [{ type: "end_call", name: "fin_de_llamada", description: "Fin de la llamada" }],
   );
@@ -465,6 +504,10 @@ function FormularioAgenteVoz({
       setError("Falta elegir la voz del agente");
       return;
     }
+    if (modoAgente === "generado" && retellPantallaLlamadas && !objetivo.trim()) {
+      setError("Falta el objetivo para activar la gestión de pantalla de llamadas");
+      return;
+    }
     setGuardando(true);
     setError(null);
     setAvisoRetell(null);
@@ -481,6 +524,15 @@ function FormularioAgenteVoz({
       retell_idioma: modoAgente === "generado" ? retellIdioma : undefined,
       retell_colgar_buzon: modoAgente === "generado" ? retellColgarBuzon : undefined,
       retell_funciones: modoAgente === "generado" ? funciones : undefined,
+      retell_colgar_ivr: modoAgente === "generado" ? retellColgarIvr : undefined,
+      retell_pantalla_llamadas: modoAgente === "generado" ? retellPantallaLlamadas : undefined,
+      retell_dtmf_activo: modoAgente === "generado" ? retellDtmfActivo : undefined,
+      retell_dtmf_timeout_ms: modoAgente === "generado" ? retellDtmfTimeoutMs : undefined,
+      retell_dtmf_clave_terminacion: modoAgente === "generado" ? retellDtmfClaveTerminacion : undefined,
+      retell_dtmf_limite_digitos: modoAgente === "generado" ? retellDtmfLimiteDigitos : undefined,
+      retell_fin_silencio_ms: modoAgente === "generado" ? retellFinSilencioMs : undefined,
+      retell_duracion_maxima_ms: modoAgente === "generado" ? retellDuracionMaximaMs : undefined,
+      retell_duracion_anillo_ms: modoAgente === "generado" ? retellDuracionAnilloMs : undefined,
     };
     const res = plantilla
       ? await fetch(`/api/plantillas-voz/${plantilla.id}`, {
@@ -677,6 +729,156 @@ function FormularioAgenteVoz({
                 )}
               </div>
             </div>
+
+            <div className="border-t border-[var(--color-borde)] pt-3">
+              <button
+                type="button"
+                onClick={() => setMostrarConfigLlamadas((v) => !v)}
+                className="flex w-full items-center justify-between text-left text-sm font-medium text-[var(--color-texto)]"
+              >
+                Configuración de llamadas
+                <span className="text-[var(--color-texto-mute)]">{mostrarConfigLlamadas ? "︿" : "﹀"}</span>
+              </button>
+
+              {mostrarConfigLlamadas && (
+                <div className="mt-3 space-y-3">
+                  <label className="flex items-center gap-2 text-sm text-[var(--color-texto)]">
+                    <input type="checkbox" checked={retellColgarIvr} onChange={(e) => setRetellColgarIvr(e.target.checked)} />
+                    Colgar si se detecta un sistema IVR
+                  </label>
+
+                  <div>
+                    <label className="flex items-center gap-2 text-sm text-[var(--color-texto)]">
+                      <input
+                        type="checkbox"
+                        checked={retellPantallaLlamadas}
+                        onChange={(e) => setRetellPantallaLlamadas(e.target.checked)}
+                        disabled={!objetivo.trim()}
+                      />
+                      Anunciar identidad en pantallas de llamadas (iOS/Android)
+                    </label>
+                    {!objetivo.trim() && (
+                      <p className="ml-6 mt-0.5 text-xs text-[var(--color-texto-mute)]">Completa el objetivo para poder activarlo.</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="flex items-center gap-2 text-sm text-[var(--color-texto)]">
+                      <input type="checkbox" checked={retellDtmfActivo} onChange={(e) => setRetellDtmfActivo(e.target.checked)} />
+                      Detectar entrada del teclado (DTMF)
+                    </label>
+
+                    {retellDtmfActivo && (
+                      <div className="ml-6 mt-2 space-y-2">
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Tiempo de espera</span>
+                          <select
+                            value={retellDtmfTimeoutMs}
+                            onChange={(e) => setRetellDtmfTimeoutMs(Number(e.target.value))}
+                            className={INPUT_LOCAL}
+                          >
+                            {OPCIONES_DTMF_TIMEOUT.map((o) => (
+                              <option key={o.valor} value={o.valor}>
+                                {o.etiqueta}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <div>
+                          <label className="flex items-center gap-2 text-sm text-[var(--color-texto)]">
+                            <input
+                              type="checkbox"
+                              checked={retellDtmfClaveTerminacion !== null}
+                              onChange={(e) => setRetellDtmfClaveTerminacion(e.target.checked ? OPCIONES_DTMF_CLAVE_TERMINACION[0].valor : null)}
+                            />
+                            Terminar con una tecla
+                          </label>
+                          {retellDtmfClaveTerminacion !== null && (
+                            <select
+                              value={retellDtmfClaveTerminacion}
+                              onChange={(e) => setRetellDtmfClaveTerminacion(e.target.value)}
+                              className={`${INPUT_LOCAL} mt-2 ml-6 w-auto`}
+                            >
+                              {OPCIONES_DTMF_CLAVE_TERMINACION.map((o) => (
+                                <option key={o.valor} value={o.valor}>
+                                  {o.etiqueta}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="flex items-center gap-2 text-sm text-[var(--color-texto)]">
+                            <input
+                              type="checkbox"
+                              checked={retellDtmfLimiteDigitos !== null}
+                              onChange={(e) => setRetellDtmfLimiteDigitos(e.target.checked ? OPCIONES_DTMF_LIMITE_DIGITOS[0].valor : null)}
+                            />
+                            Limitar cantidad de dígitos
+                          </label>
+                          {retellDtmfLimiteDigitos !== null && (
+                            <select
+                              value={retellDtmfLimiteDigitos}
+                              onChange={(e) => setRetellDtmfLimiteDigitos(Number(e.target.value))}
+                              className={`${INPUT_LOCAL} mt-2 ml-6 w-auto`}
+                            >
+                              {OPCIONES_DTMF_LIMITE_DIGITOS.map((o) => (
+                                <option key={o.valor} value={o.valor}>
+                                  {o.etiqueta}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Terminar tras silencio de</span>
+                      <select value={retellFinSilencioMs} onChange={(e) => setRetellFinSilencioMs(Number(e.target.value))} className={INPUT_LOCAL}>
+                        {OPCIONES_FIN_SILENCIO.map((o) => (
+                          <option key={o.valor} value={o.valor}>
+                            {o.etiqueta}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Duración máxima</span>
+                      <select
+                        value={retellDuracionMaximaMs}
+                        onChange={(e) => setRetellDuracionMaximaMs(Number(e.target.value))}
+                        className={INPUT_LOCAL}
+                      >
+                        {OPCIONES_DURACION_MAXIMA.map((o) => (
+                          <option key={o.valor} value={o.valor}>
+                            {o.etiqueta}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Duración del timbre</span>
+                      <select
+                        value={retellDuracionAnilloMs}
+                        onChange={(e) => setRetellDuracionAnilloMs(Number(e.target.value))}
+                        className={INPUT_LOCAL}
+                      >
+                        {OPCIONES_DURACION_ANILLO.map((o) => (
+                          <option key={o.valor} value={o.valor}>
+                            {o.etiqueta}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              )}
+            </div>
           </>
         )}
 
@@ -816,6 +1018,9 @@ function calcularStats(llamadas: Llamada[]) {
   const enProgreso = llamadas.filter((l) => l.status === "en_progreso").length;
   const completadas = llamadas.filter((l) => l.status === "completada").length;
   const fallidas = llamadas.filter((l) => l.status === "fallida" || l.status === "sin_respuesta").length;
+  const buzon = llamadas.filter((l) => l.status === "buzon").length;
+  const rechazadas = llamadas.filter((l) => l.status === "rechazada").length;
+  const noContesto = llamadas.filter((l) => l.status === "no_contesto").length;
   const acepto = llamadas.filter((l) => l.resultado === "acepto").length;
   const rechazo = llamadas.filter((l) => l.resultado === "rechazo").length;
 
@@ -825,5 +1030,5 @@ function calcularStats(llamadas: Llamada[]) {
       ? "—"
       : formatearDuracionLlamada(Math.round(conDuracion.reduce((s, l) => s + (l.duracion_segundos ?? 0), 0) / conDuracion.length));
 
-  return { total, enProgreso, completadas, fallidas, acepto, rechazo, duracionPromedio };
+  return { total, enProgreso, completadas, fallidas, buzon, rechazadas, noContesto, acepto, rechazo, duracionPromedio };
 }

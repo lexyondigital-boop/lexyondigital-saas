@@ -9,6 +9,41 @@ const AGENTES_TIPO = ["servicio", "citas", "venta", "cobranza", "legal"] as cons
 const AGENTES_TIPO_DISPONIBLES = ["servicio"] as const;
 const CATEGORIAS = ["legal", "medicos", "inmobiliario", "servicios", "cobranza", "ventas"] as const;
 const MODOS_AGENTE = ["generado", "retell_propio"] as const;
+const CLAVES_TERMINACION_DTMF = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "#", "*"] as const;
+
+// Rangos que documenta Retell para "Configuración de llamadas" -- se valida
+// aquí antes de mandarlo, en vez de dejar que Retell responda un 400 crudo.
+function validarConfiguracionLlamada(body: {
+  retell_dtmf_timeout_ms?: number;
+  retell_dtmf_clave_terminacion?: string | null;
+  retell_dtmf_limite_digitos?: number | null;
+  retell_fin_silencio_ms?: number;
+  retell_duracion_maxima_ms?: number;
+  retell_duracion_anillo_ms?: number;
+}): string | null {
+  if (body.retell_dtmf_timeout_ms !== undefined && (body.retell_dtmf_timeout_ms < 1000 || body.retell_dtmf_timeout_ms > 15000)) {
+    return "El tiempo de espera del teclado debe estar entre 1 y 15 segundos";
+  }
+  if (
+    body.retell_dtmf_clave_terminacion &&
+    !CLAVES_TERMINACION_DTMF.includes(body.retell_dtmf_clave_terminacion as (typeof CLAVES_TERMINACION_DTMF)[number])
+  ) {
+    return "Clave de terminación inválida";
+  }
+  if (body.retell_dtmf_limite_digitos !== undefined && body.retell_dtmf_limite_digitos !== null) {
+    if (body.retell_dtmf_limite_digitos < 1 || body.retell_dtmf_limite_digitos > 50) return "El límite de dígitos debe estar entre 1 y 50";
+  }
+  if (body.retell_fin_silencio_ms !== undefined && body.retell_fin_silencio_ms < 10000) {
+    return "El fin de llamada por silencio debe ser de al menos 10 segundos";
+  }
+  if (body.retell_duracion_maxima_ms !== undefined && (body.retell_duracion_maxima_ms < 60000 || body.retell_duracion_maxima_ms > 7200000)) {
+    return "La duración máxima de la llamada debe estar entre 1 minuto y 2 horas";
+  }
+  if (body.retell_duracion_anillo_ms !== undefined && (body.retell_duracion_anillo_ms < 5000 || body.retell_duracion_anillo_ms > 300000)) {
+    return "La duración del timbre debe estar entre 5 y 300 segundos";
+  }
+  return null;
+}
 
 export async function GET(request: NextRequest) {
   const auth = await requirePermiso("manage_plantillas_voz");
@@ -52,6 +87,15 @@ export async function POST(request: NextRequest) {
     retell_idioma,
     retell_colgar_buzon,
     retell_funciones,
+    retell_colgar_ivr,
+    retell_pantalla_llamadas,
+    retell_dtmf_activo,
+    retell_dtmf_timeout_ms,
+    retell_dtmf_clave_terminacion,
+    retell_dtmf_limite_digitos,
+    retell_fin_silencio_ms,
+    retell_duracion_maxima_ms,
+    retell_duracion_anillo_ms,
   } = body as {
     nombre?: string;
     copyscript?: string;
@@ -65,9 +109,25 @@ export async function POST(request: NextRequest) {
     retell_idioma?: string;
     retell_colgar_buzon?: boolean;
     retell_funciones?: FuncionRetell[];
+    retell_colgar_ivr?: boolean;
+    retell_pantalla_llamadas?: boolean;
+    retell_dtmf_activo?: boolean;
+    retell_dtmf_timeout_ms?: number;
+    retell_dtmf_clave_terminacion?: string | null;
+    retell_dtmf_limite_digitos?: number | null;
+    retell_fin_silencio_ms?: number;
+    retell_duracion_maxima_ms?: number;
+    retell_duracion_anillo_ms?: number;
   };
 
   if (!nombre?.trim()) return NextResponse.json({ error: "Falta el nombre" }, { status: 400 });
+
+  const errorConfiguracionLlamada = validarConfiguracionLlamada(body);
+  if (errorConfiguracionLlamada) return NextResponse.json({ error: errorConfiguracionLlamada }, { status: 400 });
+
+  if (retell_pantalla_llamadas && !objetivo?.trim()) {
+    return NextResponse.json({ error: "Falta el objetivo para activar la gestión de pantalla de llamadas" }, { status: 400 });
+  }
 
   const modoAgenteFinal = modo_agente ?? "generado";
   if (!MODOS_AGENTE.includes(modoAgenteFinal as (typeof MODOS_AGENTE)[number])) {
@@ -107,6 +167,15 @@ export async function POST(request: NextRequest) {
       retell_idioma: retell_idioma ?? "es-419",
       retell_colgar_buzon: retell_colgar_buzon ?? true,
       ...(retell_funciones !== undefined ? { retell_funciones } : {}),
+      ...(retell_colgar_ivr !== undefined ? { retell_colgar_ivr } : {}),
+      ...(retell_pantalla_llamadas !== undefined ? { retell_pantalla_llamadas } : {}),
+      ...(retell_dtmf_activo !== undefined ? { retell_dtmf_activo } : {}),
+      ...(retell_dtmf_timeout_ms !== undefined ? { retell_dtmf_timeout_ms } : {}),
+      ...(retell_dtmf_clave_terminacion !== undefined ? { retell_dtmf_clave_terminacion } : {}),
+      ...(retell_dtmf_limite_digitos !== undefined ? { retell_dtmf_limite_digitos } : {}),
+      ...(retell_fin_silencio_ms !== undefined ? { retell_fin_silencio_ms } : {}),
+      ...(retell_duracion_maxima_ms !== undefined ? { retell_duracion_maxima_ms } : {}),
+      ...(retell_duracion_anillo_ms !== undefined ? { retell_duracion_anillo_ms } : {}),
     })
     .select()
     .single();

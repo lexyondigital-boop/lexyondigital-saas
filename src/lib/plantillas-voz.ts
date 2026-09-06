@@ -26,3 +26,48 @@ export const IDIOMAS_VOZ: { valor: string; etiqueta: string }[] = [
   { valor: "pt-BR", etiqueta: "Portugués (Brasil)" },
   { valor: "fr-FR", etiqueta: "Francés" },
 ];
+
+// "Configuración de llamadas" de Retell -- valores predefinidos en vez de un
+// slider continuo (este código no tiene ningún <input type="range">, y los
+// valores numéricos con pocas opciones sensatas siempre se resuelven con un
+// <select>, igual que el intervalo mínimo entre llamadas).
+export const OPCIONES_DTMF_TIMEOUT: { valor: number; etiqueta: string }[] = [
+  { valor: 1000, etiqueta: "1 s" },
+  { valor: 1500, etiqueta: "1.5 s" },
+  { valor: 2000, etiqueta: "2 s" },
+  { valor: 2500, etiqueta: "2.5 s" },
+  { valor: 3000, etiqueta: "3 s" },
+  { valor: 5000, etiqueta: "5 s" },
+  { valor: 10000, etiqueta: "10 s" },
+  { valor: 15000, etiqueta: "15 s" },
+];
+
+export const OPCIONES_DTMF_LIMITE_DIGITOS: { valor: number; etiqueta: string }[] = [1, 2, 3, 4, 5, 6, 8, 10].map((n) => ({
+  valor: n,
+  etiqueta: `${n} dígito${n > 1 ? "s" : ""}`,
+}));
+
+export const OPCIONES_DTMF_CLAVE_TERMINACION: { valor: string; etiqueta: string }[] = [
+  "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "#", "*",
+].map((k) => ({ valor: k, etiqueta: k }));
+
+export const OPCIONES_FIN_SILENCIO: { valor: number; etiqueta: string }[] = [
+  { valor: 10000, etiqueta: "10 s" },
+  { valor: 30000, etiqueta: "30 s" },
+  { valor: 60000, etiqueta: "1 min" },
+  { valor: 120000, etiqueta: "2 min" },
+  { valor: 300000, etiqueta: "5 min" },
+  { valor: 600000, etiqueta: "10 min" },
+  { valor: 900000, etiqueta: "15 min" },
+  { valor: 1200000, etiqueta: "20 min" },
+];
+
+export const OPCIONES_DURACION_MAXIMA: { valor: number; etiqueta: string }[] = [5, 10, 15, 20, 30, 45, 60, 90, 120].map((min) => ({
+  valor: min * 60000,
+  etiqueta: `${min} min`,
+}));
+
+export const OPCIONES_DURACION_ANILLO: { valor: number; etiqueta: string }[] = [10, 15, 20, 30, 45, 60, 90, 120].map((seg) => ({
+  valor: seg * 1000,
+  etiqueta: `${seg} s`,
+}));

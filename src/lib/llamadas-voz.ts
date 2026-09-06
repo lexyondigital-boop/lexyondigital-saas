@@ -2,7 +2,7 @@
 // y Conversaciones (tarjeta de llamada inline) -- para que ambas vistas
 // describan el mismo status/resultado exactamente igual.
 
-export type StatusLlamadaVoz = "en_progreso" | "completada" | "fallida" | "sin_respuesta";
+export type StatusLlamadaVoz = "en_progreso" | "completada" | "fallida" | "sin_respuesta" | "buzon" | "rechazada" | "no_contesto";
 export type ResultadoLlamadaVoz = "acepto" | "rechazo" | "pendiente";
 
 export const ETIQUETA_STATUS_LLAMADA: Record<StatusLlamadaVoz, string> = {
@@ -10,6 +10,9 @@ export const ETIQUETA_STATUS_LLAMADA: Record<StatusLlamadaVoz, string> = {
   completada: "Completada",
   fallida: "Fallida",
   sin_respuesta: "Sin respuesta",
+  buzon: "Buzón de voz",
+  rechazada: "Rechazada",
+  no_contesto: "No contestó",
 };
 
 export const ETIQUETA_RESULTADO_LLAMADA: Record<ResultadoLlamadaVoz, string> = {

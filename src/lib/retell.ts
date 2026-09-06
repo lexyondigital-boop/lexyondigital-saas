@@ -216,6 +216,20 @@ export type FuncionRetell = {
   transfer_option?: { type: "cold_transfer" };
 };
 
+// El panel "Configuración de llamadas" de Retell -- un solo objeto en vez de
+// seguir agregando parámetros sueltos a sincronizarAgenteGenerado.
+export type ConfiguracionLlamadaVoz = {
+  colgarIvr: boolean;
+  pantallaLlamadas: boolean;
+  dtmfActivo: boolean;
+  dtmfTimeoutMs: number;
+  dtmfClaveTerminacion: string | null;
+  dtmfLimiteDigitos: number | null;
+  finSilencioMs: number;
+  duracionMaximaMs: number;
+  duracionAnilloMs: number;
+};
+
 // POST /publish-agent-version/{id} -- create/update-agent solo guarda un
 // draft (is_published: false). Sin este paso, Retell nunca manda los
 // webhooks call_ended/call_analyzed para llamadas hechas con ese agente,
@@ -240,10 +254,12 @@ export async function sincronizarAgenteGenerado(
     prompt: string;
     voiceId: string;
     nombre: string;
+    objetivo: string | null;
     idioma: string;
     colgarBuzon: boolean;
     funciones: FuncionRetell[];
     webhookUrl: string;
+    configuracionLlamada: ConfiguracionLlamadaVoz;
   },
 ): Promise<{ ok: true; llmId: string; agentId: string } | { ok: false; error: string }> {
   try {
@@ -273,6 +289,25 @@ export async function sincronizarAgenteGenerado(
           language: params.idioma,
           voicemail_option: params.colgarBuzon ? { action: { type: "hangup" } } : null,
           webhook_url: params.webhookUrl,
+          ivr_option: params.configuracionLlamada.colgarIvr ? { action: { type: "hangup" } } : null,
+          call_screening_option: params.configuracionLlamada.pantallaLlamadas
+            ? { agent_identity: params.nombre, call_purpose: params.objetivo ?? "" }
+            : null,
+          allow_user_dtmf: params.configuracionLlamada.dtmfActivo,
+          user_dtmf_options: params.configuracionLlamada.dtmfActivo
+            ? {
+                timeout_ms: params.configuracionLlamada.dtmfTimeoutMs,
+                ...(params.configuracionLlamada.dtmfClaveTerminacion
+                  ? { termination_key: params.configuracionLlamada.dtmfClaveTerminacion }
+                  : {}),
+                ...(params.configuracionLlamada.dtmfLimiteDigitos
+                  ? { digit_limit: params.configuracionLlamada.dtmfLimiteDigitos }
+                  : {}),
+              }
+            : null,
+          end_call_after_silence_ms: params.configuracionLlamada.finSilencioMs,
+          max_call_duration_ms: params.configuracionLlamada.duracionMaximaMs,
+          ring_duration_ms: params.configuracionLlamada.duracionAnilloMs,
         }),
       },
     );
@@ -313,6 +348,15 @@ export async function sincronizarPlantillaVozConRetell(
     retell_idioma: string;
     retell_colgar_buzon: boolean;
     retell_funciones: FuncionRetell[];
+    retell_colgar_ivr: boolean;
+    retell_pantalla_llamadas: boolean;
+    retell_dtmf_activo: boolean;
+    retell_dtmf_timeout_ms: number;
+    retell_dtmf_clave_terminacion: string | null;
+    retell_dtmf_limite_digitos: number | null;
+    retell_fin_silencio_ms: number;
+    retell_duracion_maxima_ms: number;
+    retell_duracion_anillo_ms: number;
   },
   webhookUrl: string,
 ): Promise<{ ok: true; retellLlmId: string; retellAgentId: string; sincronizadoEn: string } | { ok: false; error: string }> {
@@ -331,24 +375,35 @@ export async function sincronizarPlantillaVozConRetell(
     prompt,
     voiceId: plantilla.retell_voice_id,
     nombre: plantilla.nombre,
+    objetivo: plantilla.objetivo,
     idioma: plantilla.retell_idioma,
     colgarBuzon: plantilla.retell_colgar_buzon,
     funciones: plantilla.retell_funciones,
     webhookUrl,
+    configuracionLlamada: {
+      colgarIvr: plantilla.retell_colgar_ivr,
+      pantallaLlamadas: plantilla.retell_pantalla_llamadas,
+      dtmfActivo: plantilla.retell_dtmf_activo,
+      dtmfTimeoutMs: plantilla.retell_dtmf_timeout_ms,
+      dtmfClaveTerminacion: plantilla.retell_dtmf_clave_terminacion,
+      dtmfLimiteDigitos: plantilla.retell_dtmf_limite_digitos,
+      finSilencioMs: plantilla.retell_fin_silencio_ms,
+      duracionMaximaMs: plantilla.retell_duracion_maxima_ms,
+      duracionAnilloMs: plantilla.retell_duracion_anillo_ms,
+    },
   });
   if (!resultado.ok) return resultado;
 
   return { ok: true, retellLlmId: resultado.llmId, retellAgentId: resultado.agentId, sincronizadoEn: new Date().toISOString() };
 }
 
-const DESCONEXION_SIN_RESPUESTA = new Set([
-  "dial_no_answer",
-  "dial_busy",
-  "voicemail_reached",
-  "ivr_reached",
-  "inactivity",
-  "registered_call_timeout",
-]);
+const DESCONEXION_BUZON = new Set(["voicemail_reached"]);
+
+const DESCONEXION_RECHAZADA = new Set(["dial_busy"]);
+
+// ivr_reached (se topó con un IVR del destino, no con un buzón) se agrupa
+// aquí -- no se pidió una categoría separada para esto.
+const DESCONEXION_NO_CONTESTO = new Set(["dial_no_answer", "ivr_reached", "inactivity", "registered_call_timeout"]);
 
 const DESCONEXION_FALLIDA = new Set([
   "dial_failed",
@@ -369,11 +424,13 @@ const DESCONEXION_FALLIDA = new Set([
 export function mapearStatusLlamada(
   callStatus: string,
   disconnectionReason?: string | null,
-): "completada" | "fallida" | "sin_respuesta" {
+): "completada" | "fallida" | "sin_respuesta" | "buzon" | "rechazada" | "no_contesto" {
   if (callStatus === "error") return "fallida";
-  if (disconnectionReason && DESCONEXION_SIN_RESPUESTA.has(disconnectionReason)) return "sin_respuesta";
-  if (disconnectionReason && (DESCONEXION_FALLIDA.has(disconnectionReason) || disconnectionReason.startsWith("error_"))) {
-    return "fallida";
+  if (disconnectionReason) {
+    if (DESCONEXION_BUZON.has(disconnectionReason)) return "buzon";
+    if (DESCONEXION_RECHAZADA.has(disconnectionReason)) return "rechazada";
+    if (DESCONEXION_NO_CONTESTO.has(disconnectionReason)) return "no_contesto";
+    if (DESCONEXION_FALLIDA.has(disconnectionReason) || disconnectionReason.startsWith("error_")) return "fallida";
   }
   return "completada";
 }
