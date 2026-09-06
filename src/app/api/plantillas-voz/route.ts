@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
       objetivo: objetivo?.trim() || null,
       agente_tipo: agenteTipoFinal,
       categoria: categoriaFinal,
-      plantilla_madre_id: plantilla_madre_id ?? null,
+      ...(plantilla_madre_id !== undefined ? { plantilla_madre_id } : {}),
       modo_agente: modoAgenteFinal,
       retell_agent_id: modoAgenteFinal === "retell_propio" ? retell_agent_id : null,
       retell_voice_id: modoAgenteFinal === "generado" ? (retell_voice_id ?? null) : null,
