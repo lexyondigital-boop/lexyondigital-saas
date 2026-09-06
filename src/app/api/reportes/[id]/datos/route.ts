@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermiso } from "@/lib/require-permiso";
 import { calcularDatosReporte, type Reporte } from "@/lib/reportes";
 
-export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requirePermiso("view_analytics");
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -19,7 +19,16 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
   if (!reporte) return NextResponse.json({ error: "Reporte no encontrado" }, { status: 404 });
 
-  const datos = await calcularDatosReporte(admin, auth.perfil.cuenta_id, reporte as Reporte);
+  // El selector de rango en cada tarjeta del dashboard sobreescribe
+  // rango_dias solo para esta consulta, sin tocar la definición guardada
+  // del reporte.
+  const rangoOverride = new URL(request.url).searchParams.get("rango_dias");
+  const reporteFinal: Reporte =
+    rangoOverride !== null
+      ? { ...(reporte as Reporte), filtros: { ...(reporte as Reporte).filtros, rango_dias: rangoOverride === "todo" ? null : Number(rangoOverride) } }
+      : (reporte as Reporte);
+
+  const datos = await calcularDatosReporte(admin, auth.perfil.cuenta_id, reporteFinal);
 
   return NextResponse.json({ datos });
 }

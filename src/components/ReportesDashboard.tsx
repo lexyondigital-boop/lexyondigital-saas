@@ -1,7 +1,22 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { BarChart, Bar, PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import {
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  LabelList,
+  ResponsiveContainer,
+} from "recharts";
 import { createClient } from "@/lib/supabase/client";
 
 type EntidadReporte = "contactos" | "deals" | "campanas" | "conversaciones";
@@ -72,10 +87,36 @@ const COLORES = ["#8b5cf6", "#22c55e", "#f59e0b", "#ef4444", "#3b82f6", "#ec4899
 const INPUT_LOCAL =
   "w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]";
 
+function esDimensionTemporal(reporte: Reporte): boolean {
+  return reporte.dimension === "fecha_creacion" || reporte.dimension === "fecha_modificacion" || reporte.agrupar_fecha_por !== null;
+}
+
+// Las claves que llegan del backend son "AAAA-MM" (mes) o "AAAA-MM-DD"
+// (día/semana) -- se muestran legibles en el eje X en vez del ISO crudo.
+function formatearEtiquetaFecha(valor: string): string {
+  const partes = valor.split("-");
+  if (partes.length === 2) {
+    const [anio, mes] = partes;
+    return new Date(Number(anio), Number(mes) - 1, 1).toLocaleDateString("es-MX", { month: "short", year: "2-digit" });
+  }
+  if (partes.length === 3) {
+    const [anio, mes, dia] = partes;
+    return new Date(Number(anio), Number(mes) - 1, Number(dia)).toLocaleDateString("es-MX", { day: "2-digit", month: "short" });
+  }
+  return valor;
+}
+
+function etiquetaConPorcentaje(datos: PuntoDato[]) {
+  const total = datos.reduce((s, d) => s + d.valor, 0);
+  return (props: { name?: string; value?: number }) => {
+    const valor = props.value ?? 0;
+    return `${props.name ?? ""}: ${valor} (${total > 0 ? Math.round((valor / total) * 100) : 0}%)`;
+  };
+}
+
 export function ReportesDashboard({ permisos }: { permisos: Record<string, boolean> }) {
   const [reportes, setReportes] = useState<Reporte[]>([]);
   const [preferencias, setPreferencias] = useState<Preferencia[]>([]);
-  const [datos, setDatos] = useState<Record<string, PuntoDato[]>>({});
   const [cargando, setCargando] = useState(true);
   const [mostrarSelector, setMostrarSelector] = useState(false);
   const [editando, setEditando] = useState<Reporte | "nueva" | null>(null);
@@ -104,16 +145,6 @@ export function ReportesDashboard({ permisos }: { permisos: Record<string, boole
       .sort((a, b) => a.orden - b.orden)
       .map((x) => x.reporte);
   }, [reportes, preferencias]);
-
-  useEffect(() => {
-    for (const r of visibles) {
-      if (datos[r.id]) continue;
-      fetch(`/api/reportes/${r.id}/datos`)
-        .then((res) => res.json())
-        .then((data) => setDatos((prev) => ({ ...prev, [r.id]: data.datos ?? [] })));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibles]);
 
   async function guardarPreferencias(nuevas: Preferencia[]) {
     setPreferencias(nuevas);
@@ -223,7 +254,6 @@ export function ReportesDashboard({ permisos }: { permisos: Record<string, boole
             <TarjetaReporte
               key={r.id}
               reporte={r}
-              datos={datos[r.id]}
               puedeEditar={!!permisos.manage_reportes}
               puedeSubir={i > 0}
               puedeBajar={i < visibles.length - 1}
@@ -242,7 +272,6 @@ export function ReportesDashboard({ permisos }: { permisos: Record<string, boole
 
 function TarjetaReporte({
   reporte,
-  datos,
   puedeEditar,
   puedeSubir,
   puedeBajar,
@@ -253,7 +282,6 @@ function TarjetaReporte({
   onEliminar,
 }: {
   reporte: Reporte;
-  datos?: PuntoDato[];
   puedeEditar: boolean;
   puedeSubir: boolean;
   puedeBajar: boolean;
@@ -264,6 +292,17 @@ function TarjetaReporte({
   onEliminar: () => void;
 }) {
   const [menuAbierto, setMenuAbierto] = useState(false);
+  const [rango, setRango] = useState<string>(reporte.filtros?.rango_dias ? String(reporte.filtros.rango_dias) : "");
+  const [datos, setDatos] = useState<PuntoDato[] | null>(null);
+
+  useEffect(() => {
+    setDatos(null);
+    fetch(`/api/reportes/${reporte.id}/datos?rango_dias=${rango || "todo"}`)
+      .then((res) => res.json())
+      .then((data) => setDatos(data.datos ?? []));
+  }, [reporte.id, rango]);
+
+  const esFechaDim = esDimensionTemporal(reporte);
 
   return (
     <div className="rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-5">
@@ -272,13 +311,24 @@ function TarjetaReporte({
           <h3 className="text-sm font-semibold text-[var(--color-texto)]">{reporte.nombre}</h3>
           <p className="text-xs text-[var(--color-texto-mute)]">{ETIQUETA_ENTIDAD[reporte.entidad]}</p>
         </div>
-        <div className="relative">
-          <button
-            onClick={() => setMenuAbierto((v) => !v)}
-            className="rounded-md px-2 py-1 text-[var(--color-texto-mute)] hover:bg-[var(--color-bg-elevada)]"
+        <div className="flex items-center gap-1">
+          <select
+            value={rango}
+            onChange={(e) => setRango(e.target.value)}
+            className="rounded-md border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-1.5 py-1 text-xs text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
           >
-            ⋯
-          </button>
+            <option value="">Todo</option>
+            <option value="7">7 días</option>
+            <option value="30">30 días</option>
+            <option value="90">90 días</option>
+          </select>
+          <div className="relative">
+            <button
+              onClick={() => setMenuAbierto((v) => !v)}
+              className="rounded-md px-2 py-1 text-[var(--color-texto-mute)] hover:bg-[var(--color-bg-elevada)]"
+            >
+              ⋯
+            </button>
           {menuAbierto && (
             <div className="absolute right-0 z-10 mt-1 w-48 rounded-xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-1 text-sm shadow-lg">
               <button
@@ -334,6 +384,7 @@ function TarjetaReporte({
               )}
             </div>
           )}
+          </div>
         </div>
       </div>
 
@@ -349,15 +400,24 @@ function TarjetaReporte({
             {reporte.tipo_grafico === "linea" ? (
               <LineChart data={datos}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-borde)" />
-                <XAxis dataKey="etiqueta" tick={{ fontSize: 11 }} />
+                <XAxis dataKey="etiqueta" tick={{ fontSize: 11 }} tickFormatter={esFechaDim ? formatearEtiquetaFecha : undefined} />
                 <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Line type="monotone" dataKey="valor" stroke="#8b5cf6" strokeWidth={2} dot={false} />
+                <Tooltip labelFormatter={esFechaDim ? (label) => formatearEtiquetaFecha(String(label)) : undefined} />
+                <Line type="monotone" dataKey="valor" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
               </LineChart>
             ) : reporte.tipo_grafico === "dona" ? (
               <PieChart>
                 <Tooltip />
-                <Pie data={datos} dataKey="valor" nameKey="etiqueta" innerRadius="55%" outerRadius="85%">
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Pie
+                  data={datos}
+                  dataKey="valor"
+                  nameKey="etiqueta"
+                  innerRadius="50%"
+                  outerRadius="75%"
+                  label={etiquetaConPorcentaje(datos)}
+                  labelLine={false}
+                >
                   {datos.map((_, i) => (
                     <Cell key={i} fill={COLORES[i % COLORES.length]} />
                   ))}
@@ -366,10 +426,12 @@ function TarjetaReporte({
             ) : (
               <BarChart data={datos}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-borde)" />
-                <XAxis dataKey="etiqueta" tick={{ fontSize: 11 }} />
+                <XAxis dataKey="etiqueta" tick={{ fontSize: 11 }} tickFormatter={esFechaDim ? formatearEtiquetaFecha : undefined} />
                 <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Bar dataKey="valor" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                <Tooltip labelFormatter={esFechaDim ? (label) => formatearEtiquetaFecha(String(label)) : undefined} />
+                <Bar dataKey="valor" fill="#8b5cf6" radius={[4, 4, 0, 0]}>
+                  <LabelList dataKey="valor" position="top" style={{ fontSize: 11, fill: "var(--color-texto-mute)" }} />
+                </Bar>
               </BarChart>
             )}
           </ResponsiveContainer>
