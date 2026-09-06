@@ -7,6 +7,7 @@ import { AsistentePlantillaModal } from "@/components/AsistentePlantillaModal";
 import { renderizarPreview } from "@/lib/plantillas-email-preview";
 import { PLANTILLAS_EMAIL_PREDETERMINADAS } from "@/lib/plantillas-email-predeterminadas";
 import EditorVisualUnlayer, { type EditorVisualUnlayerRef } from "@/components/EditorVisualUnlayer";
+import { AGENTES_TIPO_VOZ, CATEGORIAS_VOZ } from "@/lib/plantillas-voz";
 
 export type Boton = { type: "QUICK_REPLY" | "URL" | "PHONE_NUMBER"; text: string; url?: string; phone_number?: string };
 export type Tarjeta = { media_tipo: "imagen" | "video"; media_url: string; media_handle: string | null; body: string; body_ejemplos: string[]; botones: Boton[] };
@@ -325,36 +326,21 @@ function PlantillasEmailSection({ cuentaId }: { cuentaId: string }) {
   );
 }
 
-const AGENTES_TIPO_VOZ: { valor: string; etiqueta: string; disponible: boolean }[] = [
-  { valor: "servicio", etiqueta: "Servicio", disponible: true },
-  { valor: "citas", etiqueta: "Recordatorio de citas", disponible: false },
-  { valor: "venta", etiqueta: "Venta", disponible: false },
-  { valor: "cobranza", etiqueta: "Cobranza", disponible: false },
-  { valor: "legal", etiqueta: "Legal", disponible: false },
-];
-
-const CATEGORIAS_VOZ: { valor: string; etiqueta: string }[] = [
-  { valor: "legal", etiqueta: "Legal" },
-  { valor: "medicos", etiqueta: "Médicos" },
-  { valor: "inmobiliario", etiqueta: "Inmobiliarios" },
-  { valor: "servicios", etiqueta: "Servicios" },
-  { valor: "cobranza", etiqueta: "Cobranza" },
-  { valor: "ventas", etiqueta: "Ventas" },
-];
-
 type PlantillaVoz = {
   id: string;
   nombre: string;
-  copyscript: string;
-  objetivo: string | null;
   agente_tipo: string;
   categoria: string;
+  publicada: boolean;
 };
 
+// Toda la configuración real (contenido y agente de Retell) vive en
+// Agentes de Voz → Servicios -- aquí solo se activan/desactivan los agentes
+// ya creados, para controlar cuáles quedan disponibles al enviar desde
+// Conversaciones o Contactos.
 function PlantillasVozSection() {
   const [plantillas, setPlantillas] = useState<PlantillaVoz[]>([]);
   const [cargando, setCargando] = useState(true);
-  const [editando, setEditando] = useState<PlantillaVoz | "nueva" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function cargar() {
@@ -370,24 +356,16 @@ function PlantillasVozSection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function eliminar(id: string) {
-    if (!confirm("¿Eliminar esta plantilla de voz?")) return;
+  async function alternarActiva(p: PlantillaVoz) {
     setError(null);
-    const res = await fetch(`/api/plantillas-voz/${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/plantillas-voz/${p.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ publicada: !p.publicada }),
+    });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(data.error ?? "No se pudo eliminar");
-      return;
-    }
-    cargar();
-  }
-
-  async function duplicar(id: string) {
-    setError(null);
-    const res = await fetch(`/api/plantillas-voz/${id}/duplicar`, { method: "POST" });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setError(data.error ?? "No se pudo duplicar");
+      setError(data.error ?? "No se pudo actualizar");
       return;
     }
     cargar();
@@ -395,290 +373,38 @@ function PlantillasVozSection() {
 
   return (
     <div>
-      <div className="mb-4 flex justify-end">
-        <button
-          onClick={() => setEditando("nueva")}
-          style={{ boxShadow: "var(--halo-accion)" }}
-          className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90"
-        >
-          Nueva plantilla de voz
-        </button>
-      </div>
+      <p className="mb-4 text-sm text-[var(--color-texto-mute)]">
+        Los agentes de voz se crean y configuran en Agentes de Voz → Servicios. Aquí solo activas o desactivas cuáles
+        están disponibles para enviar desde Conversaciones y Contactos.
+      </p>
 
       {error && <p className="mb-4 text-sm text-red-500">{error}</p>}
 
-      {editando && (
-        <FormularioPlantillaVoz
-          plantilla={editando === "nueva" ? null : editando}
-          onGuardado={() => {
-            setEditando(null);
-            cargar();
-          }}
-          onCancelar={() => setEditando(null)}
-        />
-      )}
-
-      <div className="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {cargando ? (
-          <p className="text-sm text-[var(--color-texto-mute)]">Cargando…</p>
-        ) : plantillas.length === 0 ? (
-          <p className="text-sm text-[var(--color-texto-mute)]">Todavía no hay plantillas de voz.</p>
-        ) : (
-          plantillas.map((p) => (
+      {cargando ? (
+        <p className="text-sm text-[var(--color-texto-mute)]">Cargando…</p>
+      ) : plantillas.length === 0 ? (
+        <p className="text-sm text-[var(--color-texto-mute)]">Todavía no hay agentes de voz creados.</p>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {plantillas.map((p) => (
             <div key={p.id} className="rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-5">
-              <h3 className="mb-2 text-sm font-semibold text-[var(--color-texto)]">{p.nombre}</h3>
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-[var(--color-texto)]">{p.nombre}</h3>
+                <Badge tono={p.publicada ? "en-vivo" : "mute"}>{p.publicada ? "Activa" : "Inactiva"}</Badge>
+              </div>
               <p className="text-xs text-[var(--color-texto-mute)]">
                 {AGENTES_TIPO_VOZ.find((a) => a.valor === p.agente_tipo)?.etiqueta ?? p.agente_tipo} ·{" "}
                 {CATEGORIAS_VOZ.find((c) => c.valor === p.categoria)?.etiqueta ?? p.categoria}
               </p>
-              <p className="mt-2 line-clamp-3 text-sm text-[var(--color-texto)]">{p.copyscript || "—"}</p>
-
-              <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-[var(--color-borde)] pt-3">
-                <button onClick={() => setEditando(p)} className="text-xs font-medium text-[var(--color-marca)] hover:underline">
-                  Editar
-                </button>
-                <button onClick={() => duplicar(p.id)} className="text-xs font-medium text-[var(--color-marca)] hover:underline">
-                  Duplicar
-                </button>
-                <button onClick={() => eliminar(p.id)} className="text-xs font-medium text-red-500 hover:underline">
-                  Eliminar
+              <div className="mt-4 border-t border-[var(--color-borde)] pt-3">
+                <button onClick={() => alternarActiva(p)} className="text-xs font-medium text-[var(--color-marca)] hover:underline">
+                  {p.publicada ? "Desactivar" : "Activar"}
                 </button>
               </div>
             </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
-function FormularioPlantillaVoz({
-  plantilla,
-  onGuardado,
-  onCancelar,
-}: {
-  plantilla: PlantillaVoz | null;
-  onGuardado: () => void;
-  onCancelar: () => void;
-}) {
-  const [nombre, setNombre] = useState(plantilla?.nombre ?? "");
-  const [copyscript, setCopyscript] = useState(plantilla?.copyscript ?? "");
-  const [objetivo, setObjetivo] = useState(plantilla?.objetivo ?? "");
-  const [agenteTipo, setAgenteTipo] = useState(plantilla?.agente_tipo ?? "servicio");
-  const [categoria, setCategoria] = useState(plantilla?.categoria ?? "servicios");
-  const [mostrarGeneradorCopyscript, setMostrarGeneradorCopyscript] = useState(false);
-  const [guardando, setGuardando] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const INPUT_LOCAL =
-    "w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]";
-
-  async function guardar() {
-    if (!nombre.trim()) {
-      setError("Falta el nombre");
-      return;
-    }
-    setGuardando(true);
-    setError(null);
-
-    const body = { nombre, copyscript, objetivo, agente_tipo: agenteTipo, categoria };
-    const res = plantilla
-      ? await fetch(`/api/plantillas-voz/${plantilla.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        })
-      : await fetch("/api/plantillas-voz", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-
-    const data = await res.json().catch(() => ({}));
-    setGuardando(false);
-    if (!res.ok) {
-      setError(data.error ?? "No se pudo guardar");
-      return;
-    }
-    onGuardado();
-  }
-
-  return (
-    <div className="mb-6 rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-5">
-      <div className="space-y-3">
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Nombre</span>
-          <input value={nombre} onChange={(e) => setNombre(e.target.value)} className={INPUT_LOCAL} />
-        </label>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Tipo de agente</span>
-            <select value={agenteTipo} onChange={(e) => setAgenteTipo(e.target.value)} className={INPUT_LOCAL}>
-              {AGENTES_TIPO_VOZ.map((a) => (
-                <option key={a.valor} value={a.valor} disabled={!a.disponible}>
-                  {a.etiqueta}
-                  {!a.disponible ? " (próximamente)" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Categoría</span>
-            <select value={categoria} onChange={(e) => setCategoria(e.target.value)} className={INPUT_LOCAL}>
-              {CATEGORIAS_VOZ.map((c) => (
-                <option key={c.valor} value={c.valor}>
-                  {c.etiqueta}
-                </option>
-              ))}
-            </select>
-          </label>
+          ))}
         </div>
-
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Objetivo</span>
-          <input value={objetivo} onChange={(e) => setObjetivo(e.target.value)} className={INPUT_LOCAL} placeholder="Ej. Confirmar que el servicio sigue activo" />
-        </label>
-
-        <label className="block">
-          <div className="mb-1 flex items-center justify-between">
-            <span className="text-xs font-medium text-[var(--color-texto-mute)]">Copyscript</span>
-            <button type="button" onClick={() => setMostrarGeneradorCopyscript(true)} className="text-xs font-medium text-[var(--color-marca)] hover:underline">
-              ✨ Generar con IA
-            </button>
-          </div>
-          <textarea value={copyscript} onChange={(e) => setCopyscript(e.target.value)} rows={8} className={INPUT_LOCAL} />
-          <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
-            El agente de Retell (voz, idioma, funciones) se configura en Agentes de Voz → Servicios.
-          </span>
-        </label>
-
-        {error && <p className="text-sm text-red-500">{error}</p>}
-
-        <div className="flex justify-end gap-2 pt-2">
-          <button onClick={onCancelar} className="rounded-lg border border-[var(--color-borde)] px-4 py-2 text-sm font-medium text-[var(--color-texto)] hover:opacity-80">
-            Cancelar
-          </button>
-          <button
-            onClick={guardar}
-            disabled={guardando}
-            style={{ boxShadow: "var(--halo-accion)" }}
-            className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
-          >
-            {guardando ? "Guardando…" : "Guardar"}
-          </button>
-        </div>
-      </div>
-
-      {mostrarGeneradorCopyscript && (
-        <GeneradorCopyscriptModal
-          categoria={categoria}
-          objetivo={objetivo}
-          onUsar={(texto) => {
-            setCopyscript(texto);
-            setMostrarGeneradorCopyscript(false);
-          }}
-          onCancelar={() => setMostrarGeneradorCopyscript(false)}
-        />
       )}
-    </div>
-  );
-}
-
-function GeneradorCopyscriptModal({
-  categoria,
-  objetivo,
-  onUsar,
-  onCancelar,
-}: {
-  categoria: string;
-  objetivo: string;
-  onUsar: (copyscript: string) => void;
-  onCancelar: () => void;
-}) {
-  const [descripcion, setDescripcion] = useState("");
-  const [generando, setGenerando] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [borrador, setBorrador] = useState<string | null>(null);
-
-  async function generar() {
-    setGenerando(true);
-    setError(null);
-    const res = await fetch("/api/plantillas-voz/sugerir-copyscript", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ categoria, objetivo, descripcion }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setGenerando(false);
-    if (!res.ok) {
-      setError(data.error ?? "No se pudo generar el copyscript");
-      return;
-    }
-    setBorrador(data.copyscript);
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6">
-        <h2 className="mb-4 text-base font-semibold text-[var(--color-texto)]">Generar copyscript con IA</h2>
-
-        {!borrador ? (
-          <div className="space-y-4">
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Describe qué debe hacer el agente en la llamada</span>
-              <textarea
-                rows={4}
-                value={descripcion}
-                onChange={(e) => setDescripcion(e.target.value)}
-                placeholder="Ej. Llamar a clientes para confirmar que siguen usando el servicio de fumigación y ofrecer renovar el contrato anual."
-                className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
-              />
-            </label>
-
-            {error && <p className="text-sm text-red-500">{error}</p>}
-
-            <div className="flex gap-3">
-              <button
-                onClick={generar}
-                disabled={generando || !descripcion.trim()}
-                style={{ boxShadow: "var(--halo-accion)" }}
-                className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
-              >
-                {generando ? "Generando…" : "Generar"}
-              </button>
-              <button onClick={onCancelar} className="rounded-lg px-4 py-2 text-sm font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
-                Cancelar
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Copyscript</span>
-              <textarea
-                rows={12}
-                value={borrador}
-                onChange={(e) => setBorrador(e.target.value)}
-                className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
-              />
-            </label>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => onUsar(borrador)}
-                style={{ boxShadow: "var(--halo-accion)" }}
-                className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90"
-              >
-                Usar esto
-              </button>
-              <button onClick={() => setBorrador(null)} className="rounded-lg px-4 py-2 text-sm font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
-                Volver
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

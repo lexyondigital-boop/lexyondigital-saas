@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermiso } from "@/lib/require-permiso";
 import { registrarActividad } from "@/lib/auditoria";
-import { sincronizarPlantillaVozConRetell } from "@/lib/retell";
+import { sincronizarPlantillaVozConRetell, type FuncionRetell } from "@/lib/retell";
 
 const AGENTES_TIPO = ["servicio", "citas", "venta", "cobranza", "legal"] as const;
 const AGENTES_TIPO_DISPONIBLES = ["servicio"] as const;
@@ -38,20 +38,33 @@ export async function POST(request: NextRequest) {
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const body = await request.json();
-  const { nombre, copyscript, objetivo, agente_tipo, categoria, plantilla_base_clave, modo_agente, retell_agent_id, retell_voice_id, retell_idioma, retell_colgar_buzon } =
-    body as {
-      nombre?: string;
-      copyscript?: string;
-      objetivo?: string;
-      agente_tipo?: string;
-      categoria?: string;
-      plantilla_base_clave?: string | null;
-      modo_agente?: string;
-      retell_agent_id?: string | null;
-      retell_voice_id?: string | null;
-      retell_idioma?: string;
-      retell_colgar_buzon?: boolean;
-    };
+  const {
+    nombre,
+    copyscript,
+    objetivo,
+    agente_tipo,
+    categoria,
+    plantilla_base_clave,
+    modo_agente,
+    retell_agent_id,
+    retell_voice_id,
+    retell_idioma,
+    retell_colgar_buzon,
+    retell_funciones,
+  } = body as {
+    nombre?: string;
+    copyscript?: string;
+    objetivo?: string;
+    agente_tipo?: string;
+    categoria?: string;
+    plantilla_base_clave?: string | null;
+    modo_agente?: string;
+    retell_agent_id?: string | null;
+    retell_voice_id?: string | null;
+    retell_idioma?: string;
+    retell_colgar_buzon?: boolean;
+    retell_funciones?: FuncionRetell[];
+  };
 
   if (!nombre?.trim()) return NextResponse.json({ error: "Falta el nombre" }, { status: 400 });
 
@@ -92,6 +105,7 @@ export async function POST(request: NextRequest) {
       retell_voice_id: modoAgenteFinal === "generado" ? (retell_voice_id ?? null) : null,
       retell_idioma: retell_idioma ?? "es-419",
       retell_colgar_buzon: retell_colgar_buzon ?? true,
+      ...(retell_funciones !== undefined ? { retell_funciones } : {}),
     })
     .select()
     .single();

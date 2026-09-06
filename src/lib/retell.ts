@@ -183,7 +183,13 @@ export async function listarVocesRetell(apiKey: string): Promise<{ ok: true; voc
 // representan una plantilla de voz en modo "generado" -- el Copyscript se
 // manda como general_prompt, así que el agente conversa según eso en vez de
 // usar el agente por defecto del número saliente.
-export type FuncionRetell = { type: string; name: string; description?: string };
+export type FuncionRetell = {
+  type: string;
+  name: string;
+  description?: string;
+  transfer_destination?: { type: "predefined"; number: string };
+  transfer_option?: { type: "cold_transfer" };
+};
 
 export async function sincronizarAgenteGenerado(
   apiKey: string,
