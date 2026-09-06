@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Papa from "papaparse";
 import { createClient } from "@/lib/supabase/client";
@@ -8,6 +8,7 @@ import { Badge } from "@/components/Badge";
 import { CampoTelefono } from "@/components/CampoTelefono";
 import { SelectorEtiquetasPopover, type EtiquetaCatalogo } from "@/components/SelectorEtiquetasPopover";
 import type { CampoPersonalizado } from "@/lib/campos-personalizados";
+import { actualizarEtiquetasContacto, etiquetasCambiaron } from "@/lib/etiquetas-contacto";
 
 type Contacto = {
   id: string;
@@ -260,7 +261,7 @@ export function ContactosView({ cuentaId, puedeExportar = false }: { cuentaId: s
 
   async function actualizarEtiquetas(contactoId: string, nuevas: string[]) {
     setContactos((prev) => prev.map((c) => (c.id === contactoId ? { ...c, etiquetas: nuevas } : c)));
-    const { error } = await supabase.from("contactos").update({ etiquetas: nuevas }).eq("id", contactoId);
+    const { error } = await actualizarEtiquetasContacto(supabase, contactoId, nuevas);
     if (error) cargar();
   }
 
@@ -772,6 +773,7 @@ function ContactoForm({
   const [canalOrigen, setCanalOrigen] = useState(contacto?.canal_origen ?? "");
   const [status, setStatus] = useState<"activo" | "inactivo">(contacto?.status ?? "activo");
   const [etiquetas, setEtiquetas] = useState<string[]>(contacto?.etiquetas ?? []);
+  const etiquetasIniciales = useRef(contacto?.etiquetas ?? []).current;
   const [valoresPersonalizados, setValoresPersonalizados] = useState<Record<string, string>>({});
   const [cargandoValores, setCargandoValores] = useState(!!contacto);
   const [enviando, setEnviando] = useState(false);
@@ -826,7 +828,7 @@ function ContactoForm({
 
     setEnviando(true);
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       nombre: nombre.trim() || null,
       nombre_completo: nombreCompleto.trim() || null,
       correo_electronico: correoElectronico.trim() || null,
@@ -835,6 +837,12 @@ function ContactoForm({
       status,
       etiquetas,
     };
+    // Solo se marca "etiqueta modificada" si de verdad cambió aquí -- si
+    // no, cada edición del modal (aunque sea solo el teléfono) hundiría la
+    // conversación de este contacto en la lista de Conversaciones.
+    if (contacto && etiquetasCambiaron(etiquetasIniciales, etiquetas)) {
+      payload.etiquetas_actualizadas_en = new Date().toISOString();
+    }
 
     const { data: guardado, error } = contacto
       ? await supabase.from("contactos").update(payload).eq("id", contacto.id).select("id").single()

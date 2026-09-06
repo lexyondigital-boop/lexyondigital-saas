@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/Badge";
+import { actualizarEtiquetasContacto } from "@/lib/etiquetas-contacto";
+
+type ContactoCrudo = { nombre: string | null; nombre_completo: string | null; etiquetas: string[] | null; etiquetas_actualizadas_en: string | null };
 
 type ConversacionCruda = {
   id: string;
@@ -11,7 +14,8 @@ type ConversacionCruda = {
   agente_ia_activo: boolean;
   contacto_id: string;
   created_at: string;
-  contactos: { nombre: string | null; nombre_completo: string | null } | { nombre: string | null; nombre_completo: string | null }[] | null;
+  ultimo_visto_en: string;
+  contactos: ContactoCrudo | ContactoCrudo[] | null;
 };
 
 type Conversacion = {
@@ -21,7 +25,11 @@ type Conversacion = {
   agente_ia_activo: boolean;
   contacto_id: string;
   created_at: string;
+  ultimoVistoEn: string;
   nombreContacto: string | null;
+  etiquetas: string[];
+  etiquetaActualizadaEn: string | null;
+  etapaId: string | null;
 };
 
 type Mensaje = {
@@ -38,8 +46,12 @@ type Mensaje = {
   feedback_ia: "positivo" | "negativo" | null;
 };
 
+function contactoDe(c: ConversacionCruda): ContactoCrudo | null {
+  return Array.isArray(c.contactos) ? (c.contactos[0] ?? null) : c.contactos;
+}
+
 function nombreDe(c: ConversacionCruda): string | null {
-  const rel = Array.isArray(c.contactos) ? c.contactos[0] : c.contactos;
+  const rel = contactoDe(c);
   // El nombre completo (capturado por el equipo, ej. al subir un CSV de
   // campaña) tiene prioridad sobre el nombre crudo de perfil de WhatsApp.
   return rel?.nombre_completo ?? rel?.nombre ?? null;
@@ -87,12 +99,42 @@ function IconoEstadoMensaje({ status }: { status: string }) {
   );
 }
 
+type Preview = { contenido: string | null; created_at: string; direccion: "entrante" | "saliente" };
+type EtapaPipeline = { id: string; nombre: string; color: string };
+type EtiquetaCatalogoConversacion = { id: string; nombre: string };
+
+// Tier 0 (arriba de todo): mensaje entrante más nuevo que lo último que el
+// usuario vio -- innegociable, un cliente que contesta siempre sube.
+// Tier 2 (al fondo): lo último que pasó fue tocar la etiqueta del contacto,
+// no un mensaje nuevo -- se interpreta como "ya le di seguimiento". Si
+// después llega un mensaje nuevo, la actividad vuelve a ser más reciente
+// que la marca de etiqueta y sale solo del tier 2 (sin caso especial).
+// Tier 1 (en medio): todo lo demás, por actividad más reciente.
+function compararConversaciones(a: Conversacion, b: Conversacion, previews: Record<string, Preview>) {
+  function nivelYClave(c: Conversacion) {
+    const p = previews[c.id];
+    const actividadEn = p?.created_at ?? c.created_at;
+    const noLeido = p?.direccion === "entrante" && p.created_at > c.ultimoVistoEn;
+    if (noLeido) return { nivel: 0, clave: p!.created_at };
+    if (c.etiquetaActualizadaEn && c.etiquetaActualizadaEn > actividadEn) return { nivel: 2, clave: c.etiquetaActualizadaEn };
+    return { nivel: 1, clave: actividadEn };
+  }
+  const na = nivelYClave(a);
+  const nb = nivelYClave(b);
+  if (na.nivel !== nb.nivel) return na.nivel - nb.nivel;
+  return nb.clave.localeCompare(na.clave);
+}
+
 export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
   const supabase = useMemo(() => createClient(), []);
   const [conversaciones, setConversaciones] = useState<Conversacion[]>([]);
-  const [previews, setPrevious] = useState<Record<string, { contenido: string | null; created_at: string }>>({});
+  const [previews, setPrevious] = useState<Record<string, Preview>>({});
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState("");
+  const [filtroEtapa, setFiltroEtapa] = useState("");
+  const [filtroEtiqueta, setFiltroEtiqueta] = useState("");
+  const [etapas, setEtapas] = useState<EtapaPipeline[]>([]);
+  const [catalogoEtiquetasFiltro, setCatalogoEtiquetasFiltro] = useState<EtiquetaCatalogoConversacion[]>([]);
   const [seleccionada, setSeleccionada] = useState<string | null>(null);
   const autoSeleccionHecha = useRef(false);
 
@@ -100,18 +142,43 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
     setCargando(true);
     const { data } = await supabase
       .from("conversaciones")
-      .select("id, telefono, status, agente_ia_activo, contacto_id, created_at, contactos(nombre, nombre_completo)")
+      .select(
+        "id, telefono, status, agente_ia_activo, contacto_id, created_at, ultimo_visto_en, contactos(nombre, nombre_completo, etiquetas, etiquetas_actualizadas_en)",
+      )
       .order("created_at", { ascending: false });
 
-    const lista: Conversacion[] = ((data as ConversacionCruda[]) ?? []).map((c) => ({
-      id: c.id,
-      telefono: c.telefono,
-      status: c.status,
-      agente_ia_activo: c.agente_ia_activo,
-      contacto_id: c.contacto_id,
-      created_at: c.created_at,
-      nombreContacto: nombreDe(c),
-    }));
+    const crudas = (data as ConversacionCruda[]) ?? [];
+
+    const contactoIds = [...new Set(crudas.map((c) => c.contacto_id))];
+    const { data: dealsRecientes } = await supabase
+      .from("deals")
+      .select("contacto_id, etapa_id, created_at")
+      .in("contacto_id", contactoIds.length > 0 ? contactoIds : [""])
+      .order("created_at", { ascending: false });
+
+    // Ya viene ordenado por más reciente primero -- el primero que se ve
+    // por cada contacto es su deal más reciente, sin importar el estado.
+    const etapaPorContacto: Record<string, string | null> = {};
+    for (const d of dealsRecientes ?? []) {
+      if (!(d.contacto_id in etapaPorContacto)) etapaPorContacto[d.contacto_id] = d.etapa_id;
+    }
+
+    const lista: Conversacion[] = crudas.map((c) => {
+      const contacto = contactoDe(c);
+      return {
+        id: c.id,
+        telefono: c.telefono,
+        status: c.status,
+        agente_ia_activo: c.agente_ia_activo,
+        contacto_id: c.contacto_id,
+        created_at: c.created_at,
+        ultimoVistoEn: c.ultimo_visto_en,
+        nombreContacto: nombreDe(c),
+        etiquetas: contacto?.etiquetas ?? [],
+        etiquetaActualizadaEn: contacto?.etiquetas_actualizadas_en ?? null,
+        etapaId: etapaPorContacto[c.contacto_id] ?? null,
+      };
+    });
     setConversaciones(lista);
 
     // Al llegar desde "Enviar plantilla" en la tabla de Contactos, la URL
@@ -126,20 +193,34 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
 
     const { data: mensajesRecientes } = await supabase
       .from("mensajes")
-      .select("conversacion_id, contenido, created_at")
+      .select("conversacion_id, contenido, created_at, direccion")
       .not("conversacion_id", "is", null)
       .order("created_at", { ascending: false })
       .limit(300);
 
-    const mapa: Record<string, { contenido: string | null; created_at: string }> = {};
+    const mapa: Record<string, Preview> = {};
     for (const m of mensajesRecientes ?? []) {
       if (m.conversacion_id && !mapa[m.conversacion_id]) {
-        mapa[m.conversacion_id] = { contenido: m.contenido, created_at: m.created_at };
+        mapa[m.conversacion_id] = { contenido: m.contenido, created_at: m.created_at, direccion: m.direccion };
       }
     }
     setPrevious(mapa);
     setCargando(false);
   }
+
+  useEffect(() => {
+    supabase
+      .from("etapas_pipeline")
+      .select("id, nombre, color")
+      .order("orden")
+      .then(({ data }) => setEtapas(data ?? []));
+    supabase
+      .from("etiquetas")
+      .select("id, nombre")
+      .order("nombre")
+      .then(({ data }) => setCatalogoEtiquetasFiltro(data ?? []));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     cargarLista();
@@ -161,11 +242,12 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
 
   const filtradas = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
-    if (!q) return conversaciones;
-    return conversaciones.filter(
-      (c) => c.nombreContacto?.toLowerCase().includes(q) || c.telefono.includes(q),
-    );
-  }, [conversaciones, busqueda]);
+    let lista = conversaciones;
+    if (q) lista = lista.filter((c) => c.nombreContacto?.toLowerCase().includes(q) || c.telefono.includes(q));
+    if (filtroEtapa) lista = lista.filter((c) => c.etapaId === filtroEtapa);
+    if (filtroEtiqueta) lista = lista.filter((c) => c.etiquetas.includes(filtroEtiqueta));
+    return [...lista].sort((a, b) => compararConversaciones(a, b, previews));
+  }, [conversaciones, busqueda, filtroEtapa, filtroEtiqueta, previews]);
 
   const conversacionActiva = conversaciones.find((c) => c.id === seleccionada) ?? null;
 
@@ -182,6 +264,32 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
             placeholder="Buscar…"
             className="mt-3 w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-1.5 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
           />
+          <div className="mt-2 flex gap-2">
+            <select
+              value={filtroEtapa}
+              onChange={(e) => setFiltroEtapa(e.target.value)}
+              className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2 py-1.5 text-xs text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+            >
+              <option value="">Todas las etapas</option>
+              {etapas.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.nombre}
+                </option>
+              ))}
+            </select>
+            <select
+              value={filtroEtiqueta}
+              onChange={(e) => setFiltroEtiqueta(e.target.value)}
+              className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2 py-1.5 text-xs text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+            >
+              <option value="">Todas las etiquetas</option>
+              {catalogoEtiquetasFiltro.map((e) => (
+                <option key={e.id} value={e.nombre}>
+                  {e.nombre}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto">
           {cargando ? (
@@ -689,7 +797,7 @@ function EtiquetaYEtapaContacto({ cuentaId, contactoId }: { cuentaId: string; co
   async function alternarEtiqueta(nombre: string) {
     const nuevas = etiquetasContacto.includes(nombre) ? etiquetasContacto.filter((e) => e !== nombre) : [...etiquetasContacto, nombre];
     setEtiquetasContacto(nuevas);
-    await supabase.from("contactos").update({ etiquetas: nuevas }).eq("id", contactoId);
+    await actualizarEtiquetasContacto(supabase, contactoId, nuevas);
   }
 
   // Una etiqueta que ya no existe en el catálogo (ej. se aplicó desde una
