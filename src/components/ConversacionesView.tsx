@@ -598,7 +598,11 @@ function PanelConversacion({
         </div>
       </div>
 
-      <EtiquetaYEtapaContacto cuentaId={cuentaId} contactoId={conversacion.contacto_id} />
+      <EtiquetaYEtapaContacto
+        cuentaId={cuentaId}
+        contactoId={conversacion.contacto_id}
+        nombreContacto={conversacion.nombreContacto ?? conversacion.telefono}
+      />
 
       <div className="flex-1 space-y-2 overflow-y-auto p-4">
         {cargando ? (
@@ -756,7 +760,15 @@ function ChipMini({ nombre, color }: { nombre: string; color: string }) {
 // sin salirte de Conversaciones. El "deal" relevante es el más reciente
 // abierto (o el más reciente a secas si no tiene ninguno abierto), ya que un
 // contacto puede tener varios a lo largo del tiempo.
-function EtiquetaYEtapaContacto({ cuentaId, contactoId }: { cuentaId: string; contactoId: string }) {
+function EtiquetaYEtapaContacto({
+  cuentaId,
+  contactoId,
+  nombreContacto,
+}: {
+  cuentaId: string;
+  contactoId: string;
+  nombreContacto: string;
+}) {
   const supabase = useMemo(() => createClient(), []);
   const [etiquetasContacto, setEtiquetasContacto] = useState<string[]>([]);
   const [catalogoEtiquetas, setCatalogoEtiquetas] = useState<EtiquetaCatalogo[]>([]);
@@ -764,6 +776,8 @@ function EtiquetaYEtapaContacto({ cuentaId, contactoId }: { cuentaId: string; co
   const [deal, setDeal] = useState<DealLite | null>(null);
   const [cargando, setCargando] = useState(true);
   const [editandoEtiquetas, setEditandoEtiquetas] = useState(false);
+  const [creandoDeal, setCreandoDeal] = useState(false);
+  const [errorDeal, setErrorDeal] = useState<string | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
   async function cargar() {
@@ -813,6 +827,27 @@ function EtiquetaYEtapaContacto({ cuentaId, contactoId }: { cuentaId: string; co
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ etapa_id: etapaId || null }),
     });
+  }
+
+  // Un contacto que todavía no tiene ningún deal no tenía forma de
+  // entrar al pipeline desde Conversaciones -- elegir una etapa aquí crea
+  // el deal directo, usando el nombre del contacto como título.
+  async function crearDeal(etapaId: string) {
+    if (!etapaId) return;
+    setCreandoDeal(true);
+    setErrorDeal(null);
+    const res = await fetch("/api/deals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ titulo: nombreContacto, contacto_id: contactoId, etapa_id: etapaId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setCreandoDeal(false);
+    if (!res.ok) {
+      setErrorDeal(data.error ?? "No se pudo agregar al pipeline");
+      return;
+    }
+    setDeal(data.deal);
   }
 
   if (cargando) return null;
@@ -873,8 +908,22 @@ function EtiquetaYEtapaContacto({ cuentaId, contactoId }: { cuentaId: string; co
           ))}
         </select>
       ) : (
-        <span className="text-xs text-[var(--color-texto-mute)]">Sin deal en el pipeline</span>
+        <select
+          value=""
+          disabled={creandoDeal}
+          onChange={(e) => crearDeal(e.target.value)}
+          className="rounded-md border-none bg-transparent text-xs font-medium text-[var(--color-texto-mute)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)] disabled:opacity-60"
+        >
+          <option value="">{creandoDeal ? "Agregando…" : "+ Agregar al pipeline"}</option>
+          {etapas.map((et) => (
+            <option key={et.id} value={et.id}>
+              {et.nombre}
+            </option>
+          ))}
+        </select>
       )}
+
+      {errorDeal && <span className="text-xs text-red-500">{errorDeal}</span>}
     </div>
   );
 }
