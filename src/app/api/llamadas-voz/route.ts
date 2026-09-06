@@ -62,13 +62,16 @@ export async function POST(request: NextRequest) {
 
   const { data: plantilla } = await admin
     .from("plantillas_voz")
-    .select("id, publicada")
+    .select("id, publicada, retell_agent_id")
     .eq("id", plantilla_voz_id)
     .eq("cuenta_id", conversacion.cuenta_id)
     .maybeSingle();
 
   if (!plantilla || !plantilla.publicada) {
     return NextResponse.json({ error: "Plantilla de voz no encontrada o no publicada" }, { status: 400 });
+  }
+  if (!plantilla.retell_agent_id) {
+    return NextResponse.json({ error: "Esta plantilla todavía no tiene un agente de Retell configurado" }, { status: 409 });
   }
 
   const cuentaRetell = await resolverCuentaRetell(admin, conversacion.cuenta_id);
@@ -94,6 +97,7 @@ export async function POST(request: NextRequest) {
     fromNumber: cuentaRetell.numeroSaliente,
     toNumber: telefonoAE164(conversacion.telefono),
     metadata: { cuenta_id: conversacion.cuenta_id, llamada_voz_id: llamada.id },
+    overrideAgentId: plantilla.retell_agent_id,
   });
 
   if (!resultado.ok) {

@@ -47,7 +47,13 @@ export async function listarNumerosRetell(apiKey: string): Promise<{ ok: true; n
 // POST /v2/create-phone-call -- dispara una llamada saliente real.
 export async function crearLlamadaRetell(
   apiKey: string,
-  params: { fromNumber: string; toNumber: string; metadata?: Record<string, unknown>; dynamicVariables?: Record<string, string> },
+  params: {
+    fromNumber: string;
+    toNumber: string;
+    metadata?: Record<string, unknown>;
+    dynamicVariables?: Record<string, string>;
+    overrideAgentId?: string;
+  },
 ): Promise<{ ok: true; callId: string } | { ok: false; error: string }> {
   try {
     const res = await fetch("https://api.retellai.com/v2/create-phone-call", {
@@ -58,6 +64,7 @@ export async function crearLlamadaRetell(
         to_number: params.toNumber,
         metadata: params.metadata,
         retell_llm_dynamic_variables: params.dynamicVariables,
+        override_agent_id: params.overrideAgentId,
       }),
     });
     if (!res.ok) {
@@ -123,6 +130,136 @@ export async function resolverCuentaRetell(
 // -- para Retell (E.164) solo hace falta anteponer el "+".
 export function telefonoAE164(telefono: string): string {
   return `+${normalizarDestinatario(telefono)}`;
+}
+
+export type AgenteRetell = { agentId: string; nombre: string };
+
+// POST /v2/list-agents -- agentes ya creados en esa cuenta de Retell, para
+// el modo "agente propio" (la cuenta ya sabe usar Retell directamente).
+export async function listarAgentesRetell(apiKey: string): Promise<{ ok: true; agentes: AgenteRetell[] } | { ok: false; error: string }> {
+  try {
+    const res = await fetch("https://api.retellai.com/v2/list-agents", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    });
+    if (res.status === 401) return { ok: false, error: "La API key no es válida" };
+    if (!res.ok) return { ok: false, error: `Retell respondió con un error (${res.status})` };
+    const data = (await res.json()) as Array<{ agent_id: string; agent_name?: string }>;
+    return { ok: true, agentes: data.map((a) => ({ agentId: a.agent_id, nombre: a.agent_name || a.agent_id })) };
+  } catch {
+    return { ok: false, error: "No se pudo conectar con Retell" };
+  }
+}
+
+export type VozRetell = { voiceId: string; nombre: string; proveedor: string; acento: string | null; genero: string | null };
+
+// GET /list-voices -- catálogo de voces disponibles, para elegir la del
+// agente generado automáticamente desde el Copyscript.
+export async function listarVocesRetell(apiKey: string): Promise<{ ok: true; voces: VozRetell[] } | { ok: false; error: string }> {
+  try {
+    const res = await fetch("https://api.retellai.com/list-voices", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (res.status === 401) return { ok: false, error: "La API key no es válida" };
+    if (!res.ok) return { ok: false, error: `Retell respondió con un error (${res.status})` };
+    const data = (await res.json()) as Array<{ voice_id: string; voice_name?: string; provider?: string; accent?: string; gender?: string }>;
+    return {
+      ok: true,
+      voces: data.map((v) => ({
+        voiceId: v.voice_id,
+        nombre: v.voice_name || v.voice_id,
+        proveedor: v.provider ?? "",
+        acento: v.accent ?? null,
+        genero: v.gender ?? null,
+      })),
+    };
+  } catch {
+    return { ok: false, error: "No se pudo conectar con Retell" };
+  }
+}
+
+// Crea (o actualiza si ya existen) el LLM y el agente de Retell que
+// representan una plantilla de voz en modo "generado" -- el Copyscript se
+// manda como general_prompt, así que el agente conversa según eso en vez de
+// usar el agente por defecto del número saliente.
+export async function sincronizarAgenteGenerado(
+  apiKey: string,
+  params: { llmId: string | null; agentId: string | null; prompt: string; voiceId: string; nombre: string },
+): Promise<{ ok: true; llmId: string; agentId: string } | { ok: false; error: string }> {
+  try {
+    const resLlm = await fetch(
+      params.llmId ? `https://api.retellai.com/update-retell-llm/${params.llmId}` : "https://api.retellai.com/create-retell-llm",
+      {
+        method: params.llmId ? "PATCH" : "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ general_prompt: params.prompt }),
+      },
+    );
+    if (!resLlm.ok) {
+      const data = await resLlm.json().catch(() => ({}));
+      return { ok: false, error: (data as { message?: string }).message ?? `Retell respondió con un error (${resLlm.status}) al guardar el prompt` };
+    }
+    const llm = (await resLlm.json()) as { llm_id: string };
+
+    const resAgente = await fetch(
+      params.agentId ? `https://api.retellai.com/update-agent/${params.agentId}` : "https://api.retellai.com/create-agent",
+      {
+        method: params.agentId ? "PATCH" : "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          response_engine: { type: "retell-llm", llm_id: llm.llm_id },
+          voice_id: params.voiceId,
+          agent_name: params.nombre,
+        }),
+      },
+    );
+    if (!resAgente.ok) {
+      const data = await resAgente.json().catch(() => ({}));
+      return { ok: false, error: (data as { message?: string }).message ?? `Retell respondió con un error (${resAgente.status}) al guardar el agente` };
+    }
+    const agente = (await resAgente.json()) as { agent_id: string };
+
+    return { ok: true, llmId: llm.llm_id, agentId: agente.agent_id };
+  } catch {
+    return { ok: false, error: "No se pudo conectar con Retell" };
+  }
+}
+
+// Junta lo que necesitan las rutas de plantillas_voz para sincronizar una
+// plantilla en modo "generado": resuelve la API key de la cuenta, arma el
+// prompt a partir de Objetivo + Copyscript, y crea/actualiza el LLM+agente.
+export async function sincronizarPlantillaVozConRetell(
+  admin: AdminClient,
+  cuentaId: string,
+  plantilla: {
+    nombre: string;
+    copyscript: string;
+    objetivo: string | null;
+    retell_llm_id: string | null;
+    retell_agent_id: string | null;
+    retell_voice_id: string | null;
+  },
+): Promise<{ ok: true; retellLlmId: string; retellAgentId: string; sincronizadoEn: string } | { ok: false; error: string }> {
+  if (!plantilla.retell_voice_id) return { ok: false, error: "Falta elegir la voz del agente" };
+
+  const apiKey = await resolverApiKeyRetell(admin, cuentaId);
+  if (!apiKey) return { ok: false, error: "Esta cuenta no tiene Retell conectado" };
+
+  const prompt = [plantilla.objetivo ? `Objetivo de la llamada: ${plantilla.objetivo}` : null, plantilla.copyscript]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const resultado = await sincronizarAgenteGenerado(apiKey, {
+    llmId: plantilla.retell_llm_id,
+    agentId: plantilla.retell_agent_id,
+    prompt,
+    voiceId: plantilla.retell_voice_id,
+    nombre: plantilla.nombre,
+  });
+  if (!resultado.ok) return resultado;
+
+  return { ok: true, retellLlmId: resultado.llmId, retellAgentId: resultado.agentId, sincronizadoEn: new Date().toISOString() };
 }
 
 const DESCONEXION_SIN_RESPUESTA = new Set([

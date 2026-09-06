@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermiso } from "@/lib/require-permiso";
 import { registrarActividad } from "@/lib/auditoria";
+import { sincronizarPlantillaVozConRetell } from "@/lib/retell";
 
 const AGENTES_TIPO_DISPONIBLES = ["servicio"] as const;
+const MODOS_AGENTE = ["generado", "retell_propio"] as const;
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requirePermiso("manage_plantillas_voz");
@@ -11,17 +13,26 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const { id } = await params;
   const body = await request.json();
-  const { nombre, copyscript, objetivo, agente_tipo, categoria, publicada } = body as {
+  const { nombre, copyscript, objetivo, agente_tipo, categoria, publicada, modo_agente, retell_agent_id, retell_voice_id } = body as {
     nombre?: string;
     copyscript?: string;
     objetivo?: string | null;
     agente_tipo?: string;
     categoria?: string;
     publicada?: boolean;
+    modo_agente?: string;
+    retell_agent_id?: string | null;
+    retell_voice_id?: string | null;
   };
 
   if (agente_tipo && !AGENTES_TIPO_DISPONIBLES.includes(agente_tipo as (typeof AGENTES_TIPO_DISPONIBLES)[number])) {
     return NextResponse.json({ error: "Ese tipo de agente todavía no está disponible (próximamente)" }, { status: 400 });
+  }
+  if (modo_agente !== undefined && !MODOS_AGENTE.includes(modo_agente as (typeof MODOS_AGENTE)[number])) {
+    return NextResponse.json({ error: "Modo de agente inválido" }, { status: 400 });
+  }
+  if (modo_agente === "retell_propio" && retell_agent_id === undefined) {
+    return NextResponse.json({ error: "Falta elegir el agente de Retell" }, { status: 400 });
   }
 
   const admin = createAdminClient();
@@ -46,6 +57,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (agente_tipo !== undefined) cambios.agente_tipo = agente_tipo;
   if (categoria !== undefined) cambios.categoria = categoria;
   if (publicada !== undefined) cambios.publicada = publicada;
+  if (modo_agente !== undefined) cambios.modo_agente = modo_agente;
+  if (modo_agente === "retell_propio") cambios.retell_agent_id = retell_agent_id;
+  if (retell_voice_id !== undefined) cambios.retell_voice_id = retell_voice_id;
 
   const { data, error } = await admin
     .from("plantillas_voz")
@@ -69,7 +83,25 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     request,
   });
 
-  return NextResponse.json({ plantilla: data });
+  let avisoRetell: string | undefined;
+  let plantillaFinal = data;
+
+  if (data.modo_agente === "generado") {
+    const sync = await sincronizarPlantillaVozConRetell(admin, auth.perfil.cuenta_id, data);
+    if (sync.ok) {
+      const { data: actualizada } = await admin
+        .from("plantillas_voz")
+        .update({ retell_llm_id: sync.retellLlmId, retell_agent_id: sync.retellAgentId, retell_sincronizado_en: sync.sincronizadoEn })
+        .eq("id", id)
+        .select()
+        .single();
+      if (actualizada) plantillaFinal = actualizada;
+    } else {
+      avisoRetell = sync.error;
+    }
+  }
+
+  return NextResponse.json({ plantilla: plantillaFinal, avisoRetell });
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

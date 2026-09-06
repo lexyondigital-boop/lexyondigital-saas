@@ -350,7 +350,13 @@ type PlantillaVoz = {
   agente_tipo: string;
   categoria: string;
   publicada: boolean;
+  modo_agente: "generado" | "retell_propio";
+  retell_agent_id: string | null;
+  retell_voice_id: string | null;
 };
+
+type AgenteRetellLite = { agentId: string; nombre: string };
+type VozRetellLite = { voiceId: string; nombre: string; proveedor: string; acento: string | null; genero: string | null };
 
 function PlantillasVozSection() {
   const [plantillas, setPlantillas] = useState<PlantillaVoz[]>([]);
@@ -450,6 +456,15 @@ function PlantillasVozSection() {
                 {AGENTES_TIPO_VOZ.find((a) => a.valor === p.agente_tipo)?.etiqueta ?? p.agente_tipo} ·{" "}
                 {CATEGORIAS_VOZ.find((c) => c.valor === p.categoria)?.etiqueta ?? p.categoria}
               </p>
+              <p className="mt-1">
+                {p.modo_agente === "retell_propio" ? (
+                  <Badge tono="marca">Agente propio de Retell</Badge>
+                ) : p.retell_agent_id ? (
+                  <Badge tono="en-vivo">Sincronizado con Retell</Badge>
+                ) : (
+                  <Badge tono="aviso">Sin sincronizar con Retell</Badge>
+                )}
+              </p>
               <p className="mt-2 line-clamp-3 text-sm text-[var(--color-texto)]">{p.copyscript || "—"}</p>
 
               <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-[var(--color-borde)] pt-3">
@@ -488,21 +503,64 @@ function FormularioPlantillaVoz({
   const [objetivo, setObjetivo] = useState(plantilla?.objetivo ?? "");
   const [agenteTipo, setAgenteTipo] = useState(plantilla?.agente_tipo ?? "servicio");
   const [categoria, setCategoria] = useState(plantilla?.categoria ?? "servicios");
+  const [modoAgente, setModoAgente] = useState<"generado" | "retell_propio">(plantilla?.modo_agente ?? "generado");
+  const [retellAgentId, setRetellAgentId] = useState(plantilla?.retell_agent_id ?? "");
+  const [retellVoiceId, setRetellVoiceId] = useState(plantilla?.retell_voice_id ?? "");
+  const [agentes, setAgentes] = useState<AgenteRetellLite[]>([]);
+  const [voces, setVoces] = useState<VozRetellLite[]>([]);
+  const [cargandoOpciones, setCargandoOpciones] = useState(false);
+  const [errorOpciones, setErrorOpciones] = useState<string | null>(null);
+  const [mostrarGeneradorCopyscript, setMostrarGeneradorCopyscript] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const INPUT_LOCAL =
     "w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]";
 
+  useEffect(() => {
+    setCargandoOpciones(true);
+    setErrorOpciones(null);
+    const url = modoAgente === "retell_propio" ? "/api/integraciones/retell/agentes" : "/api/integraciones/retell/voces";
+    fetch(url)
+      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok) {
+          setErrorOpciones(data.error ?? "No se pudo cargar la lista de Retell");
+          return;
+        }
+        if (modoAgente === "retell_propio") setAgentes(data.agentes ?? []);
+        else setVoces(data.voces ?? []);
+      })
+      .catch(() => setErrorOpciones("No se pudo cargar la lista de Retell"))
+      .finally(() => setCargandoOpciones(false));
+  }, [modoAgente]);
+
   async function guardar() {
     if (!nombre.trim()) {
       setError("Falta el nombre");
       return;
     }
+    if (modoAgente === "retell_propio" && !retellAgentId) {
+      setError("Falta elegir el agente de Retell");
+      return;
+    }
+    if (modoAgente === "generado" && !retellVoiceId) {
+      setError("Falta elegir la voz del agente");
+      return;
+    }
     setGuardando(true);
     setError(null);
 
-    const body = { nombre, copyscript, objetivo, agente_tipo: agenteTipo, categoria };
+    const body = {
+      nombre,
+      copyscript,
+      objetivo,
+      agente_tipo: agenteTipo,
+      categoria,
+      modo_agente: modoAgente,
+      retell_agent_id: modoAgente === "retell_propio" ? retellAgentId : undefined,
+      retell_voice_id: modoAgente === "generado" ? retellVoiceId : undefined,
+    };
     const res = plantilla
       ? await fetch(`/api/plantillas-voz/${plantilla.id}`, {
           method: "PATCH",
@@ -562,7 +620,52 @@ function FormularioPlantillaVoz({
         </label>
 
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Copyscript</span>
+          <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Modo del agente</span>
+          <select value={modoAgente} onChange={(e) => setModoAgente(e.target.value as "generado" | "retell_propio")} className={INPUT_LOCAL}>
+            <option value="generado">Generar automáticamente desde el Copyscript</option>
+            <option value="retell_propio">Usar un agente que configuré en Retell</option>
+          </select>
+        </label>
+
+        {modoAgente === "retell_propio" ? (
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Agente de Retell</span>
+            <select value={retellAgentId} onChange={(e) => setRetellAgentId(e.target.value)} className={INPUT_LOCAL} disabled={cargandoOpciones}>
+              <option value="">{cargandoOpciones ? "Cargando…" : "Elige un agente"}</option>
+              {agentes.map((a) => (
+                <option key={a.agentId} value={a.agentId}>
+                  {a.nombre}
+                </option>
+              ))}
+            </select>
+            {errorOpciones && <p className="mt-1 text-xs text-red-500">{errorOpciones}</p>}
+          </label>
+        ) : (
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Voz del agente</span>
+            <select value={retellVoiceId} onChange={(e) => setRetellVoiceId(e.target.value)} className={INPUT_LOCAL} disabled={cargandoOpciones}>
+              <option value="">{cargandoOpciones ? "Cargando…" : "Elige una voz"}</option>
+              {voces.map((v) => (
+                <option key={v.voiceId} value={v.voiceId}>
+                  {v.nombre}
+                  {v.acento ? ` (${v.acento})` : ""}
+                </option>
+              ))}
+            </select>
+            {errorOpciones && <p className="mt-1 text-xs text-red-500">{errorOpciones}</p>}
+          </label>
+        )}
+
+        <label className="block">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-xs font-medium text-[var(--color-texto-mute)]">
+              Copyscript
+              {modoAgente === "retell_propio" && " (solo de referencia, no se envía a Retell en este modo)"}
+            </span>
+            <button type="button" onClick={() => setMostrarGeneradorCopyscript(true)} className="text-xs font-medium text-[var(--color-marca)] hover:underline">
+              ✨ Generar con IA
+            </button>
+          </div>
           <textarea value={copyscript} onChange={(e) => setCopyscript(e.target.value)} rows={8} className={INPUT_LOCAL} />
         </label>
 
@@ -581,6 +684,116 @@ function FormularioPlantillaVoz({
             {guardando ? "Guardando…" : "Guardar"}
           </button>
         </div>
+      </div>
+
+      {mostrarGeneradorCopyscript && (
+        <GeneradorCopyscriptModal
+          categoria={categoria}
+          objetivo={objetivo}
+          onUsar={(texto) => {
+            setCopyscript(texto);
+            setMostrarGeneradorCopyscript(false);
+          }}
+          onCancelar={() => setMostrarGeneradorCopyscript(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function GeneradorCopyscriptModal({
+  categoria,
+  objetivo,
+  onUsar,
+  onCancelar,
+}: {
+  categoria: string;
+  objetivo: string;
+  onUsar: (copyscript: string) => void;
+  onCancelar: () => void;
+}) {
+  const [descripcion, setDescripcion] = useState("");
+  const [generando, setGenerando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [borrador, setBorrador] = useState<string | null>(null);
+
+  async function generar() {
+    setGenerando(true);
+    setError(null);
+    const res = await fetch("/api/plantillas-voz/sugerir-copyscript", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ categoria, objetivo, descripcion }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setGenerando(false);
+    if (!res.ok) {
+      setError(data.error ?? "No se pudo generar el copyscript");
+      return;
+    }
+    setBorrador(data.copyscript);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6">
+        <h2 className="mb-4 text-base font-semibold text-[var(--color-texto)]">Generar copyscript con IA</h2>
+
+        {!borrador ? (
+          <div className="space-y-4">
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Describe qué debe hacer el agente en la llamada</span>
+              <textarea
+                rows={4}
+                value={descripcion}
+                onChange={(e) => setDescripcion(e.target.value)}
+                placeholder="Ej. Llamar a clientes para confirmar que siguen usando el servicio de fumigación y ofrecer renovar el contrato anual."
+                className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+              />
+            </label>
+
+            {error && <p className="text-sm text-red-500">{error}</p>}
+
+            <div className="flex gap-3">
+              <button
+                onClick={generar}
+                disabled={generando || !descripcion.trim()}
+                style={{ boxShadow: "var(--halo-accion)" }}
+                className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
+              >
+                {generando ? "Generando…" : "Generar"}
+              </button>
+              <button onClick={onCancelar} className="rounded-lg px-4 py-2 text-sm font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Copyscript</span>
+              <textarea
+                rows={12}
+                value={borrador}
+                onChange={(e) => setBorrador(e.target.value)}
+                className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+              />
+            </label>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => onUsar(borrador)}
+                style={{ boxShadow: "var(--halo-accion)" }}
+                className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90"
+              >
+                Usar esto
+              </button>
+              <button onClick={() => setBorrador(null)} className="rounded-lg px-4 py-2 text-sm font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
+                Volver
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
