@@ -4,44 +4,10 @@ import { requirePermiso } from "@/lib/require-permiso";
 import { registrarActividad } from "@/lib/auditoria";
 import { sincronizarPlantillaVozConRetell, resolverApiKeyRetell, asegurarWebhookAgente, type FuncionRetell } from "@/lib/retell";
 import { origenPublico } from "@/lib/origen-publico";
+import { validarConfiguracionLlamada } from "@/lib/plantillas-voz";
 
 const AGENTES_TIPO_DISPONIBLES = ["servicio"] as const;
 const MODOS_AGENTE = ["generado", "retell_propio"] as const;
-const CLAVES_TERMINACION_DTMF = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "#", "*"] as const;
-
-// Mismos rangos que documenta Retell para "Configuración de llamadas" --
-// ver también src/app/api/plantillas-voz/route.ts.
-function validarConfiguracionLlamada(body: {
-  retell_dtmf_timeout_ms?: number;
-  retell_dtmf_clave_terminacion?: string | null;
-  retell_dtmf_limite_digitos?: number | null;
-  retell_fin_silencio_ms?: number;
-  retell_duracion_maxima_ms?: number;
-  retell_duracion_anillo_ms?: number;
-}): string | null {
-  if (body.retell_dtmf_timeout_ms !== undefined && (body.retell_dtmf_timeout_ms < 1000 || body.retell_dtmf_timeout_ms > 15000)) {
-    return "El tiempo de espera del teclado debe estar entre 1 y 15 segundos";
-  }
-  if (
-    body.retell_dtmf_clave_terminacion &&
-    !CLAVES_TERMINACION_DTMF.includes(body.retell_dtmf_clave_terminacion as (typeof CLAVES_TERMINACION_DTMF)[number])
-  ) {
-    return "Clave de terminación inválida";
-  }
-  if (body.retell_dtmf_limite_digitos !== undefined && body.retell_dtmf_limite_digitos !== null) {
-    if (body.retell_dtmf_limite_digitos < 1 || body.retell_dtmf_limite_digitos > 50) return "El límite de dígitos debe estar entre 1 y 50";
-  }
-  if (body.retell_fin_silencio_ms !== undefined && body.retell_fin_silencio_ms < 10000) {
-    return "El fin de llamada por silencio debe ser de al menos 10 segundos";
-  }
-  if (body.retell_duracion_maxima_ms !== undefined && (body.retell_duracion_maxima_ms < 60000 || body.retell_duracion_maxima_ms > 7200000)) {
-    return "La duración máxima de la llamada debe estar entre 1 minuto y 2 horas";
-  }
-  if (body.retell_duracion_anillo_ms !== undefined && (body.retell_duracion_anillo_ms < 5000 || body.retell_duracion_anillo_ms > 300000)) {
-    return "La duración del timbre debe estar entre 5 y 300 segundos";
-  }
-  return null;
-}
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requirePermiso("manage_plantillas_voz");

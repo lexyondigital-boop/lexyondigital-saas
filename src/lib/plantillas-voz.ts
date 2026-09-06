@@ -71,3 +71,41 @@ export const OPCIONES_DURACION_ANILLO: { valor: number; etiqueta: string }[] = [
   valor: seg * 1000,
   etiqueta: `${seg} s`,
 }));
+
+const CLAVES_TERMINACION_DTMF = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "#", "*"] as const;
+
+// Rangos que documenta Retell para "Configuración de llamadas" -- se valida
+// aquí antes de mandarlo, en vez de dejar que Retell responda un 400 crudo.
+// Compartido entre las rutas de plantillas_voz (por sub-cuenta) y
+// plantillas_voz_maestras (plantillas base de la cuenta master).
+export function validarConfiguracionLlamada(body: {
+  retell_dtmf_timeout_ms?: number;
+  retell_dtmf_clave_terminacion?: string | null;
+  retell_dtmf_limite_digitos?: number | null;
+  retell_fin_silencio_ms?: number;
+  retell_duracion_maxima_ms?: number;
+  retell_duracion_anillo_ms?: number;
+}): string | null {
+  if (body.retell_dtmf_timeout_ms !== undefined && (body.retell_dtmf_timeout_ms < 1000 || body.retell_dtmf_timeout_ms > 15000)) {
+    return "El tiempo de espera del teclado debe estar entre 1 y 15 segundos";
+  }
+  if (
+    body.retell_dtmf_clave_terminacion &&
+    !CLAVES_TERMINACION_DTMF.includes(body.retell_dtmf_clave_terminacion as (typeof CLAVES_TERMINACION_DTMF)[number])
+  ) {
+    return "Clave de terminación inválida";
+  }
+  if (body.retell_dtmf_limite_digitos !== undefined && body.retell_dtmf_limite_digitos !== null) {
+    if (body.retell_dtmf_limite_digitos < 1 || body.retell_dtmf_limite_digitos > 50) return "El límite de dígitos debe estar entre 1 y 50";
+  }
+  if (body.retell_fin_silencio_ms !== undefined && body.retell_fin_silencio_ms < 10000) {
+    return "El fin de llamada por silencio debe ser de al menos 10 segundos";
+  }
+  if (body.retell_duracion_maxima_ms !== undefined && (body.retell_duracion_maxima_ms < 60000 || body.retell_duracion_maxima_ms > 7200000)) {
+    return "La duración máxima de la llamada debe estar entre 1 minuto y 2 horas";
+  }
+  if (body.retell_duracion_anillo_ms !== undefined && (body.retell_duracion_anillo_ms < 5000 || body.retell_duracion_anillo_ms > 300000)) {
+    return "La duración del timbre debe estar entre 5 y 300 segundos";
+  }
+  return null;
+}

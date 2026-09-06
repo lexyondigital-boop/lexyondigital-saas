@@ -7,7 +7,7 @@
 
 create table public.plantillas_voz_maestras (
   id uuid primary key default gen_random_uuid(),
-  nombre text not null,
+  nombre text not null unique,
   descripcion text,
   agente_tipo text not null default 'servicio' check (agente_tipo in ('servicio', 'citas', 'venta', 'cobranza', 'legal')),
   categoria text not null default 'servicios' check (categoria in ('legal', 'medicos', 'inmobiliario', 'servicios', 'cobranza', 'ventas')),
