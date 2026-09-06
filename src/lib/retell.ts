@@ -216,6 +216,22 @@ export type FuncionRetell = {
   transfer_option?: { type: "cold_transfer" };
 };
 
+// POST /publish-agent-version/{id} -- create/update-agent solo guarda un
+// draft (is_published: false). Sin este paso, Retell nunca manda los
+// webhooks call_ended/call_analyzed para llamadas hechas con ese agente,
+// aunque el contenido del draft (prompt, funciones) sí se use en la llamada.
+async function publicarAgenteRetell(apiKey: string, agentId: string, version: number): Promise<void> {
+  try {
+    await fetch(`https://api.retellai.com/publish-agent-version/${agentId}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ version }),
+    });
+  } catch {
+    // Silencioso -- ver comentario en el llamador.
+  }
+}
+
 export async function sincronizarAgenteGenerado(
   apiKey: string,
   params: {
@@ -264,7 +280,16 @@ export async function sincronizarAgenteGenerado(
       const data = await resAgente.json().catch(() => ({}));
       return { ok: false, error: (data as { message?: string }).message ?? `Retell respondió con un error (${resAgente.status}) al guardar el agente` };
     }
-    const agente = (await resAgente.json()) as { agent_id: string };
+    const agente = (await resAgente.json()) as { agent_id: string; version: number };
+
+    // create/update-agent solo escriben el draft (is_published queda en
+    // false) -- las llamadas en vivo sí lo usan para el contenido, pero
+    // Retell nunca llegó a mandar call_ended/call_analyzed a un agente sin
+    // publicar (confirmado reproduciendo el webhook a mano: nuestra firma y
+    // el guardado funcionan perfecto, Retell simplemente nunca lo dispara).
+    // Publicar es un no-op visible si falla -- no vale la pena tronar el
+    // guardado de la plantilla por esto.
+    await publicarAgenteRetell(apiKey, agente.agent_id, agente.version);
 
     return { ok: true, llmId: llm.llm_id, agentId: agente.agent_id };
   } catch {
