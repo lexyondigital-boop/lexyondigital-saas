@@ -105,6 +105,33 @@ type PlantillaVozAgente = {
   retell_duracion_anillo_ms: number;
 };
 
+// Plantilla maestra de la cuenta master, tal como la ve una sub-cuenta al
+// elegir un punto de partida para un agente nuevo -- mismos campos de
+// configuración que PlantillaVozAgente, sin lo que es propio de un agente ya
+// creado (publicada, modo_agente, retell_agent_id).
+type PlantillaSemilla = {
+  id: string;
+  nombre: string;
+  descripcion: string | null;
+  agente_tipo: string;
+  categoria: string;
+  copyscript: string;
+  objetivo: string | null;
+  retell_voice_id: string | null;
+  retell_idioma: string;
+  retell_colgar_buzon: boolean;
+  retell_colgar_ivr: boolean;
+  retell_pantalla_llamadas: boolean;
+  retell_dtmf_activo: boolean;
+  retell_dtmf_timeout_ms: number;
+  retell_dtmf_clave_terminacion: string | null;
+  retell_dtmf_limite_digitos: number | null;
+  retell_fin_silencio_ms: number;
+  retell_duracion_maxima_ms: number;
+  retell_duracion_anillo_ms: number;
+  retell_funciones: FuncionRetell[];
+};
+
 type AgenteRetellLite = { agentId: string; nombre: string };
 type VozRetellLite = { voiceId: string; nombre: string; proveedor: string; acento: string | null; genero: string | null };
 
@@ -275,6 +302,8 @@ function ServiciosWorkspace({ onVolver, permisos }: { onVolver: () => void; perm
 function SeccionPlantillas() {
   const [plantillas, setPlantillas] = useState<PlantillaVozAgente[] | null>(null);
   const [editando, setEditando] = useState<PlantillaVozAgente | "nueva" | null>(null);
+  const [semillaElegida, setSemillaElegida] = useState<PlantillaSemilla | null>(null);
+  const [mostrarSelector, setMostrarSelector] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function cargar() {
@@ -330,7 +359,7 @@ function SeccionPlantillas() {
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base font-semibold text-[var(--color-texto)]">Plantillas</h2>
         <button
-          onClick={() => setEditando("nueva")}
+          onClick={() => setMostrarSelector(true)}
           style={{ boxShadow: "var(--halo-accion)" }}
           className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90"
         >
@@ -339,14 +368,30 @@ function SeccionPlantillas() {
       </div>
       {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
 
+      {mostrarSelector && (
+        <SelectorPlantillaMaestra
+          onElegir={(semilla) => {
+            setSemillaElegida(semilla);
+            setEditando("nueva");
+            setMostrarSelector(false);
+          }}
+          onCancelar={() => setMostrarSelector(false)}
+        />
+      )}
+
       {editando && (
         <FormularioAgenteVoz
           plantilla={editando === "nueva" ? null : editando}
+          semilla={editando === "nueva" ? semillaElegida : null}
           onGuardado={() => {
             setEditando(null);
+            setSemillaElegida(null);
             cargar();
           }}
-          onCancelar={() => setEditando(null)}
+          onCancelar={() => {
+            setEditando(null);
+            setSemillaElegida(null);
+          }}
         />
       )}
 
@@ -397,37 +442,137 @@ function SeccionPlantillas() {
   );
 }
 
+// Paso intermedio al crear un agente nuevo: elegir una plantilla maestra de
+// la cuenta master como punto de partida (precarga el formulario, se puede
+// editar todo después) o empezar en blanco, como ya funcionaba antes.
+function SelectorPlantillaMaestra({
+  onElegir,
+  onCancelar,
+}: {
+  onElegir: (semilla: PlantillaSemilla | null) => void;
+  onCancelar: () => void;
+}) {
+  const [plantillas, setPlantillas] = useState<PlantillaSemilla[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/plantillas-voz-maestras/disponibles")
+      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok) {
+          setError(data.error ?? "No se pudieron cargar las plantillas maestras");
+          return;
+        }
+        setPlantillas(data.plantillas ?? []);
+      })
+      .catch(() => setError("No se pudieron cargar las plantillas maestras"));
+  }, []);
+
+  const porCategoria = new Map<string, PlantillaSemilla[]>();
+  for (const p of plantillas ?? []) {
+    porCategoria.set(p.categoria, [...(porCategoria.get(p.categoria) ?? []), p]);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onCancelar}>
+      <div
+        className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="mb-1 text-base font-semibold text-[var(--color-texto)]">Elige un punto de partida</h2>
+        <p className="mb-4 text-sm text-[var(--color-texto-mute)]">
+          Puedes usar una plantilla ya lista y editarla después, o empezar completamente en blanco.
+        </p>
+
+        <button
+          onClick={() => onElegir(null)}
+          className="mb-4 w-full rounded-xl border border-dashed border-[var(--color-borde)] p-4 text-left text-sm font-medium text-[var(--color-marca)] hover:border-[var(--color-marca)]"
+        >
+          + Empezar en blanco
+        </button>
+
+        {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
+
+        {plantillas === null ? (
+          <p className="text-sm text-[var(--color-texto-mute)]">Cargando…</p>
+        ) : plantillas.length === 0 ? (
+          <p className="text-sm text-[var(--color-texto-mute)]">Todavía no hay plantillas maestras disponibles.</p>
+        ) : (
+          <div className="space-y-4">
+            {[...porCategoria.entries()].map(([categoria, items]) => (
+              <div key={categoria}>
+                <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--color-texto-mute)]">
+                  {CATEGORIAS_VOZ.find((c) => c.valor === categoria)?.etiqueta ?? categoria}
+                </h3>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {items.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => onElegir(p)}
+                      className="rounded-xl border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-4 text-left hover:border-[var(--color-marca)]"
+                    >
+                      <p className="text-sm font-medium text-[var(--color-texto)]">{p.nombre}</p>
+                      {p.descripcion && <p className="mt-1 text-xs text-[var(--color-texto-mute)]">{p.descripcion}</p>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <button onClick={onCancelar} className="mt-4 text-sm font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function FormularioAgenteVoz({
   plantilla,
+  semilla,
   onGuardado,
   onCancelar,
 }: {
   plantilla: PlantillaVozAgente | null;
+  semilla?: PlantillaSemilla | null;
   onGuardado: () => void;
   onCancelar: () => void;
 }) {
-  const [nombre, setNombre] = useState(plantilla?.nombre ?? "");
-  const [copyscript, setCopyscript] = useState(plantilla?.copyscript ?? "");
-  const [objetivo, setObjetivo] = useState(plantilla?.objetivo ?? "");
-  const [agenteTipo, setAgenteTipo] = useState(plantilla?.agente_tipo ?? "servicio");
-  const [categoria, setCategoria] = useState(plantilla?.categoria ?? "servicios");
+  const [nombre, setNombre] = useState(plantilla?.nombre ?? semilla?.nombre ?? "");
+  const [copyscript, setCopyscript] = useState(plantilla?.copyscript ?? semilla?.copyscript ?? "");
+  const [objetivo, setObjetivo] = useState(plantilla?.objetivo ?? semilla?.objetivo ?? "");
+  const [agenteTipo, setAgenteTipo] = useState(plantilla?.agente_tipo ?? semilla?.agente_tipo ?? "servicio");
+  const [categoria, setCategoria] = useState(plantilla?.categoria ?? semilla?.categoria ?? "servicios");
   const [modoAgente, setModoAgente] = useState<"generado" | "retell_propio">(plantilla?.modo_agente ?? "generado");
   const [retellAgentId, setRetellAgentId] = useState(plantilla?.retell_agent_id ?? "");
-  const [retellVoiceId, setRetellVoiceId] = useState(plantilla?.retell_voice_id ?? "");
-  const [retellIdioma, setRetellIdioma] = useState(plantilla?.retell_idioma ?? "es-419");
-  const [retellColgarBuzon, setRetellColgarBuzon] = useState(plantilla?.retell_colgar_buzon ?? true);
-  const [retellColgarIvr, setRetellColgarIvr] = useState(plantilla?.retell_colgar_ivr ?? true);
-  const [retellPantallaLlamadas, setRetellPantallaLlamadas] = useState(plantilla?.retell_pantalla_llamadas ?? false);
-  const [retellDtmfActivo, setRetellDtmfActivo] = useState(plantilla?.retell_dtmf_activo ?? false);
-  const [retellDtmfTimeoutMs, setRetellDtmfTimeoutMs] = useState(plantilla?.retell_dtmf_timeout_ms ?? 2500);
-  const [retellDtmfClaveTerminacion, setRetellDtmfClaveTerminacion] = useState<string | null>(plantilla?.retell_dtmf_clave_terminacion ?? null);
-  const [retellDtmfLimiteDigitos, setRetellDtmfLimiteDigitos] = useState<number | null>(plantilla?.retell_dtmf_limite_digitos ?? null);
-  const [retellFinSilencioMs, setRetellFinSilencioMs] = useState(plantilla?.retell_fin_silencio_ms ?? 600000);
-  const [retellDuracionMaximaMs, setRetellDuracionMaximaMs] = useState(plantilla?.retell_duracion_maxima_ms ?? 3600000);
-  const [retellDuracionAnilloMs, setRetellDuracionAnilloMs] = useState(plantilla?.retell_duracion_anillo_ms ?? 30000);
+  const [retellVoiceId, setRetellVoiceId] = useState(plantilla?.retell_voice_id ?? semilla?.retell_voice_id ?? "");
+  const [retellIdioma, setRetellIdioma] = useState(plantilla?.retell_idioma ?? semilla?.retell_idioma ?? "es-419");
+  const [retellColgarBuzon, setRetellColgarBuzon] = useState(plantilla?.retell_colgar_buzon ?? semilla?.retell_colgar_buzon ?? true);
+  const [retellColgarIvr, setRetellColgarIvr] = useState(plantilla?.retell_colgar_ivr ?? semilla?.retell_colgar_ivr ?? true);
+  const [retellPantallaLlamadas, setRetellPantallaLlamadas] = useState(
+    plantilla?.retell_pantalla_llamadas ?? semilla?.retell_pantalla_llamadas ?? false,
+  );
+  const [retellDtmfActivo, setRetellDtmfActivo] = useState(plantilla?.retell_dtmf_activo ?? semilla?.retell_dtmf_activo ?? false);
+  const [retellDtmfTimeoutMs, setRetellDtmfTimeoutMs] = useState(plantilla?.retell_dtmf_timeout_ms ?? semilla?.retell_dtmf_timeout_ms ?? 2500);
+  const [retellDtmfClaveTerminacion, setRetellDtmfClaveTerminacion] = useState<string | null>(
+    plantilla?.retell_dtmf_clave_terminacion ?? semilla?.retell_dtmf_clave_terminacion ?? null,
+  );
+  const [retellDtmfLimiteDigitos, setRetellDtmfLimiteDigitos] = useState<number | null>(
+    plantilla?.retell_dtmf_limite_digitos ?? semilla?.retell_dtmf_limite_digitos ?? null,
+  );
+  const [retellFinSilencioMs, setRetellFinSilencioMs] = useState(plantilla?.retell_fin_silencio_ms ?? semilla?.retell_fin_silencio_ms ?? 600000);
+  const [retellDuracionMaximaMs, setRetellDuracionMaximaMs] = useState(
+    plantilla?.retell_duracion_maxima_ms ?? semilla?.retell_duracion_maxima_ms ?? 3600000,
+  );
+  const [retellDuracionAnilloMs, setRetellDuracionAnilloMs] = useState(
+    plantilla?.retell_duracion_anillo_ms ?? semilla?.retell_duracion_anillo_ms ?? 30000,
+  );
   const [mostrarConfigLlamadas, setMostrarConfigLlamadas] = useState(false);
   const [funciones, setFunciones] = useState<FuncionRetell[]>(
-    plantilla?.retell_funciones ?? [{ type: "end_call", name: "fin_de_llamada", description: "Fin de la llamada" }],
+    plantilla?.retell_funciones ??
+      semilla?.retell_funciones ?? [{ type: "end_call", name: "fin_de_llamada", description: "Fin de la llamada" }],
   );
   const [mostrarAgregarFuncion, setMostrarAgregarFuncion] = useState(false);
   const [agregandoTransferencia, setAgregandoTransferencia] = useState(false);
@@ -519,6 +664,7 @@ function FormularioAgenteVoz({
       objetivo,
       agente_tipo: agenteTipo,
       categoria,
+      ...(!plantilla && semilla?.id ? { plantilla_madre_id: semilla.id } : {}),
       modo_agente: modoAgente,
       retell_agent_id: modoAgente === "retell_propio" ? retellAgentId : undefined,
       retell_voice_id: modoAgente === "generado" ? retellVoiceId : undefined,
