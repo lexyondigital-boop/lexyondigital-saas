@@ -10,7 +10,7 @@ export default async function AgentesVozPage() {
 
   return (
     <AppShell email={user.email} role={perfil.rol} permisos={permisos} cuentaId={perfil.cuenta_id}>
-      <AgentesVozView />
+      <AgentesVozView permisos={permisos} />
     </AppShell>
   );
 }

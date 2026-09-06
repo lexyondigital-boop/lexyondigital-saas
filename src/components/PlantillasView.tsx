@@ -349,25 +349,7 @@ type PlantillaVoz = {
   objetivo: string | null;
   agente_tipo: string;
   categoria: string;
-  publicada: boolean;
-  modo_agente: "generado" | "retell_propio";
-  retell_agent_id: string | null;
-  retell_voice_id: string | null;
-  retell_idioma: string;
-  retell_colgar_buzon: boolean;
 };
-
-const IDIOMAS_VOZ: { valor: string; etiqueta: string }[] = [
-  { valor: "es-419", etiqueta: "Español (Latinoamérica)" },
-  { valor: "es-ES", etiqueta: "Español (España)" },
-  { valor: "en-US", etiqueta: "Inglés (EE. UU.)" },
-  { valor: "en-GB", etiqueta: "Inglés (Reino Unido)" },
-  { valor: "pt-BR", etiqueta: "Portugués (Brasil)" },
-  { valor: "fr-FR", etiqueta: "Francés" },
-];
-
-type AgenteRetellLite = { agentId: string; nombre: string };
-type VozRetellLite = { voiceId: string; nombre: string; proveedor: string; acento: string | null; genero: string | null };
 
 function PlantillasVozSection() {
   const [plantillas, setPlantillas] = useState<PlantillaVoz[]>([]);
@@ -411,21 +393,6 @@ function PlantillasVozSection() {
     cargar();
   }
 
-  async function alternarPublicada(p: PlantillaVoz) {
-    setError(null);
-    const res = await fetch(`/api/plantillas-voz/${p.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ publicada: !p.publicada }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setError(data.error ?? "No se pudo actualizar");
-      return;
-    }
-    cargar();
-  }
-
   return (
     <div>
       <div className="mb-4 flex justify-end">
@@ -459,22 +426,10 @@ function PlantillasVozSection() {
         ) : (
           plantillas.map((p) => (
             <div key={p.id} className="rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-5">
-              <div className="mb-2 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-[var(--color-texto)]">{p.nombre}</h3>
-                <Badge tono={p.publicada ? "en-vivo" : "mute"}>{p.publicada ? "Publicada" : "Borrador"}</Badge>
-              </div>
+              <h3 className="mb-2 text-sm font-semibold text-[var(--color-texto)]">{p.nombre}</h3>
               <p className="text-xs text-[var(--color-texto-mute)]">
                 {AGENTES_TIPO_VOZ.find((a) => a.valor === p.agente_tipo)?.etiqueta ?? p.agente_tipo} ·{" "}
                 {CATEGORIAS_VOZ.find((c) => c.valor === p.categoria)?.etiqueta ?? p.categoria}
-              </p>
-              <p className="mt-1">
-                {p.modo_agente === "retell_propio" ? (
-                  <Badge tono="marca">Agente propio de Retell</Badge>
-                ) : p.retell_agent_id ? (
-                  <Badge tono="en-vivo">Sincronizado con Retell</Badge>
-                ) : (
-                  <Badge tono="aviso">Sin sincronizar con Retell</Badge>
-                )}
               </p>
               <p className="mt-2 line-clamp-3 text-sm text-[var(--color-texto)]">{p.copyscript || "—"}</p>
 
@@ -484,9 +439,6 @@ function PlantillasVozSection() {
                 </button>
                 <button onClick={() => duplicar(p.id)} className="text-xs font-medium text-[var(--color-marca)] hover:underline">
                   Duplicar
-                </button>
-                <button onClick={() => alternarPublicada(p)} className="text-xs font-medium text-[var(--color-marca)] hover:underline">
-                  {p.publicada ? "Despublicar" : "Publicar"}
                 </button>
                 <button onClick={() => eliminar(p.id)} className="text-xs font-medium text-red-500 hover:underline">
                   Eliminar
@@ -514,15 +466,6 @@ function FormularioPlantillaVoz({
   const [objetivo, setObjetivo] = useState(plantilla?.objetivo ?? "");
   const [agenteTipo, setAgenteTipo] = useState(plantilla?.agente_tipo ?? "servicio");
   const [categoria, setCategoria] = useState(plantilla?.categoria ?? "servicios");
-  const [modoAgente, setModoAgente] = useState<"generado" | "retell_propio">(plantilla?.modo_agente ?? "generado");
-  const [retellAgentId, setRetellAgentId] = useState(plantilla?.retell_agent_id ?? "");
-  const [retellVoiceId, setRetellVoiceId] = useState(plantilla?.retell_voice_id ?? "");
-  const [retellIdioma, setRetellIdioma] = useState(plantilla?.retell_idioma ?? "es-419");
-  const [retellColgarBuzon, setRetellColgarBuzon] = useState(plantilla?.retell_colgar_buzon ?? true);
-  const [agentes, setAgentes] = useState<AgenteRetellLite[]>([]);
-  const [voces, setVoces] = useState<VozRetellLite[]>([]);
-  const [cargandoOpciones, setCargandoOpciones] = useState(false);
-  const [errorOpciones, setErrorOpciones] = useState<string | null>(null);
   const [mostrarGeneradorCopyscript, setMostrarGeneradorCopyscript] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -530,52 +473,15 @@ function FormularioPlantillaVoz({
   const INPUT_LOCAL =
     "w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]";
 
-  useEffect(() => {
-    setCargandoOpciones(true);
-    setErrorOpciones(null);
-    const url = modoAgente === "retell_propio" ? "/api/integraciones/retell/agentes" : "/api/integraciones/retell/voces";
-    fetch(url)
-      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
-      .then(({ ok, data }) => {
-        if (!ok) {
-          setErrorOpciones(data.error ?? "No se pudo cargar la lista de Retell");
-          return;
-        }
-        if (modoAgente === "retell_propio") setAgentes(data.agentes ?? []);
-        else setVoces(data.voces ?? []);
-      })
-      .catch(() => setErrorOpciones("No se pudo cargar la lista de Retell"))
-      .finally(() => setCargandoOpciones(false));
-  }, [modoAgente]);
-
   async function guardar() {
     if (!nombre.trim()) {
       setError("Falta el nombre");
       return;
     }
-    if (modoAgente === "retell_propio" && !retellAgentId) {
-      setError("Falta elegir el agente de Retell");
-      return;
-    }
-    if (modoAgente === "generado" && !retellVoiceId) {
-      setError("Falta elegir la voz del agente");
-      return;
-    }
     setGuardando(true);
     setError(null);
 
-    const body = {
-      nombre,
-      copyscript,
-      objetivo,
-      agente_tipo: agenteTipo,
-      categoria,
-      modo_agente: modoAgente,
-      retell_agent_id: modoAgente === "retell_propio" ? retellAgentId : undefined,
-      retell_voice_id: modoAgente === "generado" ? retellVoiceId : undefined,
-      retell_idioma: modoAgente === "generado" ? retellIdioma : undefined,
-      retell_colgar_buzon: modoAgente === "generado" ? retellColgarBuzon : undefined,
-    };
+    const body = { nombre, copyscript, objetivo, agente_tipo: agenteTipo, categoria };
     const res = plantilla
       ? await fetch(`/api/plantillas-voz/${plantilla.id}`, {
           method: "PATCH",
@@ -635,72 +541,16 @@ function FormularioPlantillaVoz({
         </label>
 
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Modo del agente</span>
-          <select value={modoAgente} onChange={(e) => setModoAgente(e.target.value as "generado" | "retell_propio")} className={INPUT_LOCAL}>
-            <option value="generado">Generar automáticamente desde el Copyscript</option>
-            <option value="retell_propio">Usar un agente que configuré en Retell</option>
-          </select>
-        </label>
-
-        {modoAgente === "retell_propio" ? (
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Agente de Retell</span>
-            <select value={retellAgentId} onChange={(e) => setRetellAgentId(e.target.value)} className={INPUT_LOCAL} disabled={cargandoOpciones}>
-              <option value="">{cargandoOpciones ? "Cargando…" : "Elige un agente"}</option>
-              {agentes.map((a) => (
-                <option key={a.agentId} value={a.agentId}>
-                  {a.nombre}
-                </option>
-              ))}
-            </select>
-            {errorOpciones && <p className="mt-1 text-xs text-red-500">{errorOpciones}</p>}
-          </label>
-        ) : (
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Voz del agente</span>
-            <select value={retellVoiceId} onChange={(e) => setRetellVoiceId(e.target.value)} className={INPUT_LOCAL} disabled={cargandoOpciones}>
-              <option value="">{cargandoOpciones ? "Cargando…" : "Elige una voz"}</option>
-              {voces.map((v) => (
-                <option key={v.voiceId} value={v.voiceId}>
-                  {v.nombre}
-                  {v.acento ? ` (${v.acento})` : ""}
-                </option>
-              ))}
-            </select>
-            {errorOpciones && <p className="mt-1 text-xs text-red-500">{errorOpciones}</p>}
-          </label>
-        )}
-
-        {modoAgente === "generado" && (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Idioma del agente</span>
-              <select value={retellIdioma} onChange={(e) => setRetellIdioma(e.target.value)} className={INPUT_LOCAL}>
-                {IDIOMAS_VOZ.map((i) => (
-                  <option key={i.valor} value={i.valor}>
-                    {i.etiqueta}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="mt-5 flex items-center gap-2 text-sm text-[var(--color-texto)]">
-              <input type="checkbox" checked={retellColgarBuzon} onChange={(e) => setRetellColgarBuzon(e.target.checked)} />
-              Colgar automáticamente si detecta buzón de voz
-            </label>
-          </div>
-        )}
-
-        <label className="block">
           <div className="mb-1 flex items-center justify-between">
-            <span className="text-xs font-medium text-[var(--color-texto-mute)]">
-              Copyscript
-              {modoAgente === "retell_propio" && " (solo de referencia, no se envía a Retell en este modo)"}
-            </span>
+            <span className="text-xs font-medium text-[var(--color-texto-mute)]">Copyscript</span>
             <button type="button" onClick={() => setMostrarGeneradorCopyscript(true)} className="text-xs font-medium text-[var(--color-marca)] hover:underline">
               ✨ Generar con IA
             </button>
           </div>
           <textarea value={copyscript} onChange={(e) => setCopyscript(e.target.value)} rows={8} className={INPUT_LOCAL} />
+          <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
+            El agente de Retell (voz, idioma, funciones) se configura en Agentes de Voz → Servicios.
+          </span>
         </label>
 
         {error && <p className="text-sm text-red-500">{error}</p>}

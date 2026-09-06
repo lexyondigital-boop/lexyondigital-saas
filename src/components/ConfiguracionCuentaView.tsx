@@ -107,6 +107,8 @@ function SeccionIntegraciones() {
 
 function SeccionRetell() {
   const [conectado, setConectado] = useState<CuentaRetell | null>(null);
+  const [permiteMaster, setPermiteMaster] = useState(true);
+  const [permitePropia, setPermitePropia] = useState(true);
   const [cargando, setCargando] = useState(true);
   const [modo, setModo] = useState<"master" | "propia">("master");
   const [apiKey, setApiKey] = useState("");
@@ -118,6 +120,9 @@ function SeccionRetell() {
     const res = await fetch("/api/integraciones/retell");
     const data = await res.json().catch(() => ({}));
     setConectado(data.conectado ?? null);
+    setPermiteMaster(data.permiteMaster ?? true);
+    setPermitePropia(data.permitePropia ?? true);
+    setModo(data.permiteMaster === false && data.permitePropia !== false ? "propia" : "master");
     setCargando(false);
   }
 
@@ -188,18 +193,24 @@ function SeccionRetell() {
             Desconectar
           </button>
         </div>
+      ) : !permiteMaster && !permitePropia ? (
+        <p className="text-sm text-[var(--color-texto-mute)]">
+          Esta cuenta todavía no tiene ningún modo de Retell habilitado. Contacta a lexyondigital.
+        </p>
       ) : (
         <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-2 text-sm text-[var(--color-texto)]">
-            <label className="flex items-center gap-2">
-              <input type="radio" name="retell_modo" checked={modo === "master"} onChange={() => setModo("master")} />
-              Incluido con lexyondigital
-            </label>
-            <label className="flex items-center gap-2">
-              <input type="radio" name="retell_modo" checked={modo === "propia"} onChange={() => setModo("propia")} />
-              Mi propia cuenta de Retell
-            </label>
-          </div>
+          {permiteMaster && permitePropia && (
+            <div className="flex flex-col gap-2 text-sm text-[var(--color-texto)]">
+              <label className="flex items-center gap-2">
+                <input type="radio" name="retell_modo" checked={modo === "master"} onChange={() => setModo("master")} />
+                Incluido con lexyondigital
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="radio" name="retell_modo" checked={modo === "propia"} onChange={() => setModo("propia")} />
+                Mi propia cuenta de Retell
+              </label>
+            </div>
+          )}
           {modo === "propia" && (
             <input
               type="password"

@@ -183,9 +183,20 @@ export async function listarVocesRetell(apiKey: string): Promise<{ ok: true; voc
 // representan una plantilla de voz en modo "generado" -- el Copyscript se
 // manda como general_prompt, así que el agente conversa según eso en vez de
 // usar el agente por defecto del número saliente.
+export type FuncionRetell = { type: string; name: string; description?: string };
+
 export async function sincronizarAgenteGenerado(
   apiKey: string,
-  params: { llmId: string | null; agentId: string | null; prompt: string; voiceId: string; nombre: string; idioma: string; colgarBuzon: boolean },
+  params: {
+    llmId: string | null;
+    agentId: string | null;
+    prompt: string;
+    voiceId: string;
+    nombre: string;
+    idioma: string;
+    colgarBuzon: boolean;
+    funciones: FuncionRetell[];
+  },
 ): Promise<{ ok: true; llmId: string; agentId: string } | { ok: false; error: string }> {
   try {
     const resLlm = await fetch(
@@ -193,7 +204,7 @@ export async function sincronizarAgenteGenerado(
       {
         method: params.llmId ? "PATCH" : "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ general_prompt: params.prompt }),
+        body: JSON.stringify({ general_prompt: params.prompt, general_tools: params.funciones }),
       },
     );
     if (!resLlm.ok) {
@@ -243,6 +254,7 @@ export async function sincronizarPlantillaVozConRetell(
     retell_voice_id: string | null;
     retell_idioma: string;
     retell_colgar_buzon: boolean;
+    retell_funciones: FuncionRetell[];
   },
 ): Promise<{ ok: true; retellLlmId: string; retellAgentId: string; sincronizadoEn: string } | { ok: false; error: string }> {
   if (!plantilla.retell_voice_id) return { ok: false, error: "Falta elegir la voz del agente" };
@@ -262,6 +274,7 @@ export async function sincronizarPlantillaVozConRetell(
     nombre: plantilla.nombre,
     idioma: plantilla.retell_idioma,
     colgarBuzon: plantilla.retell_colgar_buzon,
+    funciones: plantilla.retell_funciones,
   });
   if (!resultado.ok) return resultado;
 

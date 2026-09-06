@@ -113,6 +113,7 @@ export function ContactosView({ cuentaId, puedeExportar = false }: { cuentaId: s
   const [mostrarForm, setMostrarForm] = useState(false);
   const [mostrarColumnas, setMostrarColumnas] = useState(false);
   const [enviandoPlantillaA, setEnviandoPlantillaA] = useState<Contacto | null>(null);
+  const [llamandoA, setLlamandoA] = useState<Contacto | null>(null);
 
   async function cargar() {
     setCargando(true);
@@ -504,6 +505,12 @@ export function ContactosView({ cuentaId, puedeExportar = false }: { cuentaId: s
                       Enviar plantilla
                     </button>
                     <button
+                      onClick={() => setLlamandoA(c)}
+                      className="mr-3 text-sm font-medium text-[var(--color-marca)] hover:underline"
+                    >
+                      Enviar plantilla de voz
+                    </button>
+                    <button
                       onClick={() => {
                         setMostrarForm(false);
                         setEditando(c);
@@ -529,6 +536,8 @@ export function ContactosView({ cuentaId, puedeExportar = false }: { cuentaId: s
       {enviandoPlantillaA && (
         <ModalEnviarPlantilla contacto={enviandoPlantillaA} onCerrar={() => setEnviandoPlantillaA(null)} />
       )}
+
+      {llamandoA && <ModalEnviarPlantillaVoz contacto={llamandoA} onCerrar={() => setLlamandoA(null)} />}
     </div>
   );
 }
@@ -603,6 +612,86 @@ function ModalEnviarPlantilla({ contacto, onCerrar }: { contacto: Contacto; onCe
             className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
           >
             {enviando ? "Enviando…" : "Enviar"}
+          </button>
+          <button onClick={onCerrar} className="rounded-lg px-4 py-2 text-sm font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModalEnviarPlantillaVoz({ contacto, onCerrar }: { contacto: Contacto; onCerrar: () => void }) {
+  const supabase = createClient();
+  const router = useRouter();
+  const [plantillas, setPlantillas] = useState<{ id: string; nombre: string }[]>([]);
+  const [plantillaId, setPlantillaId] = useState("");
+  const [llamando, setLlamando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase
+      .from("plantillas_voz")
+      .select("id, nombre")
+      .eq("publicada", true)
+      .then(({ data }) => setPlantillas(data ?? []));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function llamar() {
+    if (!plantillaId) return;
+    setLlamando(true);
+    setError(null);
+    const res = await fetch("/api/llamadas-voz", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contacto_id: contacto.id, plantilla_voz_id: plantillaId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setLlamando(false);
+    if (!res.ok) {
+      setError(data.error ?? "No se pudo iniciar la llamada");
+      return;
+    }
+    router.push(`/conversaciones?conversacion_id=${data.conversacion_id}`);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-sm rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6">
+        <h2 className="mb-1 text-base font-semibold text-[var(--color-texto)]">Enviar plantilla de voz</h2>
+        <p className="mb-4 text-sm text-[var(--color-texto-mute)]">
+          A {contacto.nombre_completo || contacto.nombre || contacto.telefono} -- esto abre (o reusa) su conversación y dispara la llamada.
+        </p>
+
+        {plantillas.length === 0 ? (
+          <p className="text-sm text-[var(--color-texto-mute)]">No hay plantillas de voz activas todavía.</p>
+        ) : (
+          <select
+            value={plantillaId}
+            onChange={(e) => setPlantillaId(e.target.value)}
+            className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+          >
+            <option value="">Elegir plantilla…</option>
+            {plantillas.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nombre}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {error && <p className="mt-2 text-sm text-red-500">{error}</p>}
+
+        <div className="mt-4 flex gap-3">
+          <button
+            onClick={llamar}
+            disabled={llamando || !plantillaId}
+            style={{ boxShadow: "var(--halo-accion)" }}
+            className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
+          >
+            {llamando ? "Llamando…" : "Llamar"}
           </button>
           <button onClick={onCerrar} className="rounded-lg px-4 py-2 text-sm font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
             Cancelar

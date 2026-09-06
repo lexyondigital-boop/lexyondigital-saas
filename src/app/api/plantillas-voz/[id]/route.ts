@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermiso } from "@/lib/require-permiso";
 import { registrarActividad } from "@/lib/auditoria";
-import { sincronizarPlantillaVozConRetell } from "@/lib/retell";
+import { sincronizarPlantillaVozConRetell, type FuncionRetell } from "@/lib/retell";
 
 const AGENTES_TIPO_DISPONIBLES = ["servicio"] as const;
 const MODOS_AGENTE = ["generado", "retell_propio"] as const;
@@ -13,7 +13,20 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const { id } = await params;
   const body = await request.json();
-  const { nombre, copyscript, objetivo, agente_tipo, categoria, publicada, modo_agente, retell_agent_id, retell_voice_id, retell_idioma, retell_colgar_buzon } = body as {
+  const {
+    nombre,
+    copyscript,
+    objetivo,
+    agente_tipo,
+    categoria,
+    publicada,
+    modo_agente,
+    retell_agent_id,
+    retell_voice_id,
+    retell_idioma,
+    retell_colgar_buzon,
+    retell_funciones,
+  } = body as {
     nombre?: string;
     copyscript?: string;
     objetivo?: string | null;
@@ -25,6 +38,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     retell_voice_id?: string | null;
     retell_idioma?: string;
     retell_colgar_buzon?: boolean;
+    retell_funciones?: FuncionRetell[];
   };
 
   if (agente_tipo && !AGENTES_TIPO_DISPONIBLES.includes(agente_tipo as (typeof AGENTES_TIPO_DISPONIBLES)[number])) {
@@ -64,6 +78,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (retell_voice_id !== undefined) cambios.retell_voice_id = retell_voice_id;
   if (retell_idioma !== undefined) cambios.retell_idioma = retell_idioma;
   if (retell_colgar_buzon !== undefined) cambios.retell_colgar_buzon = retell_colgar_buzon;
+  if (retell_funciones !== undefined) cambios.retell_funciones = retell_funciones;
 
   const { data, error } = await admin
     .from("plantillas_voz")

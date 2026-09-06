@@ -11,7 +11,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
   const { data: cuenta, error } = await admin
     .from("cuentas")
-    .select("id, nombre, codigo, slug, giro, plan, activa, created_at")
+    .select("id, nombre, codigo, slug, giro, plan, activa, retell_permite_master, retell_permite_propia, created_at")
     .eq("id", id)
     .single();
 
@@ -58,6 +58,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
   if (typeof body.giro === "string") cambios.giro = body.giro.trim() || null;
   if (typeof body.activa === "boolean") cambios.activa = body.activa;
+  if (typeof body.retell_permite_master === "boolean") cambios.retell_permite_master = body.retell_permite_master;
+  if (typeof body.retell_permite_propia === "boolean") cambios.retell_permite_propia = body.retell_permite_propia;
 
   if (Object.keys(cambios).length === 0) {
     return NextResponse.json({ error: "Nada que actualizar" }, { status: 400 });

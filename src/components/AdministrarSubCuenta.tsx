@@ -12,6 +12,8 @@ type Cuenta = {
   giro: string | null;
   plan: string;
   activa: boolean;
+  retell_permite_master: boolean;
+  retell_permite_propia: boolean;
   created_at: string;
 };
 
@@ -236,12 +238,61 @@ function PestanaGeneral({ id, cuenta, onCambio }: { id: string; cuenta: Cuenta; 
         </span>
       </div>
 
+      <SeccionModosRetell id={id} cuenta={cuenta} onCambio={onCambio} />
+
       <div className="border-t border-[var(--color-borde)] pt-4">
         <span className="block text-sm font-medium text-[var(--color-texto)]">Creada</span>
         <span className="mt-1 block text-sm text-[var(--color-texto-mute)]">
           {new Date(cuenta.created_at).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}
         </span>
       </div>
+    </div>
+  );
+}
+
+// Control de plan de negocio para Agentes de Voz: el super-admin decide cuál
+// de los dos modos de Retell puede elegir esta sub-cuenta (incluido/DIY) --
+// sin esto, cualquier cuenta podía elegir libremente ambos.
+function SeccionModosRetell({ id, cuenta, onCambio }: { id: string; cuenta: Cuenta; onCambio: () => void }) {
+  const [guardando, setGuardando] = useState(false);
+
+  async function actualizar(campo: "retell_permite_master" | "retell_permite_propia", valor: boolean) {
+    setGuardando(true);
+    await fetch(`/api/cuentas/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [campo]: valor }),
+    });
+    await onCambio();
+    setGuardando(false);
+  }
+
+  return (
+    <div className="border-t border-[var(--color-borde)] pt-4">
+      <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Agentes de Voz</span>
+      <div className="space-y-2 text-sm text-[var(--color-texto)]">
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={cuenta.retell_permite_master}
+            disabled={guardando}
+            onChange={(e) => actualizar("retell_permite_master", e.target.checked)}
+          />
+          Permitir plan incluido (API maestra de lexyondigital)
+        </label>
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={cuenta.retell_permite_propia}
+            disabled={guardando}
+            onChange={(e) => actualizar("retell_permite_propia", e.target.checked)}
+          />
+          Permitir usar su propia cuenta de Retell
+        </label>
+      </div>
+      <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
+        Controla qué opciones ve esta sub-cuenta al conectar Retell en su Configuración → Integraciones.
+      </span>
     </div>
   );
 }

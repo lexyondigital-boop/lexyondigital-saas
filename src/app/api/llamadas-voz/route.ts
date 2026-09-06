@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermiso } from "@/lib/require-permiso";
 import { resolverCuentaRetell, crearLlamadaRetell, telefonoAE164 } from "@/lib/retell";
+import { obtenerOCrearConversacion } from "@/lib/conversaciones";
 
 // Historial de llamadas para el panel de Agentes de Voz.
 export async function GET() {
@@ -37,28 +38,55 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
 
-  const { conversacion_id, plantilla_voz_id } = (await request.json()) as {
+  const { conversacion_id, contacto_id, plantilla_voz_id } = (await request.json()) as {
     conversacion_id?: string;
+    contacto_id?: string;
     plantilla_voz_id?: string;
   };
 
-  if (!conversacion_id || !plantilla_voz_id) {
-    return NextResponse.json({ error: "Falta conversacion_id o plantilla_voz_id" }, { status: 400 });
+  if (!conversacion_id && !contacto_id) {
+    return NextResponse.json({ error: "Falta conversacion_id o contacto_id" }, { status: 400 });
   }
-
-  // Pasa por RLS con la sesión del usuario: si la conversación no
-  // pertenece a su cuenta, simplemente no aparece.
-  const { data: conversacion, error: conversacionError } = await supabase
-    .from("conversaciones")
-    .select("id, cuenta_id, telefono, contacto_id")
-    .eq("id", conversacion_id)
-    .single();
-
-  if (conversacionError || !conversacion) {
-    return NextResponse.json({ error: "Conversación no encontrada" }, { status: 404 });
+  if (!plantilla_voz_id) {
+    return NextResponse.json({ error: "Falta plantilla_voz_id" }, { status: 400 });
   }
 
   const admin = createAdminClient();
+
+  let conversacion: { id: string; cuenta_id: string; telefono: string; contacto_id: string | null };
+
+  if (conversacion_id) {
+    // Pasa por RLS con la sesión del usuario: si la conversación no
+    // pertenece a su cuenta, simplemente no aparece.
+    const { data, error: conversacionError } = await supabase
+      .from("conversaciones")
+      .select("id, cuenta_id, telefono, contacto_id")
+      .eq("id", conversacion_id)
+      .single();
+
+    if (conversacionError || !data) {
+      return NextResponse.json({ error: "Conversación no encontrada" }, { status: 404 });
+    }
+    conversacion = data;
+  } else {
+    // Igual pasa por RLS -- se usa desde el botón "Enviar plantilla de voz"
+    // de la tabla de Contactos, donde todavía no existe ninguna conversación.
+    const { data: contacto, error: contactoError } = await supabase
+      .from("contactos")
+      .select("id, cuenta_id, telefono")
+      .eq("id", contacto_id)
+      .single();
+
+    if (contactoError || !contacto) {
+      return NextResponse.json({ error: "Contacto no encontrado" }, { status: 404 });
+    }
+
+    const nueva = await obtenerOCrearConversacion(admin, contacto.cuenta_id, contacto.id, contacto.telefono);
+    if (!nueva) {
+      return NextResponse.json({ error: "No se pudo abrir la conversación" }, { status: 500 });
+    }
+    conversacion = { id: nueva.id, cuenta_id: contacto.cuenta_id, telefono: contacto.telefono, contacto_id: contacto.id };
+  }
 
   const { data: plantilla } = await admin
     .from("plantillas_voz")
@@ -124,5 +152,5 @@ export async function POST(request: NextRequest) {
 
   await admin.from("llamadas_voz").update({ retell_call_id: resultado.callId }).eq("id", llamada.id);
 
-  return NextResponse.json({ ok: true, llamada_id: llamada.id });
+  return NextResponse.json({ ok: true, llamada_id: llamada.id, conversacion_id: conversacion.id });
 }

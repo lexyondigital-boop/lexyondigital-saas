@@ -21,7 +21,17 @@ export async function GET() {
     .eq("activo", true)
     .maybeSingle();
 
-  return NextResponse.json({ conectado: data ?? null });
+  const { data: cuenta } = await admin
+    .from("cuentas")
+    .select("retell_permite_master, retell_permite_propia")
+    .eq("id", auth.perfil.cuenta_id)
+    .single();
+
+  return NextResponse.json({
+    conectado: data ?? null,
+    permiteMaster: cuenta?.retell_permite_master ?? true,
+    permitePropia: cuenta?.retell_permite_propia ?? true,
+  });
 }
 
 const INTERVALOS_VALIDOS = [2, 5, 10] as const;
@@ -65,6 +75,19 @@ export async function POST(request: NextRequest) {
   }
 
   const admin = createAdminClient();
+
+  const { data: cuenta } = await admin
+    .from("cuentas")
+    .select("retell_permite_master, retell_permite_propia")
+    .eq("id", auth.perfil.cuenta_id)
+    .single();
+
+  if (modo === "master" && cuenta && !cuenta.retell_permite_master) {
+    return NextResponse.json({ error: "Esta cuenta no tiene permitido el modo incluido (API maestra)" }, { status: 403 });
+  }
+  if (modo === "propia" && cuenta && !cuenta.retell_permite_propia) {
+    return NextResponse.json({ error: "Esta cuenta no tiene permitido usar su propia API de Retell" }, { status: 403 });
+  }
 
   if (modo === "propia") {
     if (!api_key?.trim()) {
