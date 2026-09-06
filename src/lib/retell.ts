@@ -202,6 +202,7 @@ export async function sincronizarAgenteGenerado(
     idioma: string;
     colgarBuzon: boolean;
     funciones: FuncionRetell[];
+    webhookUrl: string;
   },
 ): Promise<{ ok: true; llmId: string; agentId: string } | { ok: false; error: string }> {
   try {
@@ -230,6 +231,7 @@ export async function sincronizarAgenteGenerado(
           agent_name: params.nombre,
           language: params.idioma,
           voicemail_option: params.colgarBuzon ? { action: { type: "hangup" } } : null,
+          webhook_url: params.webhookUrl,
         }),
       },
     );
@@ -262,6 +264,7 @@ export async function sincronizarPlantillaVozConRetell(
     retell_colgar_buzon: boolean;
     retell_funciones: FuncionRetell[];
   },
+  webhookUrl: string,
 ): Promise<{ ok: true; retellLlmId: string; retellAgentId: string; sincronizadoEn: string } | { ok: false; error: string }> {
   if (!plantilla.retell_voice_id) return { ok: false, error: "Falta elegir la voz del agente" };
 
@@ -281,6 +284,7 @@ export async function sincronizarPlantillaVozConRetell(
     idioma: plantilla.retell_idioma,
     colgarBuzon: plantilla.retell_colgar_buzon,
     funciones: plantilla.retell_funciones,
+    webhookUrl,
   });
   if (!resultado.ok) return resultado;
 

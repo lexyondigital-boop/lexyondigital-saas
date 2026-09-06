@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/Badge";
 import { actualizarEtiquetasContacto } from "@/lib/etiquetas-contacto";
+import { ETIQUETA_STATUS_LLAMADA, ETIQUETA_RESULTADO_LLAMADA, formatearDuracionLlamada, type StatusLlamadaVoz, type ResultadoLlamadaVoz } from "@/lib/llamadas-voz";
 
 type ContactoCrudo = { nombre: string | null; nombre_completo: string | null; etiquetas: string[] | null; etiquetas_actualizadas_en: string | null };
 
@@ -44,6 +45,17 @@ type Mensaje = {
   sugerencia_ia: string | null;
   sugerencia_usada: boolean;
   feedback_ia: "positivo" | "negativo" | null;
+};
+
+type LlamadaVoz = {
+  id: string;
+  status: StatusLlamadaVoz;
+  resultado: ResultadoLlamadaVoz | null;
+  duracion_segundos: number | null;
+  transcripcion: string | null;
+  audio_url: string | null;
+  created_at: string;
+  plantilla: { nombre: string } | null;
 };
 
 function contactoDe(c: ConversacionCruda): ContactoCrudo | null {
@@ -96,6 +108,63 @@ function IconoEstadoMensaje({ status }: { status: string }) {
         opacity={status === "leido" ? 1 : 0.7}
       />
     </svg>
+  );
+}
+
+function BadgeStatusLlamada({ status }: { status: StatusLlamadaVoz }) {
+  if (status === "completada") return <Badge tono="en-vivo">{ETIQUETA_STATUS_LLAMADA[status]}</Badge>;
+  if (status === "en_progreso") return <Badge tono="aviso">{ETIQUETA_STATUS_LLAMADA[status]}</Badge>;
+  return <span className="text-xs font-medium text-red-500">{ETIQUETA_STATUS_LLAMADA[status]}</span>;
+}
+
+function BadgeResultadoLlamada({ resultado }: { resultado: ResultadoLlamadaVoz | null }) {
+  if (!resultado || resultado === "pendiente") return <Badge tono="mute">{ETIQUETA_RESULTADO_LLAMADA.pendiente}</Badge>;
+  if (resultado === "acepto") return <Badge tono="en-vivo">{ETIQUETA_RESULTADO_LLAMADA.acepto}</Badge>;
+  return <span className="text-xs font-medium text-red-500">{ETIQUETA_RESULTADO_LLAMADA.rechazo}</span>;
+}
+
+// Tarjeta centrada (no es "entrante"/"saliente" como un mensaje) que
+// representa una llamada de voz dentro de la línea de tiempo de la
+// conversación -- estado y resultado se actualizan solos vía Realtime en
+// cuanto Retell notifica al webhook.
+function TarjetaLlamadaVoz({ llamada }: { llamada: LlamadaVoz }) {
+  const [verTranscripcion, setVerTranscripcion] = useState(false);
+
+  return (
+    <div className="flex justify-center">
+      <div className="w-full max-w-[85%] rounded-2xl border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3.5 py-2.5 text-sm sm:max-w-[70%]">
+        <div className="flex flex-wrap items-center gap-2">
+          <span aria-hidden>📞</span>
+          <span className="font-medium text-[var(--color-texto)]">
+            Llamada de voz{llamada.plantilla?.nombre ? ` · ${llamada.plantilla.nombre}` : ""}
+          </span>
+          <BadgeStatusLlamada status={llamada.status} />
+          <BadgeResultadoLlamada resultado={llamada.resultado} />
+          {llamada.duracion_segundos !== null && (
+            <span className="text-xs text-[var(--color-texto-mute)]">{formatearDuracionLlamada(llamada.duracion_segundos)}</span>
+          )}
+        </div>
+
+        {llamada.transcripcion && (
+          <button
+            onClick={() => setVerTranscripcion((v) => !v)}
+            className="mt-1.5 text-xs font-medium text-[var(--color-marca)] hover:underline"
+          >
+            {verTranscripcion ? "Ocultar transcripción" : "Ver transcripción"}
+          </button>
+        )}
+        {verTranscripcion && llamada.transcripcion && (
+          <p className="mt-2 whitespace-pre-wrap text-xs text-[var(--color-texto)]">{llamada.transcripcion}</p>
+        )}
+        {verTranscripcion && llamada.audio_url && (
+          <audio controls src={llamada.audio_url} className="mt-2 w-full" style={{ height: 32 }} />
+        )}
+
+        <p className="mt-1.5 text-right text-[10px] text-[var(--color-texto-mute)]">
+          {new Date(llamada.created_at).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -358,6 +427,7 @@ function PanelConversacion({
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
+  const [llamadas, setLlamadas] = useState<LlamadaVoz[]>([]);
   const [cargando, setCargando] = useState(true);
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);
@@ -384,6 +454,15 @@ function PanelConversacion({
     setCargando(false);
   }
 
+  async function cargarLlamadas() {
+    const { data } = await supabase
+      .from("llamadas_voz")
+      .select("id, status, resultado, duracion_segundos, transcripcion, audio_url, created_at, plantilla:plantillas_voz(nombre)")
+      .eq("conversacion_id", conversacion.id)
+      .order("created_at", { ascending: true });
+    setLlamadas((data as unknown as LlamadaVoz[] | null) ?? []);
+  }
+
   // Marca la conversación como vista -- así deja de contar en la
   // "esferita" de pendientes de la barra lateral. Se llama al abrirla y de
   // nuevo cada vez que llega un mensaje mientras ya la tienes abierta.
@@ -393,6 +472,7 @@ function PanelConversacion({
 
   useEffect(() => {
     cargarMensajes();
+    cargarLlamadas();
     marcarComoVisto();
 
     const canal = supabase
@@ -417,6 +497,23 @@ function PanelConversacion({
           setMensajes((prev) => prev.map((m) => (m.id === actualizado.id ? actualizado : m)));
         },
       )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "llamadas_voz", filter: `conversacion_id=eq.${conversacion.id}` },
+        // El payload crudo no trae el nombre de la plantilla (join) -- se
+        // recarga completo, igual que hace llamarConPlantillaVoz() al colgar.
+        () => cargarLlamadas(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "llamadas_voz", filter: `conversacion_id=eq.${conversacion.id}` },
+        (payload) => {
+          // Así llega el resultado de la llamada (status, resultado,
+          // duración, transcripción) cuando Retell notifica al webhook.
+          const actualizado = payload.new as Omit<LlamadaVoz, "plantilla">;
+          setLlamadas((prev) => prev.map((l) => (l.id === actualizado.id ? { ...l, ...actualizado } : l)));
+        },
+      )
       .subscribe();
 
     return () => {
@@ -427,7 +524,7 @@ function PanelConversacion({
 
   useEffect(() => {
     finRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [mensajes.length]);
+  }, [mensajes.length, llamadas.length]);
 
   useEffect(() => {
     supabase
@@ -494,6 +591,7 @@ function PanelConversacion({
     setLlamando(false);
     if (res.ok) {
       setPlantillaVozSeleccionada("");
+      cargarLlamadas();
     } else {
       const data = await res.json().catch(() => ({}));
       setErrorLlamada(data.error ?? "No se pudo iniciar la llamada.");
@@ -564,6 +662,17 @@ function PanelConversacion({
     cargarMensajes();
   }
 
+  // Mensajes de WhatsApp y llamadas de voz en una sola línea de tiempo,
+  // ordenados por fecha -- una llamada de voz es, para efectos de la
+  // conversación, otro evento más que ocurrió con el contacto.
+  const timeline = useMemo(() => {
+    const items: ({ kind: "mensaje"; fecha: string; data: Mensaje } | { kind: "llamada"; fecha: string; data: LlamadaVoz })[] = [
+      ...mensajes.map((m) => ({ kind: "mensaje" as const, fecha: m.created_at, data: m })),
+      ...llamadas.map((l) => ({ kind: "llamada" as const, fecha: l.created_at, data: l })),
+    ];
+    return items.sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime());
+  }, [mensajes, llamadas]);
+
   return (
     <>
       <div className="flex items-center justify-between gap-2 border-b border-[var(--color-borde)] p-4">
@@ -607,50 +716,55 @@ function PanelConversacion({
       <div className="flex-1 space-y-2 overflow-y-auto p-4">
         {cargando ? (
           <p className="text-sm text-[var(--color-texto-mute)]">Cargando…</p>
-        ) : mensajes.length === 0 ? (
+        ) : timeline.length === 0 ? (
           <p className="text-sm text-[var(--color-texto-mute)]">Todavía no hay mensajes.</p>
         ) : (
-          mensajes.map((m) => (
-            <div key={m.id}>
-              <div className={`flex ${m.direccion === "saliente" ? "justify-end" : "justify-start"}`}>
-                <div
-                  className="max-w-[85%] rounded-2xl px-3.5 py-2 text-sm sm:max-w-[70%]"
-                  style={
-                    m.direccion === "saliente"
-                      ? { background: "var(--color-marca)", color: "var(--color-accion-fg)" }
-                      : { background: "var(--color-bg-elevada)", color: "var(--color-texto)" }
-                  }
-                >
-                  {m.tipo === "imagen" && m.media_url && (
-                    <img src={m.media_url} alt="Imagen enviada" className="mb-1.5 max-w-[240px] rounded-lg" />
-                  )}
-                  {m.tipo === "audio" && m.media_url && (
-                    <audio controls src={m.media_url} className="mb-1.5 max-w-full" style={{ height: 32 }} />
-                  )}
-                  {m.tipo === "audio" && m.contenido && (
-                    <p className="text-xs italic opacity-80">&ldquo;{m.contenido}&rdquo;</p>
-                  )}
-                  {m.tipo !== "audio" && (
-                    <p>{m.contenido ?? (m.template_nombre ? `Plantilla: ${m.template_nombre}` : m.tipo === "imagen" ? "" : "—")}</p>
-                  )}
-                  <p className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-70">
-                    {new Date(m.created_at).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
-                    {m.direccion === "saliente" && <IconoEstadoMensaje status={m.status} />}
-                  </p>
-                </div>
-              </div>
+          timeline.map((item) => {
+            if (item.kind === "llamada") return <TarjetaLlamadaVoz key={`llamada-${item.data.id}`} llamada={item.data} />;
 
-              {m.sugerencia_ia && (
-                <SugerenciaIA
-                  mensaje={m}
-                  procesando={procesandoSugerencia === m.id}
-                  onUsar={(texto) => usarSugerencia(m.id, texto)}
-                  onDescartar={() => descartarSugerencia(m.id)}
-                  onCalificar={(feedback) => calificarSugerencia(m.id, feedback)}
-                />
-              )}
-            </div>
-          ))
+            const m = item.data;
+            return (
+              <div key={m.id}>
+                <div className={`flex ${m.direccion === "saliente" ? "justify-end" : "justify-start"}`}>
+                  <div
+                    className="max-w-[85%] rounded-2xl px-3.5 py-2 text-sm sm:max-w-[70%]"
+                    style={
+                      m.direccion === "saliente"
+                        ? { background: "var(--color-marca)", color: "var(--color-accion-fg)" }
+                        : { background: "var(--color-bg-elevada)", color: "var(--color-texto)" }
+                    }
+                  >
+                    {m.tipo === "imagen" && m.media_url && (
+                      <img src={m.media_url} alt="Imagen enviada" className="mb-1.5 max-w-[240px] rounded-lg" />
+                    )}
+                    {m.tipo === "audio" && m.media_url && (
+                      <audio controls src={m.media_url} className="mb-1.5 max-w-full" style={{ height: 32 }} />
+                    )}
+                    {m.tipo === "audio" && m.contenido && (
+                      <p className="text-xs italic opacity-80">&ldquo;{m.contenido}&rdquo;</p>
+                    )}
+                    {m.tipo !== "audio" && (
+                      <p>{m.contenido ?? (m.template_nombre ? `Plantilla: ${m.template_nombre}` : m.tipo === "imagen" ? "" : "—")}</p>
+                    )}
+                    <p className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-70">
+                      {new Date(m.created_at).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}
+                      {m.direccion === "saliente" && <IconoEstadoMensaje status={m.status} />}
+                    </p>
+                  </div>
+                </div>
+
+                {m.sugerencia_ia && (
+                  <SugerenciaIA
+                    mensaje={m}
+                    procesando={procesandoSugerencia === m.id}
+                    onUsar={(texto) => usarSugerencia(m.id, texto)}
+                    onDescartar={() => descartarSugerencia(m.id)}
+                    onCalificar={(feedback) => calificarSugerencia(m.id, feedback)}
+                  />
+                )}
+              </div>
+            );
+          })
         )}
         <div ref={finRef} />
       </div>

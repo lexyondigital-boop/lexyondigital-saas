@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/Badge";
 import { AGENTES_TIPO_VOZ, CATEGORIAS_VOZ, IDIOMAS_VOZ } from "@/lib/plantillas-voz";
+import { ETIQUETA_STATUS_LLAMADA, ETIQUETA_RESULTADO_LLAMADA, formatearDuracionLlamada } from "@/lib/llamadas-voz";
 
 type Categoria = {
   valor: string;
@@ -29,39 +30,28 @@ type Llamada = {
   audio_url: string | null;
   created_at: string;
   contacto: { nombre: string | null; telefono: string } | null;
-  plantilla: { nombre: string } | null;
-};
-
-const ETIQUETA_STATUS: Record<Llamada["status"], string> = {
-  en_progreso: "En progreso",
-  completada: "Completada",
-  fallida: "Fallida",
-  sin_respuesta: "Sin respuesta",
-};
-
-const ETIQUETA_RESULTADO: Record<NonNullable<Llamada["resultado"]>, string> = {
-  acepto: "Aceptó",
-  rechazo: "Rechazó",
-  pendiente: "Pendiente",
+  plantilla: { nombre: string; agente_tipo: string; categoria: string } | null;
 };
 
 function BadgeStatus({ status }: { status: Llamada["status"] }) {
-  if (status === "completada") return <Badge tono="en-vivo">{ETIQUETA_STATUS[status]}</Badge>;
-  if (status === "en_progreso") return <Badge tono="aviso">{ETIQUETA_STATUS[status]}</Badge>;
-  return <span className="text-xs font-medium text-red-500">{ETIQUETA_STATUS[status]}</span>;
+  if (status === "completada") return <Badge tono="en-vivo">{ETIQUETA_STATUS_LLAMADA[status]}</Badge>;
+  if (status === "en_progreso") return <Badge tono="aviso">{ETIQUETA_STATUS_LLAMADA[status]}</Badge>;
+  return <span className="text-xs font-medium text-red-500">{ETIQUETA_STATUS_LLAMADA[status]}</span>;
 }
 
 function BadgeResultado({ resultado }: { resultado: Llamada["resultado"] }) {
-  if (!resultado || resultado === "pendiente") return <Badge tono="mute">{ETIQUETA_RESULTADO.pendiente}</Badge>;
-  if (resultado === "acepto") return <Badge tono="en-vivo">{ETIQUETA_RESULTADO.acepto}</Badge>;
-  return <span className="text-xs font-medium text-red-500">{ETIQUETA_RESULTADO.rechazo}</span>;
+  if (!resultado || resultado === "pendiente") return <Badge tono="mute">{ETIQUETA_RESULTADO_LLAMADA.pendiente}</Badge>;
+  if (resultado === "acepto") return <Badge tono="en-vivo">{ETIQUETA_RESULTADO_LLAMADA.acepto}</Badge>;
+  return <span className="text-xs font-medium text-red-500">{ETIQUETA_RESULTADO_LLAMADA.rechazo}</span>;
 }
 
-function formatearDuracion(segundos: number | null) {
-  if (segundos === null) return "—";
-  const min = Math.floor(segundos / 60);
-  const seg = segundos % 60;
-  return `${min}:${seg.toString().padStart(2, "0")}`;
+// "Alejandro IA/Servicio · Servicios" -- nombre del agente, tipo y categoría,
+// para distinguir de un vistazo cuál de varios agentes hizo cada llamada.
+function etiquetaPlantilla(plantilla: Llamada["plantilla"]): string {
+  if (!plantilla) return "—";
+  const tipo = AGENTES_TIPO_VOZ.find((a) => a.valor === plantilla.agente_tipo)?.etiqueta ?? plantilla.agente_tipo;
+  const categoria = CATEGORIAS_VOZ.find((c) => c.valor === plantilla.categoria)?.etiqueta ?? plantilla.categoria;
+  return `${plantilla.nombre}/${tipo} · ${categoria}`;
 }
 
 type FuncionRetell = {
@@ -197,14 +187,14 @@ function ServiciosWorkspace({ onVolver, permisos }: { onVolver: () => void; perm
               {llamadas.map((l) => (
                 <tr key={l.id} className="border-b border-[var(--color-borde)] last:border-0">
                   <td className="px-4 py-3 text-[var(--color-texto)]">{l.contacto?.nombre || l.contacto?.telefono || "—"}</td>
-                  <td className="px-4 py-3 text-[var(--color-texto-mute)]">{l.plantilla?.nombre ?? "—"}</td>
+                  <td className="px-4 py-3 text-[var(--color-texto-mute)]">{etiquetaPlantilla(l.plantilla)}</td>
                   <td className="px-4 py-3">
                     <BadgeStatus status={l.status} />
                   </td>
                   <td className="px-4 py-3">
                     <BadgeResultado resultado={l.resultado} />
                   </td>
-                  <td className="px-4 py-3 text-[var(--color-texto-mute)]">{formatearDuracion(l.duracion_segundos)}</td>
+                  <td className="px-4 py-3 text-[var(--color-texto-mute)]">{formatearDuracionLlamada(l.duracion_segundos)}</td>
                   <td className="px-4 py-3 text-[var(--color-texto-mute)]">
                     {new Date(l.created_at).toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" })}
                   </td>
@@ -833,7 +823,7 @@ function calcularStats(llamadas: Llamada[]) {
   const duracionPromedio =
     conDuracion.length === 0
       ? "—"
-      : formatearDuracion(Math.round(conDuracion.reduce((s, l) => s + (l.duracion_segundos ?? 0), 0) / conDuracion.length));
+      : formatearDuracionLlamada(Math.round(conDuracion.reduce((s, l) => s + (l.duracion_segundos ?? 0), 0) / conDuracion.length));
 
   return { total, enProgreso, completadas, fallidas, acepto, rechazo, duracionPromedio };
 }

@@ -14,7 +14,7 @@ export async function GET() {
   const { data, error } = await admin
     .from("llamadas_voz")
     .select(
-      "id, status, resultado, duracion_segundos, transcripcion, audio_url, created_at, contacto:contactos(nombre, telefono), plantilla:plantillas_voz(nombre)"
+      "id, status, resultado, duracion_segundos, transcripcion, audio_url, created_at, contacto:contactos(nombre, telefono), plantilla:plantillas_voz(nombre, agente_tipo, categoria)"
     )
     .eq("cuenta_id", auth.perfil.cuenta_id)
     .order("created_at", { ascending: false })

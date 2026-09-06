@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermiso } from "@/lib/require-permiso";
 import { registrarActividad } from "@/lib/auditoria";
 import { sincronizarPlantillaVozConRetell, type FuncionRetell } from "@/lib/retell";
+import { origenPublico } from "@/lib/origen-publico";
 
 const AGENTES_TIPO = ["servicio", "citas", "venta", "cobranza", "legal"] as const;
 const AGENTES_TIPO_DISPONIBLES = ["servicio"] as const;
@@ -128,7 +129,7 @@ export async function POST(request: NextRequest) {
   let plantillaFinal = data;
 
   if (modoAgenteFinal === "generado") {
-    const sync = await sincronizarPlantillaVozConRetell(admin, auth.perfil.cuenta_id, data);
+    const sync = await sincronizarPlantillaVozConRetell(admin, auth.perfil.cuenta_id, data, `${origenPublico(request)}/api/webhooks/retell`);
     if (sync.ok) {
       const { data: actualizada } = await admin
         .from("plantillas_voz")
