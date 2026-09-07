@@ -170,6 +170,219 @@ export function PlantillasVozMaestrasView() {
           ))}
         </div>
       )}
+
+      <AgentesConfiguradosPorCuenta />
+      <ReporteLlamadasRetell />
+    </div>
+  );
+}
+
+type AgenteConfigurado = {
+  id: string;
+  nombre: string;
+  agente_tipo: string;
+  categoria: string;
+  publicada: boolean;
+  modo_agente: string;
+  retell_agent_id: string | null;
+  cuenta: { id: string; nombre: string; codigo: string | null; slug: string | null } | null;
+};
+
+// Qué agente de voz (Agent ID de Retell) tiene configurado cada sub-cuenta
+// -- datos de nuestra base, sin llamar a Retell. Se carga sola al entrar
+// porque es una sola consulta a nuestra propia tabla, no a una API externa.
+function AgentesConfiguradosPorCuenta() {
+  const [agentes, setAgentes] = useState<AgenteConfigurado[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/plantillas-voz/global")
+      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok) {
+          setError(data.error ?? "No se pudo cargar los agentes por sub-cuenta");
+          return;
+        }
+        setAgentes(data.agentes ?? []);
+      })
+      .catch(() => setError("No se pudo cargar los agentes por sub-cuenta"));
+  }, []);
+
+  return (
+    <div className="mt-8">
+      <h2 className="mb-3 text-base font-semibold text-[var(--color-texto)]">Agentes configurados por sub-cuenta</h2>
+      {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
+      {!error && agentes === null && <p className="text-sm text-[var(--color-texto-mute)]">Cargando…</p>}
+      {!error && agentes && agentes.length === 0 && (
+        <p className="text-sm text-[var(--color-texto-mute)]">Todavía ninguna sub-cuenta ha creado un agente de voz.</p>
+      )}
+      {!error && agentes && agentes.length > 0 && (
+        <div className="overflow-x-auto rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)]">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-[var(--color-borde)] text-xs text-[var(--color-texto-mute)]">
+                <th className="px-4 py-3 font-medium">Sub-cuenta</th>
+                <th className="px-4 py-3 font-medium">Agente</th>
+                <th className="px-4 py-3 font-medium">Tipo · Categoría</th>
+                <th className="px-4 py-3 font-medium">Estado</th>
+                <th className="px-4 py-3 font-medium">Agent ID (Retell)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {agentes.map((a) => (
+                <tr key={a.id} className="border-b border-[var(--color-borde)] last:border-0">
+                  <td className="px-4 py-3 text-[var(--color-texto)]">
+                    {a.cuenta ? `${a.cuenta.codigo ?? a.cuenta.nombre} · ${a.cuenta.slug ?? ""}` : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-[var(--color-texto-mute)]">{a.nombre}</td>
+                  <td className="px-4 py-3 text-[var(--color-texto-mute)]">
+                    {AGENTES_TIPO_VOZ.find((t) => t.valor === a.agente_tipo)?.etiqueta ?? a.agente_tipo} ·{" "}
+                    {CATEGORIAS_VOZ.find((c) => c.valor === a.categoria)?.etiqueta ?? a.categoria}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Badge tono={a.publicada ? "en-vivo" : "mute"}>{a.publicada ? "Activo" : "Inactivo"}</Badge>
+                  </td>
+                  <td className="px-4 py-3 font-mono text-xs text-[var(--color-texto-mute)]">
+                    {a.retell_agent_id ?? (a.modo_agente === "retell_propio" ? "Agente propio (sin ID registrado)" : "—")}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type LlamadaRetellGlobal = {
+  callId: string;
+  agentId: string | null;
+  agentName: string | null;
+  callStatus: string;
+  disconnectionReason: string | null;
+  fromNumber: string | null;
+  toNumber: string | null;
+  startTimestamp: number | null;
+  durationMs: number | null;
+  callSuccessful: boolean | null;
+  inVoicemail: boolean | null;
+  recordingUrl: string | null;
+  costoTotal: number | null;
+  cuenta: { id: string; nombre: string; codigo: string | null; slug: string | null } | null;
+};
+
+// Reporte "de verdad" de Retell -- jalado en vivo de su API (no depende de
+// que nuestro webhook haya llegado), juntando la key maestra con la de cada
+// sub-cuenta con Retell propio.
+function ReporteLlamadasRetell() {
+  const [abierto, setAbierto] = useState(false);
+  const [llamadas, setLlamadas] = useState<LlamadaRetellGlobal[] | null>(null);
+  const [cargando, setCargando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function cargar() {
+    setCargando(true);
+    setError(null);
+    const res = await fetch("/api/llamadas-voz/reporte-retell");
+    const data = await res.json().catch(() => ({}));
+    setCargando(false);
+    if (!res.ok) {
+      setError(data.error ?? "No se pudo cargar el reporte de Retell");
+      return;
+    }
+    setLlamadas(data.llamadas ?? []);
+  }
+
+  useEffect(() => {
+    if (abierto && llamadas === null && !cargando) cargar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [abierto]);
+
+  return (
+    <div className="mt-8 rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-5">
+      <button onClick={() => setAbierto((v) => !v)} className="flex w-full items-center justify-between text-left">
+        <div>
+          <h2 className="text-base font-semibold text-[var(--color-texto)]">Reporte completo de llamadas (Retell)</h2>
+          <p className="text-xs text-[var(--color-texto-mute)]">
+            Datos en vivo directo de Retell, de todas las sub-cuentas (key maestra + cuentas con Retell propio).
+          </p>
+        </div>
+        <span className="text-sm font-medium text-[var(--color-marca)]">{abierto ? "Ocultar" : "Mostrar"}</span>
+      </button>
+
+      {abierto && (
+        <div className="mt-4">
+          {cargando && <p className="text-sm text-[var(--color-texto-mute)]">Cargando…</p>}
+          {error && <p className="text-sm text-red-500">{error}</p>}
+          {!cargando && !error && llamadas && llamadas.length === 0 && (
+            <p className="text-sm text-[var(--color-texto-mute)]">Todavía no hay llamadas registradas en Retell.</p>
+          )}
+          {!cargando && !error && llamadas && llamadas.length > 0 && (
+            <div className="overflow-x-auto rounded-xl border border-[var(--color-borde)]">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-[var(--color-borde)] text-xs text-[var(--color-texto-mute)]">
+                    <th className="px-4 py-3 font-medium">Cuenta</th>
+                    <th className="px-4 py-3 font-medium">Agente</th>
+                    <th className="px-4 py-3 font-medium">Desde → Hacia</th>
+                    <th className="px-4 py-3 font-medium">Estado</th>
+                    <th className="px-4 py-3 font-medium">Resultado</th>
+                    <th className="px-4 py-3 font-medium">Duración</th>
+                    <th className="px-4 py-3 font-medium">Costo (Retell)</th>
+                    <th className="px-4 py-3 font-medium">Fecha</th>
+                    <th className="px-4 py-3 font-medium">Grabación</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {llamadas.map((l) => (
+                    <tr key={l.callId} className="border-b border-[var(--color-borde)] last:border-0">
+                      <td className="px-4 py-3 text-[var(--color-texto)]">
+                        {l.cuenta ? `${l.cuenta.codigo ?? l.cuenta.nombre} · ${l.cuenta.slug ?? ""}` : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-[var(--color-texto-mute)]">
+                        <div>{l.agentName ?? "—"}</div>
+                        {l.agentId && <div className="font-mono text-[10px]">{l.agentId}</div>}
+                      </td>
+                      <td className="px-4 py-3 text-[var(--color-texto-mute)]">
+                        {l.fromNumber ?? "—"} → {l.toNumber ?? "—"}
+                      </td>
+                      <td className="px-4 py-3 text-[var(--color-texto-mute)]">
+                        {l.callStatus}
+                        {l.disconnectionReason ? ` (${l.disconnectionReason})` : ""}
+                      </td>
+                      <td className="px-4 py-3 text-[var(--color-texto-mute)]">
+                        {l.inVoicemail ? "Buzón de voz" : l.callSuccessful === true ? "Exitosa" : l.callSuccessful === false ? "No exitosa" : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-[var(--color-texto-mute)]">
+                        {l.durationMs ? `${Math.round(l.durationMs / 1000)}s` : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-[var(--color-texto-mute)]">{l.costoTotal != null ? l.costoTotal.toFixed(4) : "—"}</td>
+                      <td className="px-4 py-3 text-[var(--color-texto-mute)]">
+                        {l.startTimestamp ? new Date(l.startTimestamp).toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" }) : "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        {l.recordingUrl ? (
+                          <a
+                            href={l.recordingUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs font-medium text-[var(--color-marca)] hover:underline"
+                          >
+                            Escuchar
+                          </a>
+                        ) : (
+                          <span className="text-xs text-[var(--color-texto-mute)]">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
