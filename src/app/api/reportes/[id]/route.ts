@@ -2,7 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermiso } from "@/lib/require-permiso";
 import { registrarActividad } from "@/lib/auditoria";
-import { DIMENSIONES_POR_ENTIDAD, TIPOS_CAMPO_REPORTABLES, type EntidadReporte, type DimensionReporte, type AgruparFechaPor } from "@/lib/reportes";
+import {
+  DIMENSIONES_POR_ENTIDAD,
+  TIPOS_CAMPO_REPORTABLES,
+  type EntidadReporte,
+  type DimensionReporte,
+  type AgruparFechaPor,
+  type MetricaReporte,
+} from "@/lib/reportes";
+
+const METRICAS: MetricaReporte[] = ["llamadas", "minutos", "costo"];
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requirePermiso("manage_reportes");
@@ -10,7 +19,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const { id } = await params;
   const body = await request.json();
-  const { nombre, entidad, dimension, campo_personalizado_id, tipo_grafico, agrupar_fecha_por, filtros } = body as {
+  const { nombre, entidad, dimension, campo_personalizado_id, tipo_grafico, agrupar_fecha_por, filtros, metrica } = body as {
     nombre?: string;
     entidad?: EntidadReporte;
     dimension?: DimensionReporte;
@@ -18,10 +27,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     tipo_grafico?: string;
     agrupar_fecha_por?: AgruparFechaPor | null;
     filtros?: { rango_dias?: number | null; etiqueta?: string | null };
+    metrica?: MetricaReporte;
   };
 
   if (entidad && dimension && !DIMENSIONES_POR_ENTIDAD[entidad].includes(dimension)) {
     return NextResponse.json({ error: "Esa dimensión no aplica a esta entidad" }, { status: 400 });
+  }
+  if (metrica !== undefined && !METRICAS.includes(metrica)) {
+    return NextResponse.json({ error: "Métrica inválida" }, { status: 400 });
   }
 
   const admin = createAdminClient();
@@ -31,6 +44,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (entidad !== undefined) cambios.entidad = entidad;
   if (filtros !== undefined) cambios.filtros = filtros;
   if (tipo_grafico !== undefined) cambios.tipo_grafico = tipo_grafico;
+  if (metrica !== undefined) cambios.metrica = metrica;
 
   if (dimension !== undefined) {
     cambios.dimension = dimension;

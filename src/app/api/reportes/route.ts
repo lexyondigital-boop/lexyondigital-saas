@@ -9,11 +9,13 @@ import {
   type DimensionReporte,
   type TipoGraficoReporte,
   type AgruparFechaPor,
+  type MetricaReporte,
 } from "@/lib/reportes";
 
-const ENTIDADES: EntidadReporte[] = ["contactos", "deals", "campanas", "conversaciones"];
+const ENTIDADES: EntidadReporte[] = ["contactos", "deals", "campanas", "conversaciones", "agentes_voz"];
 const TIPOS_GRAFICO: TipoGraficoReporte[] = ["barras", "dona", "linea", "numero"];
 const AGRUPACIONES_FECHA: AgruparFechaPor[] = ["dia", "semana", "mes"];
+const METRICAS: MetricaReporte[] = ["llamadas", "minutos", "costo"];
 
 export async function GET() {
   const auth = await requirePermiso("view_analytics");
@@ -31,7 +33,7 @@ export async function POST(request: NextRequest) {
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const body = await request.json();
-  const { nombre, entidad, dimension, campo_personalizado_id, tipo_grafico, agrupar_fecha_por, filtros } = body as {
+  const { nombre, entidad, dimension, campo_personalizado_id, tipo_grafico, agrupar_fecha_por, filtros, metrica } = body as {
     nombre?: string;
     entidad?: string;
     dimension?: string;
@@ -39,6 +41,7 @@ export async function POST(request: NextRequest) {
     tipo_grafico?: string;
     agrupar_fecha_por?: string | null;
     filtros?: { rango_dias?: number | null; etiqueta?: string | null };
+    metrica?: string;
   };
 
   if (!nombre?.trim()) return NextResponse.json({ error: "Falta el nombre" }, { status: 400 });
@@ -48,6 +51,8 @@ export async function POST(request: NextRequest) {
   }
   const tipoGraficoFinal = (tipo_grafico as TipoGraficoReporte) ?? "barras";
   if (!TIPOS_GRAFICO.includes(tipoGraficoFinal)) return NextResponse.json({ error: "Tipo de gráfico inválido" }, { status: 400 });
+  const metricaFinal = (metrica as MetricaReporte) ?? "llamadas";
+  if (!METRICAS.includes(metricaFinal)) return NextResponse.json({ error: "Métrica inválida" }, { status: 400 });
 
   const admin = createAdminClient();
 
@@ -85,6 +90,7 @@ export async function POST(request: NextRequest) {
       tipo_grafico: tipoGraficoFinal,
       agrupar_fecha_por: agrupacionFinal,
       filtros: filtros ?? {},
+      metrica: metricaFinal,
       creado_por: auth.user.id,
     })
     .select()

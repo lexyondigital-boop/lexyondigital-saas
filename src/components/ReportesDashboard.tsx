@@ -19,7 +19,7 @@ import {
 } from "recharts";
 import { createClient } from "@/lib/supabase/client";
 
-type EntidadReporte = "contactos" | "deals" | "campanas" | "conversaciones";
+type EntidadReporte = "contactos" | "deals" | "campanas" | "conversaciones" | "agentes_voz";
 type DimensionReporte =
   | "etapa_pipeline"
   | "etiqueta"
@@ -29,9 +29,12 @@ type DimensionReporte =
   | "campana_status"
   | "fecha_creacion"
   | "fecha_modificacion"
-  | "campo_personalizado";
+  | "campo_personalizado"
+  | "plantilla"
+  | "categoria";
 type TipoGraficoReporte = "barras" | "dona" | "linea" | "numero";
 type AgruparFechaPor = "dia" | "semana" | "mes";
+type MetricaReporte = "llamadas" | "minutos" | "costo";
 type CampoPersonalizadoReportable = { id: string; nombre: string; tipo: "select" | "checkbox" | "date" };
 
 type Reporte = {
@@ -43,6 +46,7 @@ type Reporte = {
   tipo_grafico: TipoGraficoReporte;
   agrupar_fecha_por: AgruparFechaPor | null;
   filtros: { rango_dias?: number | null; etiqueta?: string | null };
+  metrica: MetricaReporte;
 };
 
 type PuntoDato = { etiqueta: string; valor: number };
@@ -74,6 +78,12 @@ const DIMENSIONES_POR_ENTIDAD: Record<EntidadReporte, { valor: DimensionReporte;
     { valor: "status", etiqueta: "Abiertas / cerradas" },
     { valor: "fecha_creacion", etiqueta: "Fecha de creación" },
   ],
+  agentes_voz: [
+    { valor: "plantilla", etiqueta: "Agente de voz" },
+    { valor: "categoria", etiqueta: "Categoría" },
+    { valor: "status", etiqueta: "Estado de la llamada" },
+    { valor: "fecha_creacion", etiqueta: "Fecha de creación" },
+  ],
 };
 
 const ETIQUETA_ENTIDAD: Record<EntidadReporte, string> = {
@@ -81,6 +91,12 @@ const ETIQUETA_ENTIDAD: Record<EntidadReporte, string> = {
   deals: "Deals",
   campanas: "Campañas",
   conversaciones: "Conversaciones",
+  agentes_voz: "Agentes de voz",
+};
+const ETIQUETA_METRICA: Record<MetricaReporte, string> = {
+  llamadas: "Llamadas",
+  minutos: "Minutos",
+  costo: "Costo (unidades Retell)",
 };
 const COLORES = ["#8b5cf6", "#22c55e", "#f59e0b", "#ef4444", "#3b82f6", "#ec4899", "#14b8a6", "#a855f7"];
 
@@ -314,7 +330,10 @@ function TarjetaReporte({
       <div className="mb-3 flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold text-[var(--color-texto)]">{reporte.nombre}</h3>
-          <p className="text-xs text-[var(--color-texto-mute)]">{ETIQUETA_ENTIDAD[reporte.entidad]}</p>
+          <p className="text-xs text-[var(--color-texto-mute)]">
+            {ETIQUETA_ENTIDAD[reporte.entidad]}
+            {reporte.entidad === "agentes_voz" ? ` · ${ETIQUETA_METRICA[reporte.metrica]}` : ""}
+          </p>
         </div>
         <div className="flex items-center gap-1">
           <select
@@ -398,7 +417,13 @@ function TarjetaReporte({
       ) : datos.length === 0 ? (
         <p className="text-sm text-[var(--color-texto-mute)]">Sin datos todavía.</p>
       ) : reporte.tipo_grafico === "numero" ? (
-        <p className="text-4xl font-bold text-[var(--color-texto)]">{datos[0]?.valor ?? 0}</p>
+        <p className="text-4xl font-bold text-[var(--color-texto)]">
+          {reporte.metrica === "minutos"
+            ? (datos[0]?.valor ?? 0).toFixed(1)
+            : reporte.metrica === "costo"
+              ? (datos[0]?.valor ?? 0).toFixed(2)
+              : (datos[0]?.valor ?? 0)}
+        </p>
       ) : (
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
@@ -453,6 +478,7 @@ function FormularioReporte({
     reporte?.dimension === "campo_personalizado" ? `campo:${reporte.campo_personalizado_id}` : (reporte?.dimension ?? "etiqueta"),
   );
   const [tipoGrafico, setTipoGrafico] = useState<TipoGraficoReporte>(reporte?.tipo_grafico ?? "barras");
+  const [metrica, setMetrica] = useState<MetricaReporte>(reporte?.metrica ?? "llamadas");
   const [agruparFechaPor, setAgruparFechaPor] = useState<AgruparFechaPor>(reporte?.agrupar_fecha_por ?? "dia");
   const [rangoDias, setRangoDias] = useState<string>(reporte?.filtros?.rango_dias ? String(reporte.filtros.rango_dias) : "");
   const [filtroEtiqueta, setFiltroEtiqueta] = useState<string>(reporte?.filtros?.etiqueta ?? "");
@@ -504,6 +530,7 @@ function FormularioReporte({
       dimension: esCampoPersonalizado ? "campo_personalizado" : seleccionDimension,
       campo_personalizado_id: esCampoPersonalizado ? seleccionDimension.slice(6) : null,
       tipo_grafico: tipoGrafico,
+      metrica: entidad === "agentes_voz" ? metrica : "llamadas",
       agrupar_fecha_por: esFecha ? agruparFechaPor : null,
       filtros: {
         rango_dias: rangoDias ? Number(rangoDias) : null,
@@ -563,6 +590,17 @@ function FormularioReporte({
             </select>
           </label>
         </div>
+
+        {entidad === "agentes_voz" && (
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Métrica</span>
+            <select value={metrica} onChange={(e) => setMetrica(e.target.value as MetricaReporte)} className={INPUT_LOCAL}>
+              <option value="llamadas">Llamadas (conteo)</option>
+              <option value="minutos">Minutos (suma de duración)</option>
+              <option value="costo">Costo (unidades Retell)</option>
+            </select>
+          </label>
+        )}
 
         {entidad === "contactos" && (
           <label className="block">

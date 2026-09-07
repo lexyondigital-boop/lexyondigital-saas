@@ -36,6 +36,7 @@ type ItemNav = {
 };
 
 const NAV_SUPER_ADMIN: ItemNav[] = [
+  { href: "/dashboard", label: "Dashboard", icon: IconDashboard, disponible: true },
   { href: "/", label: "Sub-cuentas", icon: IconBriefcase, disponible: true },
   { href: "/configuracion", label: "Configuración", icon: IconGear, disponible: true },
   { href: "/plantillas-voz-maestras", label: "Plantillas de Voz", icon: IconPhone, disponible: true },

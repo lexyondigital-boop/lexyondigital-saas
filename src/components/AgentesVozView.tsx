@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { GeneradorCopyscriptModal } from "@/components/GeneradorCopyscriptModal";
+import { ReporteLlamadasRetell } from "@/components/ReporteLlamadasRetell";
 import {
   AGENTES_TIPO_VOZ,
   CATEGORIAS_VOZ,
@@ -179,6 +180,14 @@ export function AgentesVozView({ permisos }: { permisos: Record<string, boolean>
         </div>
       ) : (
         <CategoriaWorkspace categoria={categoria} onVolver={() => setCategoria(null)} permisos={permisos} />
+      )}
+
+      {categoria === null && (
+        <ReporteLlamadasRetell
+          fetchUrl="/api/llamadas-voz/reporte-retell-cuenta"
+          titulo="Reporte de Retell"
+          descripcion="Datos en vivo directo de Retell para esta cuenta: estado, duración, costo y grabación de cada llamada."
+        />
       )}
     </div>
   );

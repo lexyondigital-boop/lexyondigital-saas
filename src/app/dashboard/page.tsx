@@ -2,9 +2,22 @@ import { obtenerSesionApp } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
 import { ReportesDashboard } from "@/components/ReportesDashboard";
+import { DashboardMaestro } from "@/components/DashboardMaestro";
 
 export default async function DashboardPage() {
   const { user, perfil, permisos } = await obtenerSesionApp();
+
+  // La cuenta administradora no tiene contactos/conversaciones/campañas
+  // propias en el sentido de un tenant -- su dashboard es otro (consumo de
+  // Agentes de Voz cruzando todas las sub-cuentas), ver DashboardMaestro.
+  if (perfil.rol === "super_admin") {
+    return (
+      <AppShell email={user.email} role={perfil.rol}>
+        <DashboardMaestro />
+      </AppShell>
+    );
+  }
+
   const supabase = await createClient();
 
   const inicioHoy = new Date();

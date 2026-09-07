@@ -2,7 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
-export type EntidadReporte = "contactos" | "deals" | "campanas" | "conversaciones";
+export type EntidadReporte = "contactos" | "deals" | "campanas" | "conversaciones" | "agentes_voz";
 export type DimensionReporte =
   | "etapa_pipeline"
   | "etiqueta"
@@ -12,9 +12,15 @@ export type DimensionReporte =
   | "campana_status"
   | "fecha_creacion"
   | "fecha_modificacion"
-  | "campo_personalizado";
+  | "campo_personalizado"
+  | "plantilla"
+  | "categoria";
 export type TipoGraficoReporte = "barras" | "dona" | "linea" | "numero";
 export type AgruparFechaPor = "dia" | "semana" | "mes";
+// Para todas las demás entidades un reporte siempre cuenta filas -- solo
+// agentes_voz necesita también poder SUMAR duración/costo, así que la
+// métrica es una columna aparte en vez de una dimensión más.
+export type MetricaReporte = "llamadas" | "minutos" | "costo";
 
 export type Reporte = {
   id: string;
@@ -25,6 +31,7 @@ export type Reporte = {
   tipo_grafico: TipoGraficoReporte;
   agrupar_fecha_por: AgruparFechaPor | null;
   filtros: { rango_dias?: number | null; etiqueta?: string | null };
+  metrica: MetricaReporte;
 };
 
 export type PuntoDato = { etiqueta: string; valor: number };
@@ -39,13 +46,17 @@ export const DIMENSIONES_POR_ENTIDAD: Record<EntidadReporte, DimensionReporte[]>
   deals: ["etapa_pipeline", "asignado_a", "status", "fecha_creacion", "fecha_modificacion"],
   campanas: ["status", "fecha_creacion", "fecha_modificacion"],
   conversaciones: ["status", "fecha_creacion"],
+  agentes_voz: ["plantilla", "categoria", "status", "fecha_creacion"],
 };
 
 // Un campo de texto libre, correo o teléfono produciría una barra por
 // contacto -- no sirve para agrupar. Select/checkbox/fecha sí.
 export const TIPOS_CAMPO_REPORTABLES = ["select", "checkbox", "date"] as const;
 
-type FilaGenerica = { claves: string[]; fecha: string };
+// valor: cuánto aporta esta fila al total agrupado -- 1 para "contar
+// filas" (todas las entidades salvo agentes_voz), o minutos/costo de esa
+// llamada cuando la métrica del reporte es "minutos"/"costo".
+type FilaGenerica = { claves: string[]; fecha: string; valor?: number };
 
 function truncarFecha(fecha: string, por: AgruparFechaPor): string {
   const d = new Date(fecha);
@@ -61,7 +72,7 @@ function agruparCategorico(filas: FilaGenerica[]): PuntoDato[] {
   const mapa = new Map<string, number>();
   for (const f of filas) {
     for (const clave of f.claves.length > 0 ? f.claves : ["Sin dato"]) {
-      mapa.set(clave, (mapa.get(clave) ?? 0) + 1);
+      mapa.set(clave, (mapa.get(clave) ?? 0) + (f.valor ?? 1));
     }
   }
   return [...mapa.entries()].map(([etiqueta, valor]) => ({ etiqueta, valor })).sort((a, b) => b.valor - a.valor);
@@ -71,7 +82,7 @@ function agruparPorFecha(filas: FilaGenerica[], por: AgruparFechaPor): PuntoDato
   const mapa = new Map<string, number>();
   for (const f of filas) {
     const clave = truncarFecha(f.fecha, por);
-    mapa.set(clave, (mapa.get(clave) ?? 0) + 1);
+    mapa.set(clave, (mapa.get(clave) ?? 0) + (f.valor ?? 1));
   }
   return [...mapa.entries()].map(([etiqueta, valor]) => ({ etiqueta, valor })).sort((a, b) => a.etiqueta.localeCompare(b.etiqueta));
 }
@@ -191,6 +202,43 @@ export async function calcularDatosReporte(admin: AdminClient, cuentaId: string,
     if (reporte.dimension === "fecha_creacion" || reporte.dimension === "fecha_modificacion") {
       return agruparPorFecha(filas, reporte.agrupar_fecha_por ?? "dia");
     }
+    return agruparCategorico(filas);
+  }
+
+  if (reporte.entidad === "agentes_voz") {
+    let query = admin
+      .from("llamadas_voz")
+      .select("status, duracion_segundos, costo_retell, created_at, plantilla:plantillas_voz(nombre, categoria)")
+      .eq("cuenta_id", cuentaId);
+    if (desde) query = query.gte("created_at", desde);
+    const { data } = await query;
+
+    // valor: cuánto aporta cada llamada al total según la métrica elegida
+    // -- conteo (comportamiento normal de todo el módulo), minutos o
+    // costo (tal como Retell lo reporta, ver migración de costo_retell).
+    const valorDe = (f: { duracion_segundos: number | null; costo_retell: number | null }) =>
+      reporte.metrica === "minutos" ? (f.duracion_segundos ?? 0) / 60 : reporte.metrica === "costo" ? (f.costo_retell ?? 0) : 1;
+
+    const filas: FilaGenerica[] = (data ?? []).map((f) => {
+      const plantilla = f.plantilla as unknown as { nombre: string; categoria: string } | null;
+      return {
+        fecha: f.created_at,
+        valor: valorDe(f),
+        claves:
+          reporte.dimension === "plantilla"
+            ? [plantilla?.nombre ?? "Sin plantilla"]
+            : reporte.dimension === "categoria"
+              ? [plantilla?.categoria ?? "Sin categoría"]
+              : reporte.dimension === "status"
+                ? [f.status ?? "Sin estado"]
+                : [],
+      };
+    });
+
+    if (reporte.tipo_grafico === "numero") {
+      return [{ etiqueta: "Total", valor: filas.reduce((acc, f) => acc + (f.valor ?? 1), 0) }];
+    }
+    if (reporte.dimension === "fecha_creacion") return agruparPorFecha(filas, reporte.agrupar_fecha_por ?? "dia");
     return agruparCategorico(filas);
   }
 

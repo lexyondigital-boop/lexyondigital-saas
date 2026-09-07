@@ -12,6 +12,7 @@ type CallPayload = {
   recording_url?: string | null;
   duration_ms?: number | null;
   call_analysis?: { call_successful?: boolean } | null;
+  call_cost?: { combined_cost?: number } | null;
 };
 
 // Retell notifica aquí cuando una llamada termina (call_ended) y cuando su
@@ -53,6 +54,7 @@ export async function POST(request: NextRequest) {
     transcripcion: call.transcript ?? null,
     audio_url: call.recording_url ?? null,
     duracion_segundos: call.duration_ms ? Math.round(call.duration_ms / 1000) : null,
+    costo_retell: call.call_cost?.combined_cost ?? null,
     actualizado_at: new Date().toISOString(),
   };
 
