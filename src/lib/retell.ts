@@ -484,3 +484,76 @@ export function mapearResultadoLlamada(callAnalysis?: { call_successful?: boolea
   if (!callAnalysis || callAnalysis.call_successful === undefined) return "pendiente";
   return callAnalysis.call_successful ? "acepto" : "rechazo";
 }
+
+export type LlamadaRetell = {
+  callId: string;
+  agentId: string | null;
+  agentName: string | null;
+  callStatus: string;
+  disconnectionReason: string | null;
+  fromNumber: string | null;
+  toNumber: string | null;
+  startTimestamp: number | null;
+  durationMs: number | null;
+  callSuccessful: boolean | null;
+  inVoicemail: boolean | null;
+  recordingUrl: string | null;
+  costoTotal: number | null;
+  cuentaId: string | null;
+  llamadaVozId: string | null;
+};
+
+// POST /v2/list-calls -- el reporte "de verdad" de Retell, sin depender de
+// que nuestro webhook haya llegado. cuenta_id/llamada_voz_id vienen del
+// metadata que ya mandamos al crear cada llamada (ver crearLlamadaRetell),
+// así que no hace falta adivinar a qué sub-cuenta pertenece cada una: el
+// dato viaja con la llamada misma, aunque varias cuentas compartan la
+// misma key (modo master).
+export async function listarLlamadasRetell(apiKey: string, limit = 100): Promise<{ ok: true; llamadas: LlamadaRetell[] } | { ok: false; error: string }> {
+  try {
+    const res = await fetch("https://api.retellai.com/v2/list-calls", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ limit, sort_order: "descending" }),
+    });
+    if (res.status === 401) return { ok: false, error: "La API key no es válida" };
+    if (!res.ok) return { ok: false, error: `Retell respondió con un error (${res.status})` };
+    const data = (await res.json()) as Array<{
+      call_id: string;
+      agent_id?: string;
+      agent_name?: string;
+      call_status: string;
+      disconnection_reason?: string;
+      from_number?: string;
+      to_number?: string;
+      start_timestamp?: number;
+      duration_ms?: number;
+      call_analysis?: { call_successful?: boolean; in_voicemail?: boolean };
+      recording_url?: string;
+      call_cost?: { combined_cost?: number };
+      metadata?: { cuenta_id?: string; llamada_voz_id?: string };
+    }>;
+    return {
+      ok: true,
+      llamadas: data.map((c) => ({
+        callId: c.call_id,
+        agentId: c.agent_id ?? null,
+        agentName: c.agent_name ?? null,
+        callStatus: c.call_status,
+        disconnectionReason: c.disconnection_reason ?? null,
+        fromNumber: c.from_number ?? null,
+        toNumber: c.to_number ?? null,
+        startTimestamp: c.start_timestamp ?? null,
+        durationMs: c.duration_ms ?? null,
+        callSuccessful: c.call_analysis?.call_successful ?? null,
+        inVoicemail: c.call_analysis?.in_voicemail ?? null,
+        recordingUrl: c.recording_url ?? null,
+        costoTotal: c.call_cost?.combined_cost ?? null,
+        cuentaId: c.metadata?.cuenta_id ?? null,
+        llamadaVozId: c.metadata?.llamada_voz_id ?? null,
+      })),
+    };
+  } catch {
+    return { ok: false, error: "No se pudo conectar con Retell" };
+  }
+}
