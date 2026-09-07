@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export type LlamadaRetellReporte = {
   callId: string;
@@ -39,6 +39,9 @@ export function ReporteLlamadasRetell({
   const [llamadas, setLlamadas] = useState<LlamadaRetellReporte[] | null>(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [filtroCuenta, setFiltroCuenta] = useState("");
+  const [filtroEstado, setFiltroEstado] = useState("");
+  const [filtroResultado, setFiltroResultado] = useState("");
 
   async function cargar() {
     setCargando(true);
@@ -58,6 +61,45 @@ export function ReporteLlamadasRetell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [abierto]);
 
+  function resultadoDe(l: LlamadaRetellReporte): "buzon" | "exitosa" | "no_exitosa" | "pendiente" {
+    if (l.inVoicemail) return "buzon";
+    if (l.callSuccessful === true) return "exitosa";
+    if (l.callSuccessful === false) return "no_exitosa";
+    return "pendiente";
+  }
+
+  const cuentasDisponibles = useMemo(() => {
+    if (!mostrarCuenta || !llamadas) return [];
+    const mapa = new Map<string, string>();
+    for (const l of llamadas) {
+      if (l.cuenta) mapa.set(l.cuenta.id, `${l.cuenta.codigo ?? l.cuenta.nombre} · ${l.cuenta.slug ?? ""}`);
+    }
+    return [...mapa.entries()];
+  }, [llamadas, mostrarCuenta]);
+
+  const estadosDisponibles = useMemo(() => [...new Set((llamadas ?? []).map((l) => l.callStatus))], [llamadas]);
+
+  const filtradas = useMemo(() => {
+    return (llamadas ?? []).filter(
+      (l) =>
+        (!filtroCuenta || l.cuenta?.id === filtroCuenta) &&
+        (!filtroEstado || l.callStatus === filtroEstado) &&
+        (!filtroResultado || resultadoDe(l) === filtroResultado),
+    );
+  }, [llamadas, filtroCuenta, filtroEstado, filtroResultado]);
+
+  const totales = useMemo(
+    () => ({
+      llamadas: filtradas.length,
+      duracionSeg: filtradas.reduce((s, l) => s + (l.durationMs ?? 0) / 1000, 0),
+      costo: filtradas.reduce((s, l) => s + (l.costoTotal ?? 0), 0),
+    }),
+    [filtradas],
+  );
+
+  const SELECT_LOCAL =
+    "rounded-md border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2 py-1 text-xs text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]";
+
   return (
     <div className="mt-8 rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-5">
       <button onClick={() => setAbierto((v) => !v)} className="flex w-full items-center justify-between text-left">
@@ -76,7 +118,48 @@ export function ReporteLlamadasRetell({
             <p className="text-sm text-[var(--color-texto-mute)]">Todavía no hay llamadas registradas en Retell.</p>
           )}
           {!cargando && !error && llamadas && llamadas.length > 0 && (
-            <div className="overflow-x-auto rounded-xl border border-[var(--color-borde)]">
+            <>
+              <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+                <div className="flex flex-wrap gap-2">
+                  {mostrarCuenta && (
+                    <select value={filtroCuenta} onChange={(e) => setFiltroCuenta(e.target.value)} className={SELECT_LOCAL}>
+                      <option value="">Todas las cuentas</option>
+                      {cuentasDisponibles.map(([id, etiqueta]) => (
+                        <option key={id} value={id}>
+                          {etiqueta}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)} className={SELECT_LOCAL}>
+                    <option value="">Todos los estados</option>
+                    {estadosDisponibles.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                  <select value={filtroResultado} onChange={(e) => setFiltroResultado(e.target.value)} className={SELECT_LOCAL}>
+                    <option value="">Todos los resultados</option>
+                    <option value="exitosa">Exitosa</option>
+                    <option value="no_exitosa">No exitosa</option>
+                    <option value="buzon">Buzón de voz</option>
+                    <option value="pendiente">Pendiente</option>
+                  </select>
+                </div>
+                <div className="flex gap-4 text-xs text-[var(--color-texto-mute)]">
+                  <span>
+                    Llamadas: <span className="font-semibold text-[var(--color-texto)]">{totales.llamadas}</span>
+                  </span>
+                  <span>
+                    Duración: <span className="font-semibold text-[var(--color-texto)]">{Math.round(totales.duracionSeg)}s</span>
+                  </span>
+                  <span>
+                    Costo: <span className="font-semibold text-[var(--color-texto)]">{totales.costo.toFixed(4)}</span>
+                  </span>
+                </div>
+              </div>
+              <div className="overflow-x-auto rounded-xl border border-[var(--color-borde)]">
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-[var(--color-borde)] text-xs text-[var(--color-texto-mute)]">
@@ -92,7 +175,14 @@ export function ReporteLlamadasRetell({
                   </tr>
                 </thead>
                 <tbody>
-                  {llamadas.map((l) => (
+                  {filtradas.length === 0 && (
+                    <tr>
+                      <td colSpan={mostrarCuenta ? 9 : 8} className="px-4 py-6 text-center text-sm text-[var(--color-texto-mute)]">
+                        Ningún resultado con estos filtros.
+                      </td>
+                    </tr>
+                  )}
+                  {filtradas.map((l) => (
                     <tr key={l.callId} className="border-b border-[var(--color-borde)] last:border-0">
                       {mostrarCuenta && (
                         <td className="px-4 py-3 text-[var(--color-texto)]">
@@ -137,8 +227,22 @@ export function ReporteLlamadasRetell({
                     </tr>
                   ))}
                 </tbody>
+                {filtradas.length > 0 && (
+                  <tfoot>
+                    <tr className="border-t border-[var(--color-borde)] text-xs font-semibold text-[var(--color-texto)]">
+                      {mostrarCuenta && <td className="px-4 py-3">Total ({totales.llamadas})</td>}
+                      <td className="px-4 py-3" colSpan={4}>
+                        {!mostrarCuenta && `Total (${totales.llamadas})`}
+                      </td>
+                      <td className="px-4 py-3">{Math.round(totales.duracionSeg)}s</td>
+                      <td className="px-4 py-3">{totales.costo.toFixed(4)}</td>
+                      <td className="px-4 py-3" colSpan={2} />
+                    </tr>
+                  </tfoot>
+                )}
               </table>
-            </div>
+              </div>
+            </>
           )}
         </div>
       )}
