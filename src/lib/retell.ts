@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { descifrar } from "@/lib/cifrado";
 import { normalizarDestinatario } from "@/lib/meta";
+import { obtenerOCrearConversacion } from "@/lib/conversaciones";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -555,5 +556,71 @@ export async function listarLlamadasRetell(apiKey: string, limit = 100): Promise
     };
   } catch {
     return { ok: false, error: "No se pudo conectar con Retell" };
+  }
+}
+
+export type CallDataRetell = {
+  call_id: string;
+  call_status: string;
+  disconnection_reason?: string | null;
+  transcript?: string | null;
+  recording_url?: string | null;
+  duration_ms?: number | null;
+  call_analysis?: { call_successful?: boolean; in_voicemail?: boolean } | null;
+  call_cost?: { combined_cost?: number } | null;
+};
+
+// GET /v2/get-call/{id} -- se usa desde el cron de reconciliación
+// (ver procesarResultadoLlamadaVoz) para llamadas que se quedaron
+// "en_progreso" porque el webhook de Retell nunca llegó (se confirmó
+// empíricamente que Retell sí tenía la llamada como terminada mientras
+// nuestra fila seguía esperando el webhook -- entrega no garantizada, no
+// un bug de nuestro endpoint).
+export async function obtenerLlamadaRetell(apiKey: string, callId: string): Promise<{ ok: true; call: CallDataRetell } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`https://api.retellai.com/v2/get-call/${callId}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!res.ok) return { ok: false, error: `Retell respondió con un error (${res.status})` };
+    const call = (await res.json()) as CallDataRetell;
+    return { ok: true, call };
+  } catch {
+    return { ok: false, error: "No se pudo conectar con Retell" };
+  }
+}
+
+// Misma lógica que aplica el webhook (ver src/app/api/webhooks/retell/route.ts)
+// -- se extrajo aquí para que la use también el cron de reconciliación sin
+// duplicar el mapeo de campos ni el efecto de abrir la conversación cuando
+// la llamada fue aceptada.
+export function calcularCambiosLlamadaVoz(call: CallDataRetell, incluirResultado: boolean): Record<string, unknown> {
+  const cambios: Record<string, unknown> = {
+    status: mapearStatusLlamada(call.call_status, call.disconnection_reason),
+    transcripcion: call.transcript ?? null,
+    audio_url: call.recording_url ?? null,
+    duracion_segundos: call.duration_ms ? Math.round(call.duration_ms / 1000) : null,
+    costo_retell: call.call_cost?.combined_cost ?? null,
+    actualizado_at: new Date().toISOString(),
+  };
+  if (incluirResultado) cambios.resultado = mapearResultadoLlamada(call.call_analysis);
+  return cambios;
+}
+
+export async function procesarResultadoLlamadaVoz(
+  admin: AdminClient,
+  llamada: { id: string; cuenta_id: string; contacto_id: string | null; conversacion_id: string | null },
+  call: CallDataRetell,
+  incluirResultado: boolean,
+): Promise<void> {
+  const cambios = calcularCambiosLlamadaVoz(call, incluirResultado);
+  await admin.from("llamadas_voz").update(cambios).eq("id", llamada.id);
+
+  if (cambios.resultado === "acepto" && !llamada.conversacion_id && llamada.contacto_id) {
+    const { data: contacto } = await admin.from("contactos").select("telefono").eq("id", llamada.contacto_id).maybeSingle();
+    if (contacto) {
+      const conversacion = await obtenerOCrearConversacion(admin, llamada.cuenta_id, llamada.contacto_id, contacto.telefono);
+      if (conversacion) await admin.from("llamadas_voz").update({ conversacion_id: conversacion.id }).eq("id", llamada.id);
+    }
   }
 }
