@@ -692,6 +692,8 @@ type PlantillaMaestraVisibilidad = {
   categoria: string;
   status: "activa" | "deprecada";
   visible: boolean;
+  retell_numeros_disponibles: string[];
+  numero_asignado: string | null;
 };
 
 // Control por excepción: todas las plantillas maestras activas se ven por
@@ -728,11 +730,28 @@ function PestanaAgentesVoz({ id }: { id: string }) {
     cargar();
   }
 
+  async function asignarNumero(p: PlantillaMaestraVisibilidad, numero: string) {
+    setError(null);
+    const res = await fetch(`/api/cuentas/${id}/plantillas-voz-maestras`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ plantilla_maestra_id: p.id, numero: numero || null }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "No se pudo asignar el número");
+      return;
+    }
+    cargar();
+  }
+
   return (
     <div className="max-w-2xl">
       <p className="mb-4 text-sm text-[var(--color-texto-mute)]">
         Qué plantillas maestras de Agentes de Voz puede usar esta sub-cuenta como punto de partida al crear un agente.
-        Por defecto todas las plantillas activas están disponibles -- aquí se ocultan las que no apliquen.
+        Por defecto todas las plantillas activas están disponibles -- aquí se ocultan las que no apliquen. Si la
+        sub-cuenta usa la cuenta incluida de lexyondigital (no la propia), también necesita un número asignado por
+        plantilla para poder crear el agente -- sin número asignado, no puede.
       </p>
       {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
 
@@ -743,23 +762,46 @@ function PestanaAgentesVoz({ id }: { id: string }) {
       ) : (
         <div className="space-y-3">
           {plantillas.map((p) => (
-            <div
-              key={p.id}
-              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-4"
-            >
-              <div>
-                <p className="text-sm font-medium text-[var(--color-texto)]">{p.nombre}</p>
-                <p className="text-xs text-[var(--color-texto-mute)]">
-                  {AGENTES_TIPO_VOZ.find((a) => a.valor === p.agente_tipo)?.etiqueta ?? p.agente_tipo} ·{" "}
-                  {CATEGORIAS_VOZ.find((c) => c.valor === p.categoria)?.etiqueta ?? p.categoria}
-                </p>
+            <div key={p.id} className="rounded-xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-[var(--color-texto)]">{p.nombre}</p>
+                  <p className="text-xs text-[var(--color-texto-mute)]">
+                    {AGENTES_TIPO_VOZ.find((a) => a.valor === p.agente_tipo)?.etiqueta ?? p.agente_tipo} ·{" "}
+                    {CATEGORIAS_VOZ.find((c) => c.valor === p.categoria)?.etiqueta ?? p.categoria}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  {p.status === "deprecada" && <Badge tono="mute">Deprecada</Badge>}
+                  <Badge tono={p.visible ? "en-vivo" : "mute"}>{p.visible ? "Visible" : "Oculta"}</Badge>
+                  <button onClick={() => alternarVisible(p)} className="text-xs font-medium text-[var(--color-marca)] hover:underline">
+                    {p.visible ? "Ocultar" : "Mostrar"}
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-3">
-                {p.status === "deprecada" && <Badge tono="mute">Deprecada</Badge>}
-                <Badge tono={p.visible ? "en-vivo" : "mute"}>{p.visible ? "Visible" : "Oculta"}</Badge>
-                <button onClick={() => alternarVisible(p)} className="text-xs font-medium text-[var(--color-marca)] hover:underline">
-                  {p.visible ? "Ocultar" : "Mostrar"}
-                </button>
+
+              <div className="mt-3 border-t border-[var(--color-borde)] pt-3">
+                {p.retell_numeros_disponibles.length === 0 ? (
+                  <p className="text-xs text-[var(--color-texto-mute)]">
+                    Esta plantilla todavía no tiene números configurados en Plantillas de Voz.
+                  </p>
+                ) : (
+                  <label className="flex items-center gap-2 text-xs text-[var(--color-texto-mute)]">
+                    Número asignado
+                    <select
+                      value={p.numero_asignado ?? ""}
+                      onChange={(e) => asignarNumero(p, e.target.value)}
+                      className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2 py-1 text-sm text-[var(--color-texto)]"
+                    >
+                      <option value="">Sin asignar</option>
+                      {p.retell_numeros_disponibles.map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
               </div>
             </div>
           ))}

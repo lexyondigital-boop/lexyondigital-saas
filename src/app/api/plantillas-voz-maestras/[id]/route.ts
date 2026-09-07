@@ -34,6 +34,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     retell_duracion_maxima_ms,
     retell_duracion_anillo_ms,
     retell_funciones,
+    retell_numeros_disponibles,
   } = body as {
     nombre?: string;
     descripcion?: string | null;
@@ -55,6 +56,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     retell_duracion_maxima_ms?: number;
     retell_duracion_anillo_ms?: number;
     retell_funciones?: FuncionRetell[];
+    retell_numeros_disponibles?: string[];
   };
 
   if (agente_tipo && !AGENTES_TIPO.includes(agente_tipo as (typeof AGENTES_TIPO)[number])) {
@@ -98,6 +100,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (retell_duracion_maxima_ms !== undefined) cambios.retell_duracion_maxima_ms = retell_duracion_maxima_ms;
   if (retell_duracion_anillo_ms !== undefined) cambios.retell_duracion_anillo_ms = retell_duracion_anillo_ms;
   if (retell_funciones !== undefined) cambios.retell_funciones = retell_funciones;
+  if (retell_numeros_disponibles !== undefined) cambios.retell_numeros_disponibles = retell_numeros_disponibles;
 
   const { data, error } = await admin.from("plantillas_voz_maestras").update(cambios).eq("id", id).select().single();
 

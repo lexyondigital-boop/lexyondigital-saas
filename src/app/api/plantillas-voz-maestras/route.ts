@@ -48,6 +48,7 @@ export async function POST(request: NextRequest) {
     retell_duracion_maxima_ms,
     retell_duracion_anillo_ms,
     retell_funciones,
+    retell_numeros_disponibles,
   } = body as {
     nombre?: string;
     descripcion?: string | null;
@@ -68,6 +69,7 @@ export async function POST(request: NextRequest) {
     retell_duracion_maxima_ms?: number;
     retell_duracion_anillo_ms?: number;
     retell_funciones?: FuncionRetell[];
+    retell_numeros_disponibles?: string[];
   };
 
   if (!nombre?.trim()) return NextResponse.json({ error: "Falta el nombre" }, { status: 400 });
@@ -112,6 +114,7 @@ export async function POST(request: NextRequest) {
       ...(retell_duracion_maxima_ms !== undefined ? { retell_duracion_maxima_ms } : {}),
       ...(retell_duracion_anillo_ms !== undefined ? { retell_duracion_anillo_ms } : {}),
       ...(retell_funciones !== undefined ? { retell_funciones } : {}),
+      ...(retell_numeros_disponibles !== undefined ? { retell_numeros_disponibles } : {}),
     })
     .select()
     .single();

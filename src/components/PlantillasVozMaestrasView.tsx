@@ -45,9 +45,11 @@ type PlantillaMaestra = {
   retell_duracion_maxima_ms: number;
   retell_duracion_anillo_ms: number;
   retell_funciones: FuncionRetell[];
+  retell_numeros_disponibles: string[];
 };
 
 type VozRetellLite = { voiceId: string; nombre: string; proveedor: string; acento: string | null; genero: string | null };
+type NumeroRetellLite = { phone_number: string; phone_number_pretty: string | null; nickname: string | null };
 
 const OPCIONES_FUNCION: { type: string; etiqueta: string; disponible: boolean }[] = [
   { type: "end_call", etiqueta: "Fin de la llamada", disponible: true },
@@ -209,6 +211,10 @@ function FormularioPlantillaMaestra({
   const [voces, setVoces] = useState<VozRetellLite[]>([]);
   const [cargandoVoces, setCargandoVoces] = useState(false);
   const [errorVoces, setErrorVoces] = useState<string | null>(null);
+  const [numeros, setNumeros] = useState<NumeroRetellLite[]>([]);
+  const [cargandoNumeros, setCargandoNumeros] = useState(false);
+  const [errorNumeros, setErrorNumeros] = useState<string | null>(null);
+  const [numerosDisponibles, setNumerosDisponibles] = useState<string[]>(plantilla?.retell_numeros_disponibles ?? []);
   const [mostrarGeneradorCopyscript, setMostrarGeneradorCopyscript] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -230,7 +236,25 @@ function FormularioPlantillaMaestra({
       })
       .catch(() => setErrorVoces("No se pudo cargar la lista de voces"))
       .finally(() => setCargandoVoces(false));
+
+    setCargandoNumeros(true);
+    setErrorNumeros(null);
+    fetch("/api/plantillas-voz-maestras/numeros")
+      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok) {
+          setErrorNumeros(data.error ?? "No se pudo cargar la lista de números");
+          return;
+        }
+        setNumeros(data.numeros ?? []);
+      })
+      .catch(() => setErrorNumeros("No se pudo cargar la lista de números"))
+      .finally(() => setCargandoNumeros(false));
   }, []);
+
+  function alternarNumeroDisponible(numero: string) {
+    setNumerosDisponibles((actuales) => (actuales.includes(numero) ? actuales.filter((n) => n !== numero) : [...actuales, numero]));
+  }
 
   function elegirOpcionFuncion(type: string) {
     if (type === "transfer_call") {
@@ -298,6 +322,7 @@ function FormularioPlantillaMaestra({
       retell_duracion_maxima_ms: retellDuracionMaximaMs,
       retell_duracion_anillo_ms: retellDuracionAnilloMs,
       retell_funciones: funciones,
+      retell_numeros_disponibles: numerosDisponibles,
     };
     const res = plantilla
       ? await fetch(`/api/plantillas-voz-maestras/${plantilla.id}`, {
@@ -390,6 +415,36 @@ function FormularioPlantillaMaestra({
           </select>
           {errorVoces && <p className="mt-1 text-xs text-red-500">{errorVoces}</p>}
         </label>
+
+        <div>
+          <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">
+            Números disponibles para esta plantilla
+          </span>
+          <p className="mb-2 text-xs text-[var(--color-texto-mute)]">
+            De los que ya tiene comprados la cuenta master en Retell -- luego se le asigna uno a cada sub-cuenta desde su
+            administración.
+          </p>
+          {cargandoNumeros ? (
+            <p className="text-xs text-[var(--color-texto-mute)]">Cargando…</p>
+          ) : numeros.length === 0 ? (
+            <p className="text-xs text-[var(--color-texto-mute)]">La cuenta master todavía no tiene números comprados en Retell.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {numeros.map((n) => (
+                <label key={n.phone_number} className="flex items-center gap-2 text-sm text-[var(--color-texto)]">
+                  <input
+                    type="checkbox"
+                    checked={numerosDisponibles.includes(n.phone_number)}
+                    onChange={() => alternarNumeroDisponible(n.phone_number)}
+                  />
+                  {n.phone_number_pretty ?? n.phone_number}
+                  {n.nickname ? ` (${n.nickname})` : ""}
+                </label>
+              ))}
+            </div>
+          )}
+          {errorNumeros && <p className="mt-1 text-xs text-red-500">{errorNumeros}</p>}
+        </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block">

@@ -187,7 +187,15 @@ function SeccionRetell() {
             <span className="text-[var(--color-texto-mute)]">Desde</span>
             <span className="text-[var(--color-texto)]">{new Date(conectado.created_at).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}</span>
           </div>
-          <SelectorNumeroSaliente numeroActual={conectado.numero_saliente} onGuardado={cargar} />
+          {conectado.modo === "propia" ? (
+            <SelectorNumeroSaliente numeroActual={conectado.numero_saliente} onGuardado={cargar} />
+          ) : (
+            <div className="border-t border-[var(--color-borde)] pt-2">
+              <p className="text-xs text-[var(--color-texto-mute)]">
+                El número de cada agente lo asigna tu administrador por plantilla, en Agentes de Voz.
+              </p>
+            </div>
+          )}
           <SelectorIntervaloLlamadas intervaloActual={conectado.intervalo_minimo_llamadas_minutos} onGuardado={cargar} />
           <button onClick={desconectar} className="mt-2 text-sm font-medium text-red-500 hover:underline">
             Desconectar
@@ -212,13 +220,26 @@ function SeccionRetell() {
             </div>
           )}
           {modo === "propia" && (
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="API key de Retell"
-              className={INPUT}
-            />
+            <>
+              <p className="text-xs text-[var(--color-texto-mute)]">
+                ¿No tienes cuenta de Retell?{" "}
+                <a
+                  href="https://www.retellai.com/es"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-[var(--color-marca)] hover:underline"
+                >
+                  Inicia sesión o regístrate ↗
+                </a>
+              </p>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="API key de Retell"
+                className={INPUT}
+              />
+            </>
           )}
           <button
             onClick={conectar}

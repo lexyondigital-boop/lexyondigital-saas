@@ -102,13 +102,14 @@ export async function resolverApiKeyRetell(admin: AdminClient, cuentaId: string)
 }
 
 // Junta todo lo que hace falta para disparar una llamada: la API key
-// correcta según el modo de la cuenta, y el número saliente ya elegido --
-// con mensajes de error claros para cada cosa que pueda faltar, en vez de
-// un null genérico.
+// correcta según el modo de la cuenta, y el número saliente de la cuenta si
+// lo tiene elegido -- puede venir null en modo master, donde el número real
+// lo resuelve la plantilla (asignado por sub-cuenta y por plantilla); el
+// llamador decide si con eso alcanza.
 export async function resolverCuentaRetell(
   admin: AdminClient,
   cuentaId: string,
-): Promise<{ apiKey: string; numeroSaliente: string; intervaloMinimoLlamadas: number } | { error: string }> {
+): Promise<{ apiKey: string; numeroSaliente: string | null; intervaloMinimoLlamadas: number } | { error: string }> {
   const { data } = await admin
     .from("cuentas_retell")
     .select("modo, api_key_cifrada, numero_saliente, intervalo_minimo_llamadas_minutos")
@@ -117,7 +118,6 @@ export async function resolverCuentaRetell(
     .maybeSingle();
 
   if (!data) return { error: "Esta cuenta no tiene Retell conectado" };
-  if (!data.numero_saliente) return { error: "Falta elegir el número saliente de Retell en Configuración → Integraciones" };
 
   const apiKey = data.modo === "propia" ? (data.api_key_cifrada ? descifrar(data.api_key_cifrada) : null) : await resolverLlaveMaestraRetell(admin);
   if (!apiKey) return { error: "No se pudo resolver la API key de Retell de esta cuenta" };

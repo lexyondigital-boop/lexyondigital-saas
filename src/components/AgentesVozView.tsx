@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { GeneradorCopyscriptModal } from "@/components/GeneradorCopyscriptModal";
 import {
@@ -30,12 +31,12 @@ type Categoria = {
 };
 
 const CATEGORIAS: Categoria[] = [
-  { valor: "legal", etiqueta: "Legal", descripcion: "Despachos y asesoría jurídica", disponible: false },
-  { valor: "medicos", etiqueta: "Médicos", descripcion: "Consultorios y clínicas", disponible: false },
-  { valor: "inmobiliario", etiqueta: "Inmobiliarios", descripcion: "Venta y renta de propiedades", disponible: false },
+  { valor: "legal", etiqueta: "Legal", descripcion: "Despachos y asesoría jurídica", disponible: true },
+  { valor: "medicos", etiqueta: "Médicos", descripcion: "Consultorios y clínicas", disponible: true },
+  { valor: "inmobiliario", etiqueta: "Inmobiliarios", descripcion: "Venta y renta de propiedades", disponible: true },
   { valor: "servicios", etiqueta: "Servicios", descripcion: "Agendamiento y atención a clientes", disponible: true },
-  { valor: "cobranza", etiqueta: "Cobranza", descripcion: "Recordatorios y gestión de pagos", disponible: false },
-  { valor: "ventas", etiqueta: "Ventas", descripcion: "Prospección y seguimiento comercial", disponible: false },
+  { valor: "cobranza", etiqueta: "Cobranza", descripcion: "Recordatorios y gestión de pagos", disponible: true },
+  { valor: "ventas", etiqueta: "Ventas", descripcion: "Prospección y seguimiento comercial", disponible: true },
 ];
 
 type Llamada = {
@@ -113,6 +114,7 @@ type PlantillaSemilla = {
   id: string;
   nombre: string;
   descripcion: string | null;
+  numero_asignado?: string | null;
   agente_tipo: string;
   categoria: string;
   copyscript: string;
@@ -176,21 +178,30 @@ export function AgentesVozView({ permisos }: { permisos: Record<string, boolean>
           ))}
         </div>
       ) : (
-        <ServiciosWorkspace onVolver={() => setCategoria(null)} permisos={permisos} />
+        <CategoriaWorkspace categoria={categoria} onVolver={() => setCategoria(null)} permisos={permisos} />
       )}
     </div>
   );
 }
 
-function ServiciosWorkspace({ onVolver, permisos }: { onVolver: () => void; permisos: Record<string, boolean> }) {
+function CategoriaWorkspace({
+  categoria,
+  onVolver,
+  permisos,
+}: {
+  categoria: string;
+  onVolver: () => void;
+  permisos: Record<string, boolean>;
+}) {
   const [llamadas, setLlamadas] = useState<Llamada[] | null>(null);
   const [transcripcionAbierta, setTranscripcionAbierta] = useState<Llamada | null>(null);
 
   useEffect(() => {
-    fetch("/api/llamadas-voz")
+    setLlamadas(null);
+    fetch(`/api/llamadas-voz?categoria=${categoria}`)
       .then((res) => res.json())
       .then((data) => setLlamadas(data.llamadas ?? []));
-  }, []);
+  }, [categoria]);
 
   const stats = calcularStats(llamadas ?? []);
 
@@ -220,7 +231,7 @@ function ServiciosWorkspace({ onVolver, permisos }: { onVolver: () => void; perm
         ))}
       </div>
 
-      {permisos.manage_plantillas_voz && <SeccionPlantillas />}
+      {permisos.manage_plantillas_voz && <SeccionPlantillas categoria={categoria} />}
 
       <div className="mt-6 overflow-x-auto rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)]">
         {llamadas === null ? (
@@ -299,7 +310,7 @@ function ServiciosWorkspace({ onVolver, permisos }: { onVolver: () => void; perm
 
 // Todo se crea y configura aquí (contenido + agente de Retell) -- Plantillas
 // → Voz solo deja activar/desactivar los agentes ya creados.
-function SeccionPlantillas() {
+function SeccionPlantillas({ categoria }: { categoria: string }) {
   const [plantillas, setPlantillas] = useState<PlantillaVozAgente[] | null>(null);
   const [editando, setEditando] = useState<PlantillaVozAgente | "nueva" | null>(null);
   const [semillaElegida, setSemillaElegida] = useState<PlantillaSemilla | null>(null);
@@ -307,14 +318,16 @@ function SeccionPlantillas() {
   const [error, setError] = useState<string | null>(null);
 
   async function cargar() {
-    const res = await fetch("/api/plantillas-voz?categoria=servicios");
+    const res = await fetch(`/api/plantillas-voz?categoria=${categoria}`);
     const data = await res.json().catch(() => ({}));
     setPlantillas(data.plantillas ?? []);
   }
 
   useEffect(() => {
+    setPlantillas(null);
     cargar();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categoria]);
 
   async function alternarActiva(p: PlantillaVozAgente) {
     setError(null);
@@ -370,6 +383,7 @@ function SeccionPlantillas() {
 
       {mostrarSelector && (
         <SelectorPlantillaMaestra
+          categoria={categoria}
           onElegir={(semilla) => {
             setSemillaElegida(semilla);
             setEditando("nueva");
@@ -383,6 +397,7 @@ function SeccionPlantillas() {
         <FormularioAgenteVoz
           plantilla={editando === "nueva" ? null : editando}
           semilla={editando === "nueva" ? semillaElegida : null}
+          categoriaWorkspace={categoria}
           onGuardado={() => {
             setEditando(null);
             setSemillaElegida(null);
@@ -446,17 +461,20 @@ function SeccionPlantillas() {
 // la cuenta master como punto de partida (precarga el formulario, se puede
 // editar todo después) o empezar en blanco, como ya funcionaba antes.
 function SelectorPlantillaMaestra({
+  categoria,
   onElegir,
   onCancelar,
 }: {
+  categoria: string;
   onElegir: (semilla: PlantillaSemilla | null) => void;
   onCancelar: () => void;
 }) {
   const [plantillas, setPlantillas] = useState<PlantillaSemilla[] | null>(null);
+  const [modoRetell, setModoRetell] = useState<"master" | "propia" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/plantillas-voz-maestras/disponibles")
+    fetch(`/api/plantillas-voz-maestras/disponibles?categoria=${categoria}`)
       .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
       .then(({ ok, data }) => {
         if (!ok) {
@@ -464,9 +482,12 @@ function SelectorPlantillaMaestra({
           return;
         }
         setPlantillas(data.plantillas ?? []);
+        setModoRetell(data.modoRetell ?? null);
       })
       .catch(() => setError("No se pudieron cargar las plantillas maestras"));
-  }, []);
+  }, [categoria]);
+
+  const esCuentaPropia = modoRetell === "propia";
 
   const porCategoria = new Map<string, PlantillaSemilla[]>();
   for (const p of plantillas ?? []) {
@@ -481,15 +502,35 @@ function SelectorPlantillaMaestra({
       >
         <h2 className="mb-1 text-base font-semibold text-[var(--color-texto)]">Elige un punto de partida</h2>
         <p className="mb-4 text-sm text-[var(--color-texto-mute)]">
-          Puedes usar una plantilla ya lista y editarla después, o empezar completamente en blanco.
+          {esCuentaPropia
+            ? "Puedes usar una plantilla ya lista y editarla después, o empezar completamente en blanco."
+            : "Usas la cuenta incluida de lexyondigital -- solo puedes partir de una plantilla con número asignado."}
         </p>
 
-        <button
-          onClick={() => onElegir(null)}
-          className="mb-4 w-full rounded-xl border border-dashed border-[var(--color-borde)] p-4 text-left text-sm font-medium text-[var(--color-marca)] hover:border-[var(--color-marca)]"
-        >
-          + Empezar en blanco
-        </button>
+        {esCuentaPropia && (
+          <button
+            onClick={() => onElegir(null)}
+            className="mb-4 w-full rounded-xl border border-dashed border-[var(--color-borde)] p-4 text-left text-sm font-medium text-[var(--color-marca)] hover:border-[var(--color-marca)]"
+          >
+            + Empezar en blanco
+          </button>
+        )}
+
+        {!esCuentaPropia && (
+          <div className="mb-4 rounded-xl border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-4 text-sm text-[var(--color-texto)]">
+            <p>
+              Con la cuenta incluida, cada plantilla necesita un número asignado por tu administrador antes de poder
+              usarla -- <strong>aplican cargos por uso</strong>.
+            </p>
+            <p className="mt-2 text-[var(--color-texto-mute)]">
+              ¿Prefieres usar tu propia cuenta de Retell?{" "}
+              <Link href="/configuracion" className="font-medium text-[var(--color-marca)] hover:underline">
+                Conéctala en Configuración
+              </Link>
+              .
+            </p>
+          </div>
+        )}
 
         {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
 
@@ -505,16 +546,31 @@ function SelectorPlantillaMaestra({
                   {CATEGORIAS_VOZ.find((c) => c.valor === categoria)?.etiqueta ?? categoria}
                 </h3>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  {items.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => onElegir(p)}
-                      className="rounded-xl border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-4 text-left hover:border-[var(--color-marca)]"
-                    >
-                      <p className="text-sm font-medium text-[var(--color-texto)]">{p.nombre}</p>
-                      {p.descripcion && <p className="mt-1 text-xs text-[var(--color-texto-mute)]">{p.descripcion}</p>}
-                    </button>
-                  ))}
+                  {items.map((p) => {
+                    const bloqueada = !esCuentaPropia && !p.numero_asignado;
+                    return (
+                      <button
+                        key={p.id}
+                        disabled={bloqueada}
+                        onClick={() => !bloqueada && onElegir(p)}
+                        className={
+                          bloqueada
+                            ? "cursor-not-allowed rounded-xl border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-4 text-left opacity-50"
+                            : "rounded-xl border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-4 text-left hover:border-[var(--color-marca)]"
+                        }
+                      >
+                        <p className="text-sm font-medium text-[var(--color-texto)]">{p.nombre}</p>
+                        {p.descripcion && <p className="mt-1 text-xs text-[var(--color-texto-mute)]">{p.descripcion}</p>}
+                        {!esCuentaPropia && (
+                          <p className="mt-1 text-xs text-[var(--color-texto-mute)]">
+                            {p.numero_asignado
+                              ? `Se usará el número ${p.numero_asignado}`
+                              : "Sin número asignado -- pide a tu administrador"}
+                          </p>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             ))}
@@ -532,11 +588,13 @@ function SelectorPlantillaMaestra({
 function FormularioAgenteVoz({
   plantilla,
   semilla,
+  categoriaWorkspace,
   onGuardado,
   onCancelar,
 }: {
   plantilla: PlantillaVozAgente | null;
   semilla?: PlantillaSemilla | null;
+  categoriaWorkspace: string;
   onGuardado: () => void;
   onCancelar: () => void;
 }) {
@@ -544,7 +602,7 @@ function FormularioAgenteVoz({
   const [copyscript, setCopyscript] = useState(plantilla?.copyscript ?? semilla?.copyscript ?? "");
   const [objetivo, setObjetivo] = useState(plantilla?.objetivo ?? semilla?.objetivo ?? "");
   const [agenteTipo, setAgenteTipo] = useState(plantilla?.agente_tipo ?? semilla?.agente_tipo ?? "servicio");
-  const [categoria, setCategoria] = useState(plantilla?.categoria ?? semilla?.categoria ?? "servicios");
+  const [categoria, setCategoria] = useState(plantilla?.categoria ?? semilla?.categoria ?? categoriaWorkspace);
   const [modoAgente, setModoAgente] = useState<"generado" | "retell_propio">(plantilla?.modo_agente ?? "generado");
   const [retellAgentId, setRetellAgentId] = useState(plantilla?.retell_agent_id ?? "");
   const [retellVoiceId, setRetellVoiceId] = useState(plantilla?.retell_voice_id ?? semilla?.retell_voice_id ?? "");

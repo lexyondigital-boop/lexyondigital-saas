@@ -113,6 +113,43 @@ export async function POST(request: NextRequest) {
   }
 
   const admin = createAdminClient();
+
+  // En modo "incluido" (o sin Retell conectado todavía) cada plantilla
+  // necesita un número asignado por la cuenta master -- sin eso no hay de
+  // dónde sacar el número saliente, así que no se deja crear el agente.
+  let numeroAsignado: string | null = null;
+  if (modoAgenteFinal === "generado") {
+    const { data: cuentaRetell } = await admin
+      .from("cuentas_retell")
+      .select("modo")
+      .eq("cuenta_id", auth.perfil.cuenta_id)
+      .eq("activo", true)
+      .maybeSingle();
+
+    if (cuentaRetell?.modo !== "propia") {
+      if (!plantilla_madre_id) {
+        return NextResponse.json(
+          { error: "Con la cuenta incluida, necesitas partir de una plantilla con número asignado, o conectar tu propia cuenta de Retell" },
+          { status: 409 },
+        );
+      }
+      const { data: asignacion } = await admin
+        .from("plantillas_voz_maestras_numeros_asignados")
+        .select("numero")
+        .eq("cuenta_id", auth.perfil.cuenta_id)
+        .eq("plantilla_maestra_id", plantilla_madre_id)
+        .maybeSingle();
+
+      if (!asignacion) {
+        return NextResponse.json(
+          { error: "Esta plantilla todavía no tiene un número asignado para tu cuenta -- pide a tu administrador que te asigne uno, o conecta tu propia cuenta de Retell" },
+          { status: 409 },
+        );
+      }
+      numeroAsignado = asignacion.numero;
+    }
+  }
+
   const { data, error } = await admin
     .from("plantillas_voz")
     .insert({
@@ -128,6 +165,7 @@ export async function POST(request: NextRequest) {
       retell_voice_id: modoAgenteFinal === "generado" ? (retell_voice_id ?? null) : null,
       retell_idioma: retell_idioma ?? "es-419",
       retell_colgar_buzon: retell_colgar_buzon ?? true,
+      ...(numeroAsignado ? { retell_numero_saliente: numeroAsignado } : {}),
       ...(retell_funciones !== undefined ? { retell_funciones } : {}),
       ...(retell_colgar_ivr !== undefined ? { retell_colgar_ivr } : {}),
       ...(retell_pantalla_llamadas !== undefined ? { retell_pantalla_llamadas } : {}),
