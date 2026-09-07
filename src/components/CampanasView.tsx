@@ -15,9 +15,10 @@ type Campana = {
   status: "borrador" | "enviando" | "pausada" | "enviada";
   total_destinatarios: number;
   programado_para: string | null;
-  canal: "whatsapp" | "correo";
+  canal: "whatsapp" | "correo" | "voz";
   templates: { name: string } | null;
   plantillas_email: { nombre: string } | null;
+  plantillas_voz: { nombre: string } | null;
   etiquetas: { nombre: string } | null;
 };
 
@@ -36,6 +37,7 @@ export function CampanasView({ cuentaId }: { cuentaId: string }) {
   const [estadisticas, setEstadisticas] = useState<Record<string, EstadisticasCampana>>({});
   const [templates, setTemplates] = useState<Template[]>([]);
   const [plantillasEmail, setPlantillasEmail] = useState<PlantillaEmail[]>([]);
+  const [plantillasVoz, setPlantillasVoz] = useState<{ id: string; nombre: string }[]>([]);
   const [etiquetas, setEtiquetas] = useState<{ id: string; nombre: string }[]>([]);
   const [perfiles, setPerfiles] = useState<PerfilLite[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -45,25 +47,30 @@ export function CampanasView({ cuentaId }: { cuentaId: string }) {
 
   async function cargar() {
     setCargando(true);
-    const [{ data: c }, { data: t }, { data: e }, { data: p }, plantillasEmailRes] = await Promise.all([
+    const [{ data: c }, { data: t }, { data: e }, { data: p }, { data: pv }, plantillasEmailRes] = await Promise.all([
       supabase
         .from("campanas")
-        .select("id, nombre, status, total_destinatarios, programado_para, canal, templates(name), plantillas_email(nombre), etiquetas(nombre)")
+        .select(
+          "id, nombre, status, total_destinatarios, programado_para, canal, templates(name), plantillas_email(nombre), plantillas_voz(nombre), etiquetas(nombre)",
+        )
         .order("created_at", { ascending: false }),
       supabase.from("templates").select("*"),
       supabase.from("etiquetas").select("id, nombre").order("nombre"),
       supabase.from("perfiles").select("id, nombre").eq("activo", true).order("nombre"),
+      supabase.from("plantillas_voz").select("id, nombre").eq("publicada", true),
       fetch("/api/plantillas-email").then((r) => r.json()).catch(() => ({ plantillas: [] })),
     ]);
     const listaCampanas = (c as unknown as Campana[]) ?? [];
     setCampanas(listaCampanas);
     setTemplates((t as Template[]) ?? []);
     setPlantillasEmail((plantillasEmailRes.plantillas as PlantillaEmail[]) ?? []);
+    setPlantillasVoz(pv ?? []);
     setEtiquetas(e ?? []);
     setPerfiles((p as PerfilLite[]) ?? []);
 
-    const idsWhatsapp = listaCampanas.filter((camp) => camp.canal !== "correo").map((camp) => camp.id);
+    const idsWhatsapp = listaCampanas.filter((camp) => camp.canal === "whatsapp").map((camp) => camp.id);
     const idsCorreo = listaCampanas.filter((camp) => camp.canal === "correo").map((camp) => camp.id);
+    const idsVoz = listaCampanas.filter((camp) => camp.canal === "voz").map((camp) => camp.id);
     const tally: Record<string, EstadisticasCampana> = {};
 
     if (idsWhatsapp.length > 0) {
@@ -90,6 +97,18 @@ export function CampanasView({ cuentaId }: { cuentaId: string }) {
         // se cuenta enviado/fallido.
         if (co.estado === "enviado") tally[co.campana_id].enviado++;
         if (co.estado === "fallido") tally[co.campana_id].fallido++;
+      }
+    }
+
+    if (idsVoz.length > 0) {
+      const { data: llamadasCampana } = await supabase.from("llamadas_voz").select("campana_id, status").in("campana_id", idsVoz);
+      for (const l of llamadasCampana ?? []) {
+        if (!l.campana_id) continue;
+        if (!tally[l.campana_id]) tally[l.campana_id] = { enviado: 0, entregado: 0, leido: 0, fallido: 0 };
+        // "enviado" aquí significa que la llamada se disparó -- el resultado
+        // real (contestó/buzón/rechazó) se ve en Agentes de Voz, no aquí.
+        if (l.status !== "fallida") tally[l.campana_id].enviado++;
+        if (l.status === "fallida") tally[l.campana_id].fallido++;
       }
     }
 
@@ -151,6 +170,7 @@ export function CampanasView({ cuentaId }: { cuentaId: string }) {
           cuentaId={cuentaId}
           templatesAprobados={templatesAprobados}
           plantillasEmail={plantillasEmail.filter((p) => p.tipo === "campana" && p.activa)}
+          plantillasVoz={plantillasVoz}
           etiquetas={etiquetas}
           onCreada={() => {
             setMostrarForm(false);
@@ -203,16 +223,20 @@ export function CampanasView({ cuentaId }: { cuentaId: string }) {
                       )}
                     </td>
                     <td className="px-5 py-3.5 text-[var(--color-texto-mute)]">
-                      {c.canal === "correo" ? `✉️ ${c.plantillas_email?.nombre ?? "—"}` : (c.templates?.name ?? "—")}
+                      {c.canal === "correo"
+                        ? `✉️ ${c.plantillas_email?.nombre ?? "—"}`
+                        : c.canal === "voz"
+                          ? `📞 ${c.plantillas_voz?.nombre ?? "—"}`
+                          : (c.templates?.name ?? "—")}
                     </td>
                     <td className="px-5 py-3.5">
                       <Badge tono={TONO_STATUS[c.status]}>{LABEL_STATUS[c.status]}</Badge>
                     </td>
                     <td className="px-5 py-3.5 text-[var(--color-texto)]">{c.total_destinatarios}</td>
                     <td className="px-5 py-3.5 text-[var(--color-texto)]">
-                      {c.canal === "correo" ? (
+                      {c.canal === "correo" || c.canal === "voz" ? (
                         <>
-                          {stats.enviado} enviados de {c.total_destinatarios}
+                          {stats.enviado} {c.canal === "voz" ? "llamadas" : "enviados"} de {c.total_destinatarios}
                           {stats.fallido > 0 && <span className="ml-1 text-red-500">({stats.fallido} fallidos)</span>}
                         </>
                       ) : (
@@ -257,6 +281,7 @@ function CampanaForm({
   cuentaId,
   templatesAprobados,
   plantillasEmail,
+  plantillasVoz,
   etiquetas,
   onCreada,
   onTemplatesCambiados,
@@ -264,17 +289,19 @@ function CampanaForm({
   cuentaId: string;
   templatesAprobados: Template[];
   plantillasEmail: PlantillaEmail[];
+  plantillasVoz: { id: string; nombre: string }[];
   etiquetas: { id: string; nombre: string }[];
   onCreada: () => void;
   onTemplatesCambiados: () => void;
 }) {
   const supabase = createClient();
-  const [canal, setCanal] = useState<"whatsapp" | "correo">("whatsapp");
+  const [canal, setCanal] = useState<"whatsapp" | "correo" | "voz">("whatsapp");
   const [nombre, setNombre] = useState("");
   const [tipo, setTipo] = useState<"MARKETING" | "UTILITY" | "AUTHENTICATION">("MARKETING");
   const [modo, setModo] = useState<"existente" | "nueva">("existente");
   const [templateId, setTemplateId] = useState("");
   const [plantillaEmailId, setPlantillaEmailId] = useState("");
+  const [plantillaVozId, setPlantillaVozId] = useState("");
   const [etiquetaId, setEtiquetaId] = useState("");
   const [programadoPara, setProgramadoPara] = useState("");
   const [enviando, setEnviando] = useState(false);
@@ -293,6 +320,7 @@ function CampanaForm({
       canal,
       template_id: canal === "whatsapp" ? templateId || null : null,
       plantilla_email_id: canal === "correo" ? plantillaEmailId || null : null,
+      plantilla_voz_id: canal === "voz" ? plantillaVozId || null : null,
       etiqueta_id: etiquetaId || null,
       programado_para: programadoPara ? new Date(programadoPara).toISOString() : null,
     });
@@ -333,10 +361,34 @@ function CampanaForm({
           >
             Correo
           </button>
+          <button
+            type="button"
+            onClick={() => setCanal("voz")}
+            className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${canal === "voz" ? "border-[var(--color-marca)] bg-[var(--color-marca)] text-white" : "border-[var(--color-borde)] text-[var(--color-texto-mute)]"}`}
+          >
+            Voz
+          </button>
         </div>
       </div>
 
-      {canal === "correo" ? (
+      {canal === "voz" ? (
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Agente de voz</span>
+          <select value={plantillaVozId} onChange={(e) => setPlantillaVozId(e.target.value)} className={INPUT}>
+            <option value="">Sin plantilla</option>
+            {plantillasVoz.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nombre}
+              </option>
+            ))}
+          </select>
+          {plantillasVoz.length === 0 && (
+            <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
+              No hay agentes de voz activos todavía -- actívalos en Agentes de Voz.
+            </span>
+          )}
+        </label>
+      ) : canal === "correo" ? (
         <label className="block">
           <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Plantilla de correo</span>
           <select value={plantillaEmailId} onChange={(e) => setPlantillaEmailId(e.target.value)} className={INPUT}>

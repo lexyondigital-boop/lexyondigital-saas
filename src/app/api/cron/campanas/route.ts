@@ -5,6 +5,7 @@ import { moverDealEtapa, obtenerDealAbiertoDeContacto } from "@/lib/deals";
 import { resolverParametrosPlantilla, obtenerValoresContactoPorClave, sustituirParametrosPlantilla } from "@/lib/variables-contacto";
 import { enviarCorreo, reemplazarVariablesEmail, extraerClavesVariables } from "@/lib/email-envio";
 import { obtenerOCrearConversacion } from "@/lib/conversaciones";
+import { resolverCuentaRetell, crearLlamadaRetell, telefonoAE164 } from "@/lib/retell";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
 
   const { data: campanas, error } = await supabase
     .from("campanas")
-    .select("id, cuenta_id, template_id, etiqueta_id, canal, plantilla_email_id")
+    .select("id, cuenta_id, template_id, etiqueta_id, canal, plantilla_email_id, plantilla_voz_id")
     .eq("status", "enviando");
 
   if (error) {
@@ -49,7 +50,15 @@ export async function POST(request: NextRequest) {
 
 async function avanzarCampana(
   supabase: AdminClient,
-  campana: { id: string; cuenta_id: string; template_id: string | null; etiqueta_id: string | null; canal: "whatsapp" | "correo"; plantilla_email_id: string | null },
+  campana: {
+    id: string;
+    cuenta_id: string;
+    template_id: string | null;
+    etiqueta_id: string | null;
+    canal: "whatsapp" | "correo" | "voz";
+    plantilla_email_id: string | null;
+    plantilla_voz_id: string | null;
+  },
 ) {
   const { data: pendiente } = await supabase
     .from("campana_contactos")
@@ -66,6 +75,10 @@ async function avanzarCampana(
 
   if (campana.canal === "correo") {
     return avanzarCampanaCorreo(supabase, campana, pendiente);
+  }
+
+  if (campana.canal === "voz") {
+    return avanzarCampanaVoz(supabase, campana, pendiente);
   }
 
   if (!campana.template_id) {
@@ -203,6 +216,124 @@ async function avanzarCampanaCorreo(
   }
 
   return { campana_id: campana.id, contacto_id: contacto.id, ok: resultado.ok };
+}
+
+// Replica el flujo manual de POST /api/llamadas-voz (número de la plantilla
+// con respaldo en el de la cuenta, intervalo anti-spam,
+// obtenerOCrearConversacion) -- la llamada es asíncrona, así que "enviado"
+// aquí solo significa que Retell aceptó la llamada; el resultado real
+// (contestó/buzón/rechazó) llega después por el webhook de siempre y se ve
+// en Agentes de Voz, no en esta tabla.
+async function avanzarCampanaVoz(
+  supabase: AdminClient,
+  campana: { id: string; cuenta_id: string; etiqueta_id: string | null; plantilla_voz_id: string | null },
+  pendiente: { id: string; contacto_id: string },
+) {
+  if (!campana.plantilla_voz_id) {
+    return { campana_id: campana.id, error: "La campaña no tiene agente de voz asignado" };
+  }
+
+  const { data: plantilla } = await supabase
+    .from("plantillas_voz")
+    .select("id, publicada, retell_agent_id, retell_numero_saliente")
+    .eq("id", campana.plantilla_voz_id)
+    .maybeSingle();
+
+  if (!plantilla || !plantilla.publicada || !plantilla.retell_agent_id) {
+    return { campana_id: campana.id, error: "El agente de voz de la campaña no está listo (sin publicar o sin sincronizar con Retell)" };
+  }
+
+  const { data: contacto } = await supabase
+    .from("contactos")
+    .select("id, telefono, etiquetas")
+    .eq("id", pendiente.contacto_id)
+    .single();
+
+  if (!contacto) {
+    await supabase.from("campana_contactos").update({ status: "fallido" }).eq("id", pendiente.id);
+    return { campana_id: campana.id, error: "Contacto de la campaña ya no existe" };
+  }
+
+  const cuentaRetell = await resolverCuentaRetell(supabase, campana.cuenta_id);
+  if ("error" in cuentaRetell) {
+    await supabase.from("campana_contactos").update({ status: "fallido" }).eq("id", pendiente.id);
+    await supabase.from("contactos").update({ campana_status: "fallido" }).eq("id", contacto.id);
+    return { campana_id: campana.id, contacto_id: contacto.id, ok: false, error: cuentaRetell.error };
+  }
+
+  // El número de la plantilla (asignado por sub-cuenta y por plantilla)
+  // tiene prioridad -- el de la cuenta es el respaldo de siempre (modo
+  // propia, o agentes creados antes de este sistema).
+  const numeroSaliente = plantilla.retell_numero_saliente ?? cuentaRetell.numeroSaliente;
+  if (!numeroSaliente) {
+    await supabase.from("campana_contactos").update({ status: "fallido" }).eq("id", pendiente.id);
+    await supabase.from("contactos").update({ campana_status: "fallido" }).eq("id", contacto.id);
+    return { campana_id: campana.id, contacto_id: contacto.id, ok: false, error: "Falta el número saliente de Retell" };
+  }
+
+  const desde = new Date(Date.now() - cuentaRetell.intervaloMinimoLlamadas * 60_000).toISOString();
+  const { data: llamadaReciente } = await supabase
+    .from("llamadas_voz")
+    .select("id")
+    .eq("contacto_id", contacto.id)
+    .gte("created_at", desde)
+    .limit(1)
+    .maybeSingle();
+
+  if (llamadaReciente) {
+    await supabase.from("campana_contactos").update({ status: "fallido" }).eq("id", pendiente.id);
+    await supabase.from("contactos").update({ campana_status: "fallido" }).eq("id", contacto.id);
+    return { campana_id: campana.id, contacto_id: contacto.id, ok: false, error: "Se llamó a este contacto hace muy poco" };
+  }
+
+  const conversacion = await obtenerOCrearConversacion(supabase, campana.cuenta_id, contacto.id, contacto.telefono);
+
+  const { data: llamada, error: llamadaError } = await supabase
+    .from("llamadas_voz")
+    .insert({
+      cuenta_id: campana.cuenta_id,
+      contacto_id: contacto.id,
+      conversacion_id: conversacion?.id ?? null,
+      plantilla_voz_id: plantilla.id,
+      campana_id: campana.id,
+      campana_contacto_id: pendiente.id,
+      status: "en_progreso",
+    })
+    .select()
+    .single();
+
+  if (llamadaError || !llamada) {
+    await supabase.from("campana_contactos").update({ status: "fallido" }).eq("id", pendiente.id);
+    await supabase.from("contactos").update({ campana_status: "fallido" }).eq("id", contacto.id);
+    return { campana_id: campana.id, contacto_id: contacto.id, ok: false, error: llamadaError?.message ?? "No se pudo registrar la llamada" };
+  }
+
+  const resultado = await crearLlamadaRetell(cuentaRetell.apiKey, {
+    fromNumber: numeroSaliente,
+    toNumber: telefonoAE164(contacto.telefono),
+    metadata: { cuenta_id: campana.cuenta_id, llamada_voz_id: llamada.id },
+    overrideAgentId: plantilla.retell_agent_id,
+  });
+
+  if (!resultado.ok) {
+    console.error(`Campaña ${campana.id}, contacto ${contacto.id}: falló la llamada:`, resultado.error);
+    await supabase.from("llamadas_voz").update({ status: "fallida", actualizado_at: new Date().toISOString() }).eq("id", llamada.id);
+    await supabase.from("campana_contactos").update({ status: "fallido" }).eq("id", pendiente.id);
+    await supabase.from("contactos").update({ campana_status: "fallido" }).eq("id", contacto.id);
+    return { campana_id: campana.id, contacto_id: contacto.id, ok: false, error: resultado.error };
+  }
+
+  await supabase.from("llamadas_voz").update({ retell_call_id: resultado.callId }).eq("id", llamada.id);
+  await supabase.from("campana_contactos").update({ status: "enviado", enviado_at: new Date().toISOString() }).eq("id", pendiente.id);
+
+  let etiquetas = contacto.etiquetas ?? [];
+  if (campana.etiqueta_id) {
+    const { data: etiqueta } = await supabase.from("etiquetas").select("nombre").eq("id", campana.etiqueta_id).maybeSingle();
+    if (etiqueta && !etiquetas.includes(etiqueta.nombre)) etiquetas = [...etiquetas, etiqueta.nombre];
+  }
+  await supabase.from("contactos").update({ etiquetas, campana_status: "enviado", canal_origen: "campaña" }).eq("id", contacto.id);
+
+  return { campana_id: campana.id, contacto_id: contacto.id, ok: true };
 }
 
 async function registrarEnvioExitoso(
