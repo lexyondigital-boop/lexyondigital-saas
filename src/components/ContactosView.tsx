@@ -114,6 +114,8 @@ export function ContactosView({ cuentaId, puedeExportar = false }: { cuentaId: s
   const [mostrarColumnas, setMostrarColumnas] = useState(false);
   const [enviandoPlantillaA, setEnviandoPlantillaA] = useState<Contacto | null>(null);
   const [llamandoA, setLlamandoA] = useState<Contacto | null>(null);
+  const [pagina, setPagina] = useState(1);
+  const CONTACTOS_POR_PAGINA = 10;
 
   async function cargar() {
     setCargando(true);
@@ -244,6 +246,16 @@ export function ContactosView({ cuentaId, puedeExportar = false }: { cuentaId: s
     });
   }, [contactos, busqueda, filtroEtapa, filtroEtiqueta, filtroOrigen, filtroCampanaStatus, filtroAsignado, dealsPorContacto]);
 
+  // Cualquier cambio en la búsqueda/filtros vuelve a la primera página --
+  // si no, se podría quedar viendo una página vacía de un filtro anterior.
+  useEffect(() => {
+    setPagina(1);
+  }, [busqueda, filtroEtapa, filtroEtiqueta, filtroOrigen, filtroCampanaStatus, filtroAsignado]);
+
+  const totalPaginas = Math.max(1, Math.ceil(filtrados.length / CONTACTOS_POR_PAGINA));
+  const paginaActual = Math.min(pagina, totalPaginas);
+  const contactosPagina = filtrados.slice((paginaActual - 1) * CONTACTOS_POR_PAGINA, paginaActual * CONTACTOS_POR_PAGINA);
+
   async function eliminar(id: string) {
     if (!confirm("¿Eliminar este contacto? También se borran sus conversaciones y mensajes.")) return;
     await supabase.from("contactos").delete().eq("id", id);
@@ -287,14 +299,14 @@ export function ContactosView({ cuentaId, puedeExportar = false }: { cuentaId: s
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between gap-4">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-[var(--color-texto)]">Contactos</h1>
           <p className="mt-1 text-sm text-[var(--color-texto-mute)]">
             {contactos.length} contacto{contactos.length === 1 ? "" : "s"}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <input
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
@@ -480,7 +492,7 @@ export function ContactosView({ cuentaId, puedeExportar = false }: { cuentaId: s
               </tr>
             </thead>
             <tbody>
-              {filtrados.map((c) => (
+              {contactosPagina.map((c) => (
                 <tr key={c.id} className="border-b border-[var(--color-borde)] last:border-0">
                   {columnasVisibles.map((col) => (
                     <td key={col.id} className="px-5 py-3.5 text-[var(--color-texto)]">
@@ -532,6 +544,34 @@ export function ContactosView({ cuentaId, puedeExportar = false }: { cuentaId: s
           </table>
         )}
       </div>
+
+      {!cargando && filtrados.length > 0 && (
+        <div className="mt-4 flex items-center justify-between gap-4">
+          <p className="text-xs text-[var(--color-texto-mute)]">
+            Mostrando {(paginaActual - 1) * CONTACTOS_POR_PAGINA + 1}–{Math.min(paginaActual * CONTACTOS_POR_PAGINA, filtrados.length)} de{" "}
+            {filtrados.length}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPagina((p) => Math.max(1, p - 1))}
+              disabled={paginaActual === 1}
+              className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-1.5 text-sm font-medium text-[var(--color-texto)] transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Anterior
+            </button>
+            <span className="text-sm text-[var(--color-texto-mute)]">
+              Página {paginaActual} de {totalPaginas}
+            </span>
+            <button
+              onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
+              disabled={paginaActual === totalPaginas}
+              className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-1.5 text-sm font-medium text-[var(--color-texto)] transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Siguiente
+            </button>
+          </div>
+        </div>
+      )}
 
       {enviandoPlantillaA && (
         <ModalEnviarPlantilla contacto={enviandoPlantillaA} onCerrar={() => setEnviandoPlantillaA(null)} />
