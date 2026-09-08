@@ -87,7 +87,7 @@ async function avanzarCampana(
 
   const { data: template } = await supabase
     .from("templates")
-    .select("name, language, status, body, etiquetas_envio, etapa_destino_id, variables, variables_mapeo")
+    .select("name, language, status, body, etiquetas_envio, etapa_destino_id, variables, variables_mapeo, header_tipo, header_media_url")
     .eq("id", campana.template_id)
     .maybeSingle();
 
@@ -138,6 +138,7 @@ async function avanzarCampana(
     nombrePlantilla: template.name,
     idioma: template.language,
     parametros,
+    header: { tipo: template.header_tipo, mediaUrl: template.header_media_url },
   });
 
   if (resultado.ok) {

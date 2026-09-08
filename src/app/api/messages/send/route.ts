@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
   if (tipo === "template") {
     const { data: template } = await admin
       .from("templates")
-      .select("name, language, status, body, variables, variables_mapeo")
+      .select("name, language, status, body, variables, variables_mapeo, header_tipo, header_media_url")
       .eq("id", template_id)
       .eq("cuenta_id", conversacion.cuenta_id)
       .maybeSingle();
@@ -122,6 +122,7 @@ export async function POST(request: NextRequest) {
       nombrePlantilla: template.name,
       idioma: template.language,
       parametros,
+      header: { tipo: template.header_tipo, mediaUrl: template.header_media_url },
     });
 
     const { data: mensaje, error: mensajeError } = await supabase

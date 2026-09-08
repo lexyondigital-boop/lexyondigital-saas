@@ -139,6 +139,7 @@ export async function enviarMensajePlantilla({
   nombrePlantilla,
   idioma,
   parametros,
+  header,
 }: {
   phoneNumberId: string;
   accessToken: string;
@@ -146,11 +147,18 @@ export async function enviarMensajePlantilla({
   nombrePlantilla: string;
   idioma: string;
   parametros: string[];
+  header?: { tipo: "imagen" | "video" | "documento" | "ninguno"; mediaUrl: string | null } | null;
 }): Promise<ResultadoEnvio> {
-  const components =
-    parametros.length > 0
-      ? [{ type: "body", parameters: parametros.map((texto) => ({ type: "text", text: texto })) }]
-      : [];
+  // Si la plantilla tiene un header de archivo (imagen/video/documento), Meta
+  // exige mandar ese componente siempre -- omitirlo produce
+  // "(#132012) Parameter format does not match format in the created
+  // template" aunque el body vaya perfecto, porque Meta espera el formato
+  // declarado en la plantilla y "no viene nada" cuenta como UNKNOWN.
+  const tipoMedia = header?.tipo === "imagen" ? "image" : header?.tipo === "video" ? "video" : header?.tipo === "documento" ? "document" : null;
+  const components = [
+    ...(tipoMedia && header?.mediaUrl ? [{ type: "header", parameters: [{ type: tipoMedia, [tipoMedia]: { link: header.mediaUrl } }] }] : []),
+    ...(parametros.length > 0 ? [{ type: "body", parameters: parametros.map((texto) => ({ type: "text", text: texto })) }] : []),
+  ];
 
   const res = await fetch(
     `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`,
