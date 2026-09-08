@@ -544,6 +544,7 @@ function FormularioPlantillaEmail({
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mostrarGenerador, setMostrarGenerador] = useState(false);
+  const [editorExpandido, setEditorExpandido] = useState(false);
   const editorVisualRef = useRef<EditorVisualUnlayerRef>(null);
   const INPUT_LOCAL =
     "w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]";
@@ -626,12 +627,27 @@ function FormularioPlantillaEmail({
             >
               HTML avanzado
             </button>
+            {modo === "visual" && (
+              <button
+                type="button"
+                onClick={() => setEditorExpandido(true)}
+                className="rounded-lg border border-[var(--color-borde)] px-2.5 py-1 text-xs font-medium text-[var(--color-texto-mute)] hover:opacity-80"
+              >
+                ⤢ Pantalla completa
+              </button>
+            )}
           </div>
         </div>
 
         {modo === "visual" ? (
           <>
-            <EditorVisualUnlayer ref={editorVisualRef} tipo={tipo} disenoInicial={disenoJson} />
+            <EditorVisualUnlayer
+              ref={editorVisualRef}
+              tipo={tipo}
+              disenoInicial={disenoJson}
+              expandido={editorExpandido}
+              onCerrarExpandido={() => setEditorExpandido(false)}
+            />
             <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
               Arrastra bloques e inserta variables (nombre, fecha, marca del profesional…) desde el selector de variables de la barra de herramientas.
             </span>

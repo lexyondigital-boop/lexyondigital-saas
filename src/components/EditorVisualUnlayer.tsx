@@ -44,8 +44,10 @@ export type EditorVisualUnlayerRef = {
 
 let contadorInstancias = 0;
 
-const EditorVisualUnlayer = forwardRef<EditorVisualUnlayerRef, { tipo: TipoPlantillaEmail; disenoInicial?: unknown | null }>(
-  function EditorVisualUnlayer({ tipo, disenoInicial }, ref) {
+const EditorVisualUnlayer = forwardRef<
+  EditorVisualUnlayerRef,
+  { tipo: TipoPlantillaEmail; disenoInicial?: unknown | null; expandido?: boolean; onCerrarExpandido?: () => void }
+>(function EditorVisualUnlayer({ tipo, disenoInicial, expandido = false, onCerrarExpandido }, ref) {
     const [listo, setListo] = useState(false);
     const [errorCarga, setErrorCarga] = useState<string | null>(null);
     const idContenedorRef = useRef(`editor-visual-unlayer-${++contadorInstancias}`);
@@ -91,7 +93,21 @@ const EditorVisualUnlayer = forwardRef<EditorVisualUnlayerRef, { tipo: TipoPlant
       <div>
         {errorCarga && <p className="mb-2 text-sm text-red-500">{errorCarga}</p>}
         {!listo && !errorCarga && <p className="mb-2 text-xs text-[var(--color-texto-mute)]">Cargando editor visual…</p>}
-        <div id={idContenedorRef.current} style={{ height: 600 }} />
+        <div className={expandido ? "fixed inset-0 z-50 flex flex-col bg-[var(--color-tarjeta)] p-4" : ""}>
+          {expandido && (
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-sm font-semibold text-[var(--color-texto)]">Editor visual</span>
+              <button
+                type="button"
+                onClick={onCerrarExpandido}
+                className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-1.5 text-sm font-medium text-[var(--color-texto)] hover:opacity-80"
+              >
+                ✕ Cerrar pantalla completa
+              </button>
+            </div>
+          )}
+          <div id={idContenedorRef.current} style={expandido ? { flex: 1, minHeight: 0 } : { height: 600 }} />
+        </div>
       </div>
     );
   }
