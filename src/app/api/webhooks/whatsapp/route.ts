@@ -384,7 +384,10 @@ async function procesarActualizacionesEstado(statuses: any[]) {
     if (!existente) continue;
     if (nuevoEstado !== "fallido" && (RANGO_ESTADO[existente.status] ?? 0) >= (RANGO_ESTADO[nuevoEstado] ?? 0)) continue;
 
-    await supabase.from("mensajes").update({ status: nuevoEstado }).eq("id", existente.id);
+    await supabase
+      .from("mensajes")
+      .update({ status: nuevoEstado, error_meta: nuevoEstado === "fallido" ? (s.errors ?? null) : null })
+      .eq("id", existente.id);
 
     if (existente.tipo === "template" && existente.template_nombre) {
       await dispararWebhookPlantilla(supabase, {

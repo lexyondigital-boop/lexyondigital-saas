@@ -42,6 +42,29 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Esta campaña ya fue iniciada" }, { status: 409 });
   }
 
+  // Si la plantilla declara un encabezado de archivo (imagen/video/documento),
+  // Meta exige mandarlo en cada envío -- una plantilla que quedó con el tipo
+  // de encabezado marcado pero sin el archivo asociado rechazaría los 3
+  // (comprobado con "oneshot80": Meta acepta la plantilla aprobada pero
+  // rechaza cada mensaje si el envío no trae ese componente).
+  if (campana.canal === "whatsapp" && campana.template_id) {
+    const { data: template } = await supabase
+      .from("templates")
+      .select("status, header_tipo, header_media_url")
+      .eq("id", campana.template_id)
+      .maybeSingle();
+
+    if (!template || template.status !== "approved") {
+      return NextResponse.json({ error: "La plantilla de esta campaña no está aprobada" }, { status: 400 });
+    }
+    if (template.header_tipo !== "ninguno" && !template.header_media_url) {
+      return NextResponse.json(
+        { error: "La plantilla tiene un encabezado de imagen/video/documento sin archivo asociado -- vuelve a subirlo en Plantillas antes de iniciar" },
+        { status: 400 },
+      );
+    }
+  }
+
   const { count: yaCargados } = await supabase
     .from("campana_contactos")
     .select("id", { count: "exact", head: true })
