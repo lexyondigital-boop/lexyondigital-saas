@@ -26,6 +26,21 @@ export function resolverColumnasCsv(camposPersonalizados: CampoPersonalizado[]):
   ];
 }
 
+// Identificador estable de una columna para que el usuario elija cuáles
+// descargar en el CSV -- "telefono" para las fijas, "campo:<id>" para las
+// personalizadas de la cuenta.
+export function claveColumnaCsv(columna: ColumnaCsv): string {
+  return columna.tipo === "fija" ? columna.clave : `campo:${columna.campoId}`;
+}
+
+// El teléfono siempre se incluye (es la única columna obligatoria para
+// poder importar) -- si no se manda selección, se incluyen todas (mismo
+// comportamiento de siempre).
+export function filtrarColumnasCsv(columnas: ColumnaCsv[], seleccionadas: Set<string> | null): ColumnaCsv[] {
+  if (!seleccionadas) return columnas;
+  return columnas.filter((c) => (c.tipo === "fija" && c.clave === "telefono") || seleccionadas.has(claveColumnaCsv(c)));
+}
+
 export function generarCsvPlantilla(columnas: ColumnaCsv[]): string {
   const headers = columnas.map((c) => c.header);
   // La columna de Etiquetas se deja vacía a propósito: es opcional, y un

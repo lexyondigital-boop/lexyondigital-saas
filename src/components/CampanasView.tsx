@@ -184,6 +184,7 @@ export function CampanasView({ cuentaId }: { cuentaId: string }) {
         <CargarContactosModal
           campana={cargandoContactosDe}
           perfiles={perfiles}
+          cuentaId={cuentaId}
           onListo={() => {
             setCargandoContactosDe(null);
             cargar();
@@ -542,17 +543,22 @@ function CampanaForm({
   );
 }
 
+type CampoCsvOpcional = { clave: string; etiqueta: string };
+
 function CargarContactosModal({
   campana,
   perfiles,
+  cuentaId,
   onListo,
   onCancelar,
 }: {
   campana: Campana;
   perfiles: PerfilLite[];
+  cuentaId: string;
   onListo: () => void;
   onCancelar: () => void;
 }) {
+  const supabase = createClient();
   const [pais, setPais] = useState<"MX">("MX");
   const [asignadoA, setAsignadoA] = useState("");
   const [archivo, setArchivo] = useState<File | null>(null);
@@ -565,6 +571,37 @@ function CargarContactosModal({
     columnas_ignoradas: string[];
     contactos: ContactoImportado[];
   } | null>(null);
+  const [camposOpcionales, setCamposOpcionales] = useState<CampoCsvOpcional[]>([
+    { clave: "nombre_completo", etiqueta: "Nombre completo" },
+    { clave: "correo_electronico", etiqueta: "Correo electrónico" },
+    { clave: "etiquetas", etiqueta: "Etiquetas" },
+  ]);
+  const [columnasElegidas, setColumnasElegidas] = useState<Set<string>>(
+    new Set(["nombre_completo", "correo_electronico", "etiquetas"]),
+  );
+
+  useEffect(() => {
+    supabase
+      .from("campos_personalizados")
+      .select("id, nombre, es_fijo")
+      .eq("cuenta_id", cuentaId)
+      .order("orden")
+      .then(({ data }) => {
+        const personalizados = (data ?? []).filter((c) => !c.es_fijo).map((c) => ({ clave: `campo:${c.id}`, etiqueta: c.nombre }));
+        setCamposOpcionales((actuales) => [...actuales, ...personalizados]);
+        setColumnasElegidas((actuales) => new Set([...actuales, ...personalizados.map((c) => c.clave)]));
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cuentaId]);
+
+  function alternarColumna(clave: string) {
+    setColumnasElegidas((actuales) => {
+      const copia = new Set(actuales);
+      if (copia.has(clave)) copia.delete(clave);
+      else copia.add(clave);
+      return copia;
+    });
+  }
 
   async function subir() {
     if (!archivo) return;
@@ -623,12 +660,27 @@ function CargarContactosModal({
               </label>
             )}
 
-            <a
-              href="/api/contactos/plantilla-csv"
-              className="inline-block text-sm font-medium text-[var(--color-marca)] hover:underline"
-            >
-              Descargar plantilla CSV
-            </a>
+            <div>
+              <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Columnas a incluir en el layout</span>
+              <div className="space-y-1">
+                <label className="flex items-center gap-2 text-sm text-[var(--color-texto-mute)]">
+                  <input type="checkbox" checked disabled />
+                  Teléfono (siempre incluido)
+                </label>
+                {camposOpcionales.map((c) => (
+                  <label key={c.clave} className="flex items-center gap-2 text-sm text-[var(--color-texto)]">
+                    <input type="checkbox" checked={columnasElegidas.has(c.clave)} onChange={() => alternarColumna(c.clave)} />
+                    {c.etiqueta}
+                  </label>
+                ))}
+              </div>
+              <a
+                href={`/api/contactos/plantilla-csv?columnas=${encodeURIComponent([...columnasElegidas].join(","))}`}
+                className="mt-2 inline-block text-sm font-medium text-[var(--color-marca)] hover:underline"
+              >
+                Descargar plantilla CSV
+              </a>
+            </div>
 
             <label className="block">
               <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Archivo CSV</span>
