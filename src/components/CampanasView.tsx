@@ -304,6 +304,7 @@ function CampanaForm({
   const [plantillaVozId, setPlantillaVozId] = useState("");
   const [etiquetaId, setEtiquetaId] = useState("");
   const [programadoPara, setProgramadoPara] = useState("");
+  const [intervaloMinutos, setIntervaloMinutos] = useState("1");
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mostrarAsistente, setMostrarAsistente] = useState(false);
@@ -323,6 +324,7 @@ function CampanaForm({
       plantilla_voz_id: canal === "voz" ? plantillaVozId || null : null,
       etiqueta_id: etiquetaId || null,
       programado_para: programadoPara ? new Date(programadoPara).toISOString() : null,
+      intervalo_minutos: Math.max(1, Number(intervaloMinutos) || 1),
     });
 
     setEnviando(false);
@@ -488,6 +490,21 @@ function CampanaForm({
       <label className="block">
         <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Programar para (opcional)</span>
         <input type="datetime-local" value={programadoPara} onChange={(e) => setProgramadoPara(e.target.value)} className={INPUT} />
+      </label>
+
+      <label className="block">
+        <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Minutos entre cada envío</span>
+        <input
+          type="number"
+          min={1}
+          value={intervaloMinutos}
+          onChange={(e) => setIntervaloMinutos(e.target.value)}
+          className={INPUT}
+        />
+        <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
+          Por defecto se manda 1 contacto por minuto. Espaciar más ayuda a evitar que WhatsApp limite la entrega en
+          campañas grandes a audiencia fría.
+        </span>
       </label>
 
       <p className="text-xs text-[var(--color-texto-mute)]">

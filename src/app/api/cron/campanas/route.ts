@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
 
   const { data: campanas, error } = await supabase
     .from("campanas")
-    .select("id, cuenta_id, template_id, etiqueta_id, canal, plantilla_email_id, plantilla_voz_id")
+    .select("id, cuenta_id, template_id, etiqueta_id, canal, plantilla_email_id, plantilla_voz_id, intervalo_minutos")
     .eq("status", "enviando");
 
   if (error) {
@@ -58,8 +58,31 @@ async function avanzarCampana(
     canal: "whatsapp" | "correo" | "voz";
     plantilla_email_id: string | null;
     plantilla_voz_id: string | null;
+    intervalo_minutos: number;
   },
 ) {
+  // Con intervalo_minutos > 1 (default 1 -- el ritmo de siempre, uno por
+  // cada minuto del cron), se espera a que pase ese tiempo desde el último
+  // intento (haya salido bien o mal) antes de disparar el siguiente --
+  // mitigación para el 131049 de Meta en campañas de audiencia fría.
+  if (campana.intervalo_minutos > 1) {
+    const { data: ultimo } = await supabase
+      .from("campana_contactos")
+      .select("procesado_at")
+      .eq("campana_id", campana.id)
+      .not("procesado_at", "is", null)
+      .order("procesado_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (ultimo?.procesado_at) {
+      const minutosTranscurridos = (Date.now() - new Date(ultimo.procesado_at).getTime()) / 60_000;
+      if (minutosTranscurridos < campana.intervalo_minutos) {
+        return { campana_id: campana.id, esperando: true };
+      }
+    }
+  }
+
   const { data: pendiente } = await supabase
     .from("campana_contactos")
     .select("id, contacto_id, variables")
@@ -72,6 +95,8 @@ async function avanzarCampana(
   if (!pendiente) {
     return finalizarCampana(supabase, campana.id);
   }
+
+  await supabase.from("campana_contactos").update({ procesado_at: new Date().toISOString() }).eq("id", pendiente.id);
 
   if (campana.canal === "correo") {
     return avanzarCampanaCorreo(supabase, campana, pendiente);
