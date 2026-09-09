@@ -76,9 +76,42 @@ export function AppShell({
   const pathname = usePathname();
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [nombreCuenta, setNombreCuenta] = useState<string | null>(null);
+  const [cuentasDisponibles, setCuentasDisponibles] = useState<
+    { cuenta_id: string; nombre: string; codigo: string | null; es_casa: boolean }[]
+  >([]);
+  const [cambiandoCuenta, setCambiandoCuenta] = useState(false);
   const nav = (role === "super_admin" ? NAV_SUPER_ADMIN : NAV_TENANT).filter(
     (item) => !item.requiere || permisos?.[item.requiere],
   );
+
+  // Solo se muestra el selector si el correo tiene acceso a más de una
+  // cuenta (ver membresias_cuenta) -- para el resto de usuarios no cambia
+  // nada en la barra lateral.
+  useEffect(() => {
+    if (role === "super_admin") return;
+    fetch("/api/auth/cuentas-disponibles")
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data.cuentas) && data.cuentas.length > 1) setCuentasDisponibles(data.cuentas);
+      })
+      .catch(() => {});
+  }, [role]);
+
+  async function cambiarCuenta(nuevaCuentaId: string) {
+    if (nuevaCuentaId === cuentaId) return;
+    setCambiandoCuenta(true);
+    const res = await fetch("/api/auth/cambiar-cuenta", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cuenta_id: nuevaCuentaId }),
+    });
+    if (res.ok) {
+      await createClient().auth.refreshSession();
+      window.location.href = "/dashboard";
+      return;
+    }
+    setCambiandoCuenta(false);
+  }
 
   // El nombre del negocio (editable por el super admin en Sub-cuentas > General)
   // se muestra debajo del logo en vez del genérico "Administración" -- así
@@ -177,6 +210,21 @@ export function AppShell({
               </div>
               <span className="truncate text-sm text-[var(--color-texto-mute)]">{email}</span>
             </div>
+          )}
+          {cuentasDisponibles.length > 1 && (
+            <select
+              value={cuentaId}
+              onChange={(e) => cambiarCuenta(e.target.value)}
+              disabled={cambiandoCuenta}
+              className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)] disabled:opacity-60"
+            >
+              {cuentasDisponibles.map((c) => (
+                <option key={c.cuenta_id} value={c.cuenta_id}>
+                  {c.nombre}
+                  {c.codigo ? ` · ${c.codigo}` : ""}
+                </option>
+              ))}
+            </select>
           )}
           <ThemeSwitcher />
           <LogoutButton />

@@ -37,7 +37,17 @@ type Usuario = {
   email: string | null;
 };
 
-type Datos = { cuenta: Cuenta; whatsapp: Whatsapp; usuarios: Usuario[] };
+type Membresia = {
+  id: string;
+  perfil_id: string;
+  rol: "admin" | "agente";
+  activo: boolean;
+  email: string | null;
+  nombre: string | null;
+  cuenta_casa: string | null;
+};
+
+type Datos = { cuenta: Cuenta; whatsapp: Whatsapp; usuarios: Usuario[]; membresias: Membresia[] };
 
 type Tab = "general" | "whatsapp" | "usuarios" | "agentes_voz";
 
@@ -153,7 +163,7 @@ export function AdministrarSubCuenta({ id }: { id: string }) {
 
       {tab === "general" && <PestanaGeneral id={id} cuenta={cuenta} onCambio={cargar} />}
       {tab === "whatsapp" && <PestanaWhatsapp id={id} whatsapp={datos.whatsapp} onCambio={cargar} />}
-      {tab === "usuarios" && <PestanaUsuarios id={id} usuarios={datos.usuarios} onCambio={cargar} />}
+      {tab === "usuarios" && <PestanaUsuarios id={id} usuarios={datos.usuarios} membresias={datos.membresias} onCambio={cargar} />}
       {tab === "agentes_voz" && <PestanaAgentesVoz id={id} />}
     </div>
   );
@@ -495,7 +505,17 @@ function ConectarWhatsappForm({
   );
 }
 
-function PestanaUsuarios({ id, usuarios, onCambio }: { id: string; usuarios: Usuario[]; onCambio: () => void }) {
+function PestanaUsuarios({
+  id,
+  usuarios,
+  membresias,
+  onCambio,
+}: {
+  id: string;
+  usuarios: Usuario[];
+  membresias: Membresia[];
+  onCambio: () => void;
+}) {
   const [mostrarForm, setMostrarForm] = useState(false);
 
   async function cambiarRol(usuarioId: string, rol: string) {
@@ -588,6 +608,131 @@ function PestanaUsuarios({ id, usuarios, onCambio }: { id: string; usuarios: Usu
           </div>
         ))}
       </div>
+
+      <MembresiasAdicionales id={id} membresias={membresias} onCambio={onCambio} />
+    </div>
+  );
+}
+
+// Personas que ya tienen un login en OTRA cuenta y que además pueden
+// entrar a esta -- no crea un usuario nuevo, solo vincula uno existente
+// (ver /api/cuentas/[id]/membresias). Al elegir cuál "Cuenta" quiere abrir
+// en el login (o desde el selector del sidebar), esto es lo que aparece
+// como opción extra.
+function MembresiasAdicionales({ id, membresias, onCambio }: { id: string; membresias: Membresia[]; onCambio: () => void }) {
+  const [mostrarForm, setMostrarForm] = useState(false);
+  const [email, setEmail] = useState("");
+  const [rol, setRol] = useState<"admin" | "agente">("agente");
+  const [enviando, setEnviando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function agregar(e: FormEvent) {
+    e.preventDefault();
+    setEnviando(true);
+    setError(null);
+    const res = await fetch(`/api/cuentas/${id}/membresias`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, rol }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setEnviando(false);
+    if (!res.ok) {
+      setError(data.error ?? "No se pudo dar acceso");
+      return;
+    }
+    setEmail("");
+    setMostrarForm(false);
+    onCambio();
+  }
+
+  async function quitar(membresiaId: string) {
+    if (!confirm("¿Quitar el acceso de este usuario a esta cuenta?")) return;
+    await fetch(`/api/cuentas/${id}/membresias/${membresiaId}`, { method: "DELETE" });
+    onCambio();
+  }
+
+  return (
+    <div className="mt-8 border-t border-[var(--color-borde)] pt-6">
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-[var(--color-texto)]">Acceso adicional desde otra cuenta</p>
+          <p className="text-xs text-[var(--color-texto-mute)]">
+            Personas que ya tienen su propio login en otra sub-cuenta y también pueden entrar a esta.
+          </p>
+        </div>
+        <button
+          onClick={() => setMostrarForm((v) => !v)}
+          className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-1.5 text-sm font-medium text-[var(--color-texto)] transition-opacity hover:opacity-80"
+        >
+          {mostrarForm ? "Cancelar" : "Dar acceso"}
+        </button>
+      </div>
+
+      {mostrarForm && (
+        <form onSubmit={agregar} className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-4">
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-[var(--color-texto-mute)]">Correo del usuario existente</span>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-[var(--color-texto-mute)]">Rol en esta cuenta</span>
+            <select
+              value={rol}
+              onChange={(e) => setRol(e.target.value as "admin" | "agente")}
+              className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+            >
+              <option value="admin">Administrador</option>
+              <option value="agente">Agente</option>
+            </select>
+          </label>
+          <button
+            type="submit"
+            disabled={enviando}
+            style={{ boxShadow: "var(--halo-accion)" }}
+            className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
+          >
+            {enviando ? "Guardando…" : "Dar acceso"}
+          </button>
+          {error && <p className="w-full text-sm text-red-500">{error}</p>}
+        </form>
+      )}
+
+      {membresias.length === 0 ? (
+        <p className="text-sm text-[var(--color-texto-mute)]">Nadie tiene acceso adicional a esta cuenta todavía.</p>
+      ) : (
+        <div className="space-y-2">
+          {membresias.map((m) => (
+            <div
+              key={m.id}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-4"
+            >
+              <div>
+                <p className="text-sm font-medium text-[var(--color-texto)]">{m.nombre ?? m.email}</p>
+                <p className="text-xs text-[var(--color-texto-mute)]">
+                  {m.email} · vive en {m.cuenta_casa ?? "otra cuenta"}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge tono="marca">{m.rol === "admin" ? "Administrador" : "Agente"}</Badge>
+                <button
+                  onClick={() => quitar(m.id)}
+                  className="rounded-lg px-3 py-1.5 text-sm font-medium transition-opacity hover:opacity-80"
+                  style={{ color: "#ef4444", background: "color-mix(in srgb, #ef4444 14%, transparent)" }}
+                >
+                  Quitar acceso
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

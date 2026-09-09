@@ -40,7 +40,29 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     }),
   );
 
-  return NextResponse.json({ cuenta, whatsapp: whatsapp ?? null, usuarios });
+  // Personas que "viven" en otra cuenta pero tienen acceso adicional a
+  // esta (ver membresias_cuenta) -- distinto de "usuarios" arriba, que son
+  // los que pertenecen de casa a esta cuenta.
+  const { data: membresiasRaw } = await admin
+    .from("membresias_cuenta")
+    .select("id, perfil_id, rol, activo, created_at")
+    .eq("cuenta_id", id)
+    .order("created_at", { ascending: true });
+
+  const membresias = await Promise.all(
+    (membresiasRaw ?? []).map(async (m) => {
+      const { data } = await admin.auth.admin.getUserById(m.perfil_id);
+      const { data: perfilCasa } = await admin.from("perfiles").select("nombre, cuenta_id").eq("id", m.perfil_id).maybeSingle();
+      let cuentaCasa: string | null = null;
+      if (perfilCasa?.cuenta_id) {
+        const { data: c } = await admin.from("cuentas").select("nombre").eq("id", perfilCasa.cuenta_id).maybeSingle();
+        cuentaCasa = c?.nombre ?? null;
+      }
+      return { ...m, email: data.user?.email ?? null, nombre: perfilCasa?.nombre ?? null, cuenta_casa: cuentaCasa };
+    }),
+  );
+
+  return NextResponse.json({ cuenta, whatsapp: whatsapp ?? null, usuarios, membresias });
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Logo } from "@/components/Logo";
 
+type CuentaDisponible = { cuenta_id: string; nombre: string; codigo: string | null; rol: string; es_casa: boolean };
+
 export default function LoginPage() {
   const router = useRouter();
   const supabase = createClient();
@@ -14,6 +16,14 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cuentas, setCuentas] = useState<CuentaDisponible[] | null>(null);
+  const [cambiando, setCambiando] = useState(false);
+
+  async function entrar() {
+    fetch("/api/auditoria/login", { method: "POST" }).catch(() => {});
+    router.replace("/");
+    router.refresh();
+  }
 
   async function iniciarSesion(e: FormEvent) {
     e.preventDefault();
@@ -31,10 +41,72 @@ export default function LoginPage() {
       return;
     }
 
-    fetch("/api/auditoria/login", { method: "POST" }).catch(() => {});
+    // Si el correo tiene acceso a más de una cuenta (ver membresias_cuenta),
+    // se le pregunta a cuál entrar en vez de mandarlo directo -- la
+    // inmensa mayoría de logins solo tiene una y no ve este paso.
+    const res = await fetch("/api/auth/cuentas-disponibles");
+    const data = await res.json().catch(() => ({}));
+    setCargando(false);
 
-    router.replace("/");
-    router.refresh();
+    if (res.ok && Array.isArray(data.cuentas) && data.cuentas.length > 1) {
+      setCuentas(data.cuentas);
+      return;
+    }
+
+    entrar();
+  }
+
+  async function elegirCuenta(cuentaId: string) {
+    setCambiando(true);
+    setError(null);
+    const res = await fetch("/api/auth/cambiar-cuenta", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cuenta_id: cuentaId }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setCambiando(false);
+      setError(data.error ?? "No se pudo entrar a esa cuenta");
+      return;
+    }
+    await supabase.auth.refreshSession();
+    entrar();
+  }
+
+  if (cuentas) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[var(--color-bg)] px-4">
+        <div className="w-full max-w-sm">
+          <div className="mb-8 flex justify-center">
+            <Logo />
+          </div>
+          <div className="space-y-3 rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6 shadow-sm">
+            <div>
+              <h1 className="text-lg font-semibold text-[var(--color-texto)]">¿A qué cuenta quieres entrar?</h1>
+              <p className="mt-1 text-sm text-[var(--color-texto-mute)]">Tu correo tiene acceso a más de una cuenta.</p>
+            </div>
+            {error && <p className="text-sm text-red-500">{error}</p>}
+            <div className="space-y-2">
+              {cuentas.map((c) => (
+                <button
+                  key={c.cuenta_id}
+                  onClick={() => elegirCuenta(c.cuenta_id)}
+                  disabled={cambiando}
+                  className="flex w-full items-center justify-between rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-4 py-3 text-left text-sm font-medium text-[var(--color-texto)] transition-opacity hover:opacity-80 disabled:opacity-60"
+                >
+                  <span>
+                    {c.nombre}
+                    {c.codigo ? ` · ${c.codigo}` : ""}
+                  </span>
+                  <span className="text-xs text-[var(--color-texto-mute)]">{c.es_casa ? "Tu cuenta" : "Acceso adicional"}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
