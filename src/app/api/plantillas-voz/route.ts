@@ -4,7 +4,7 @@ import { requirePermiso } from "@/lib/require-permiso";
 import { registrarActividad } from "@/lib/auditoria";
 import { sincronizarPlantillaVozConRetell, resolverApiKeyRetell, asegurarWebhookAgente, type FuncionRetell } from "@/lib/retell";
 import { origenPublico } from "@/lib/origen-publico";
-import { validarConfiguracionLlamada } from "@/lib/plantillas-voz";
+import { validarConfiguracionLlamada, validarFuncionTransferCall } from "@/lib/plantillas-voz";
 
 const AGENTES_TIPO = ["servicio", "citas", "venta", "cobranza", "legal"] as const;
 const CATEGORIAS = ["legal", "medicos", "inmobiliario", "servicios", "cobranza", "ventas"] as const;
@@ -60,6 +60,8 @@ export async function POST(request: NextRequest) {
     retell_fin_silencio_ms,
     retell_duracion_maxima_ms,
     retell_duracion_anillo_ms,
+    retell_habla_primero,
+    retell_mensaje_bienvenida,
   } = body as {
     nombre?: string;
     copyscript?: string;
@@ -81,12 +83,23 @@ export async function POST(request: NextRequest) {
     retell_fin_silencio_ms?: number;
     retell_duracion_maxima_ms?: number;
     retell_duracion_anillo_ms?: number;
+    retell_habla_primero?: boolean;
+    retell_mensaje_bienvenida?: string | null;
   };
 
   if (!nombre?.trim()) return NextResponse.json({ error: "Falta el nombre" }, { status: 400 });
 
   const errorConfiguracionLlamada = validarConfiguracionLlamada(body);
   if (errorConfiguracionLlamada) return NextResponse.json({ error: errorConfiguracionLlamada }, { status: 400 });
+
+  if (retell_habla_primero && !retell_mensaje_bienvenida?.trim()) {
+    return NextResponse.json({ error: "Falta el mensaje de bienvenida para que la IA hable primero" }, { status: 400 });
+  }
+
+  for (const f of retell_funciones ?? []) {
+    const errorFuncion = validarFuncionTransferCall(f);
+    if (errorFuncion) return NextResponse.json({ error: errorFuncion }, { status: 400 });
+  }
 
   if (retell_pantalla_llamadas && !objetivo?.trim()) {
     return NextResponse.json({ error: "Falta el objetivo para activar la gestión de pantalla de llamadas" }, { status: 400 });
@@ -168,6 +181,8 @@ export async function POST(request: NextRequest) {
       ...(retell_fin_silencio_ms !== undefined ? { retell_fin_silencio_ms } : {}),
       ...(retell_duracion_maxima_ms !== undefined ? { retell_duracion_maxima_ms } : {}),
       ...(retell_duracion_anillo_ms !== undefined ? { retell_duracion_anillo_ms } : {}),
+      retell_habla_primero: retell_habla_primero ?? false,
+      retell_mensaje_bienvenida: retell_mensaje_bienvenida?.trim() || null,
     })
     .select()
     .single();

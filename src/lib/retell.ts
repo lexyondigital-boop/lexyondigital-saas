@@ -218,12 +218,43 @@ export async function listarVocesRetell(apiKey: string): Promise<{ ok: true; voc
 // representan una plantilla de voz en modo "generado" -- el Copyscript se
 // manda como general_prompt, así que el agente conversa según eso en vez de
 // usar el agente por defecto del número saliente.
+export type HandoffMensaje = { type: "static_message"; message: string };
+export type OnHoldMusic = "none" | "relaxing_sound" | "uplifting_beats" | "ringtone";
+
+export type TransferOption =
+  | {
+      type: "cold_transfer";
+      show_transferee_as_caller?: boolean;
+      cold_transfer_mode?: "sip_invite" | "sip_refer";
+      transfer_ring_duration_ms?: number;
+    }
+  | {
+      type: "warm_transfer";
+      show_transferee_as_caller?: boolean;
+      transfer_ring_duration_ms?: number;
+      on_hold_music?: OnHoldMusic;
+      private_handoff_option?: HandoffMensaje;
+    }
+  | {
+      type: "agentic_warm_transfer";
+      on_hold_music?: OnHoldMusic;
+      agentic_transfer_config: {
+        transfer_agent: { agent_id: string };
+        transfer_timeout_ms: number;
+        action_on_timeout: "bridge_transfer" | "cancel_transfer";
+      };
+    };
+
 export type FuncionRetell = {
   type: string;
   name: string;
   description?: string;
   transfer_destination?: { type: "predefined"; number: string };
-  transfer_option?: { type: "cold_transfer" };
+  transfer_option?: TransferOption;
+  custom_sip_headers?: Record<string, string>;
+  speak_during_execution?: boolean;
+  execution_message_type?: "prompt" | "static_text";
+  execution_message_description?: string;
 };
 
 // El panel "Configuración de llamadas" de Retell -- un solo objeto en vez de
@@ -298,6 +329,8 @@ export async function sincronizarAgenteGenerado(
     funciones: FuncionRetell[];
     webhookUrl: string;
     configuracionLlamada: ConfiguracionLlamadaVoz;
+    hablaPrimero: boolean;
+    mensajeBienvenida: string | null;
   },
 ): Promise<{ ok: true; llmId: string; agentId: string } | { ok: false; error: string }> {
   try {
@@ -311,7 +344,11 @@ export async function sincronizarAgenteGenerado(
       {
         method: params.llmId ? "PATCH" : "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ general_prompt: params.prompt, general_tools: params.funciones }),
+        body: JSON.stringify({
+          general_prompt: params.prompt,
+          general_tools: params.funciones,
+          begin_message: params.hablaPrimero ? (params.mensajeBienvenida ?? "") : "",
+        }),
       },
     );
     if (!resLlm.ok) {
@@ -400,6 +437,8 @@ export async function sincronizarPlantillaVozConRetell(
     retell_fin_silencio_ms: number;
     retell_duracion_maxima_ms: number;
     retell_duracion_anillo_ms: number;
+    retell_habla_primero: boolean;
+    retell_mensaje_bienvenida: string | null;
   },
   webhookUrl: string,
 ): Promise<{ ok: true; retellLlmId: string; retellAgentId: string; sincronizadoEn: string } | { ok: false; error: string }> {
@@ -423,6 +462,8 @@ export async function sincronizarPlantillaVozConRetell(
     colgarBuzon: plantilla.retell_colgar_buzon,
     funciones: plantilla.retell_funciones,
     webhookUrl,
+    hablaPrimero: plantilla.retell_habla_primero,
+    mensajeBienvenida: plantilla.retell_mensaje_bienvenida,
     configuracionLlamada: {
       colgarIvr: plantilla.retell_colgar_ivr,
       pantallaLlamadas: plantilla.retell_pantalla_llamadas,

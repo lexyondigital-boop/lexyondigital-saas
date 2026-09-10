@@ -14,6 +14,9 @@ import {
   OPCIONES_FIN_SILENCIO,
   OPCIONES_DURACION_MAXIMA,
   OPCIONES_DURACION_ANILLO,
+  OPCIONES_DURACION_ANILLO_TRANSFERENCIA,
+  OPCIONES_ON_HOLD_MUSIC,
+  OPCIONES_TRANSFER_TIMEOUT_AGENCIAL,
 } from "@/lib/plantillas-voz";
 import {
   ETIQUETA_STATUS_LLAMADA,
@@ -22,6 +25,10 @@ import {
   type StatusLlamadaVoz,
   type ResultadoLlamadaVoz,
 } from "@/lib/llamadas-voz";
+import type { FuncionRetell, TransferOption, OnHoldMusic } from "@/lib/retell";
+
+const INPUT_LOCAL =
+  "w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]";
 
 type Llamada = {
   id: string;
@@ -57,14 +64,6 @@ function etiquetaPlantilla(plantilla: Llamada["plantilla"]): string {
   return `${plantilla.nombre}/${tipo} · ${categoria}`;
 }
 
-type FuncionRetell = {
-  type: string;
-  name: string;
-  description?: string;
-  transfer_destination?: { type: "predefined"; number: string };
-  transfer_option?: { type: "cold_transfer" };
-};
-
 type PlantillaVozAgente = {
   id: string;
   nombre: string;
@@ -88,6 +87,8 @@ type PlantillaVozAgente = {
   retell_fin_silencio_ms: number;
   retell_duracion_maxima_ms: number;
   retell_duracion_anillo_ms: number;
+  retell_habla_primero: boolean;
+  retell_mensaje_bienvenida: string | null;
 };
 
 type AgenteRetellLite = { agentId: string; nombre: string };
@@ -378,13 +379,14 @@ function FormularioAgenteVoz({
   const [retellFinSilencioMs, setRetellFinSilencioMs] = useState(plantilla?.retell_fin_silencio_ms ?? 600000);
   const [retellDuracionMaximaMs, setRetellDuracionMaximaMs] = useState(plantilla?.retell_duracion_maxima_ms ?? 3600000);
   const [retellDuracionAnilloMs, setRetellDuracionAnilloMs] = useState(plantilla?.retell_duracion_anillo_ms ?? 30000);
+  const [retellHablaPrimero, setRetellHablaPrimero] = useState(plantilla?.retell_habla_primero ?? false);
+  const [retellMensajeBienvenida, setRetellMensajeBienvenida] = useState(plantilla?.retell_mensaje_bienvenida ?? "");
   const [mostrarConfigLlamadas, setMostrarConfigLlamadas] = useState(false);
   const [funciones, setFunciones] = useState<FuncionRetell[]>(
     plantilla?.retell_funciones ?? [{ type: "end_call", name: "fin_de_llamada", description: "Fin de la llamada" }],
   );
   const [mostrarAgregarFuncion, setMostrarAgregarFuncion] = useState(false);
-  const [agregandoTransferencia, setAgregandoTransferencia] = useState(false);
-  const [numeroTransferencia, setNumeroTransferencia] = useState("");
+  const [transferModal, setTransferModal] = useState<FuncionRetell | "nueva" | null>(null);
   const [agentes, setAgentes] = useState<AgenteRetellLite[]>([]);
   const [voces, setVoces] = useState<VozRetellLite[]>([]);
   const [cargandoOpciones, setCargandoOpciones] = useState(false);
@@ -393,9 +395,6 @@ function FormularioAgenteVoz({
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [avisoRetell, setAvisoRetell] = useState<string | null>(null);
-
-  const INPUT_LOCAL =
-    "w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]";
 
   useEffect(() => {
     setCargandoOpciones(true);
@@ -417,7 +416,7 @@ function FormularioAgenteVoz({
 
   function elegirOpcionFuncion(type: string) {
     if (type === "transfer_call") {
-      setAgregandoTransferencia(true);
+      setTransferModal("nueva");
       setMostrarAgregarFuncion(false);
       return;
     }
@@ -425,20 +424,9 @@ function FormularioAgenteVoz({
     setMostrarAgregarFuncion(false);
   }
 
-  function confirmarTransferencia() {
-    if (!numeroTransferencia.trim().startsWith("+")) return;
-    setFunciones((f) => [
-      ...f,
-      {
-        type: "transfer_call",
-        name: "transferir_llamada",
-        description: "Transfiere la llamada a un humano cuando el cliente lo pida o el agente no pueda resolver la solicitud.",
-        transfer_destination: { type: "predefined", number: numeroTransferencia.trim() },
-        transfer_option: { type: "cold_transfer" },
-      },
-    ]);
-    setNumeroTransferencia("");
-    setAgregandoTransferencia(false);
+  function guardarTransferencia(f: FuncionRetell) {
+    setFunciones((prev) => [...prev.filter((fn) => fn.type !== "transfer_call"), f]);
+    setTransferModal(null);
   }
 
   function quitarFuncion(type: string) {
@@ -460,6 +448,10 @@ function FormularioAgenteVoz({
     }
     if (modoAgente === "generado" && retellPantallaLlamadas && !objetivo.trim()) {
       setError("Falta el objetivo para activar la gestión de pantalla de llamadas");
+      return;
+    }
+    if (modoAgente === "generado" && retellHablaPrimero && !retellMensajeBienvenida.trim()) {
+      setError("Falta el mensaje de bienvenida para que la IA hable primero");
       return;
     }
     setGuardando(true);
@@ -487,6 +479,8 @@ function FormularioAgenteVoz({
       retell_fin_silencio_ms: modoAgente === "generado" ? retellFinSilencioMs : undefined,
       retell_duracion_maxima_ms: modoAgente === "generado" ? retellDuracionMaximaMs : undefined,
       retell_duracion_anillo_ms: modoAgente === "generado" ? retellDuracionAnilloMs : undefined,
+      retell_habla_primero: modoAgente === "generado" ? retellHablaPrimero : undefined,
+      retell_mensaje_bienvenida: modoAgente === "generado" ? retellMensajeBienvenida : undefined,
     };
     const res = plantilla
       ? await fetch(`/api/plantillas-voz/${plantilla.id}`, {
@@ -614,6 +608,27 @@ function FormularioAgenteVoz({
               </label>
             </div>
 
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Mensaje de bienvenida</span>
+              <select
+                value={retellHablaPrimero ? "ia" : "usuario"}
+                onChange={(e) => setRetellHablaPrimero(e.target.value === "ia")}
+                className={INPUT_LOCAL}
+              >
+                <option value="usuario">El usuario habla primero</option>
+                <option value="ia">La IA habla primero</option>
+              </select>
+              {retellHablaPrimero && (
+                <textarea
+                  value={retellMensajeBienvenida}
+                  onChange={(e) => setRetellMensajeBienvenida(e.target.value)}
+                  rows={2}
+                  placeholder="Ej. Hola, te llamo de Totalplay para ofrecerte un beneficio."
+                  className={`${INPUT_LOCAL} mt-2`}
+                />
+              )}
+            </label>
+
             <div>
               <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Funciones</span>
               <div className="flex flex-wrap gap-2">
@@ -622,40 +637,19 @@ function FormularioAgenteVoz({
                     key={f.type}
                     className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2.5 py-1 text-xs text-[var(--color-texto)]"
                   >
-                    {OPCIONES_FUNCION.find((o) => o.type === f.type)?.etiqueta ?? f.name}
-                    {f.type === "transfer_call" && f.transfer_destination ? ` (${f.transfer_destination.number})` : ""}
+                    {f.type === "transfer_call" ? (
+                      <button type="button" onClick={() => setTransferModal(f)} className="hover:underline">
+                        {etiquetaTransferencia(f)}
+                      </button>
+                    ) : (
+                      OPCIONES_FUNCION.find((o) => o.type === f.type)?.etiqueta ?? f.name
+                    )}
                     <button onClick={() => quitarFuncion(f.type)} className="text-[var(--color-texto-mute)] hover:text-red-500">
                       ×
                     </button>
                   </span>
                 ))}
               </div>
-
-              {agregandoTransferencia && (
-                <div className="mt-2 flex items-center gap-2">
-                  <input
-                    value={numeroTransferencia}
-                    onChange={(e) => setNumeroTransferencia(e.target.value)}
-                    placeholder="+525512345678"
-                    className={INPUT_LOCAL}
-                  />
-                  <button
-                    type="button"
-                    onClick={confirmarTransferencia}
-                    disabled={!numeroTransferencia.trim().startsWith("+")}
-                    className="shrink-0 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-xs font-medium text-[var(--color-texto)] hover:opacity-80 disabled:opacity-50"
-                  >
-                    Agregar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAgregandoTransferencia(false)}
-                    className="shrink-0 text-xs font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              )}
 
               <div className="relative mt-2 inline-block">
                 <button
@@ -865,6 +859,478 @@ function FormularioAgenteVoz({
           onCancelar={() => setMostrarGeneradorCopyscript(false)}
         />
       )}
+
+      {transferModal && (
+        <FormularioTransferCall
+          inicial={transferModal === "nueva" ? null : transferModal}
+          onGuardar={guardarTransferencia}
+          onCancelar={() => setTransferModal(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// "Transferencia de llamadas (fría) +525512345678" -- resumen de la pastilla
+// en la lista de funciones.
+function etiquetaTransferencia(f: FuncionRetell): string {
+  const ETIQUETA_TIPO: Record<string, string> = {
+    cold_transfer: "fría",
+    warm_transfer: "cálida",
+    agentic_warm_transfer: "cálida agencial",
+  };
+  const tipo = f.transfer_option?.type ? ETIQUETA_TIPO[f.transfer_option.type] : null;
+  const numero = f.transfer_destination?.type === "predefined" ? f.transfer_destination.number : null;
+  return `Transferencia de llamadas${tipo ? ` (${tipo})` : ""}${numero ? ` ${numero}` : ""}`;
+}
+
+type TransferFormState = {
+  nombre: string;
+  descripcion: string;
+  numero: string;
+  tipo: "cold_transfer" | "warm_transfer" | "agentic_warm_transfer";
+  callerId: "agente" | "usuario";
+  duracionAnilloMs: number;
+  metodoSip: "sip_invite" | "sip_refer";
+  encabezadosSip: { clave: string; valor: string }[];
+  hablaMientrasEsperas: boolean;
+  tipoMensajeEspera: "prompt" | "static_text";
+  mensajeEspera: string;
+  musicaEspera: OnHoldMusic;
+  mensajeReceptor: string;
+  agenteDestino: string;
+  timeoutMs: number;
+  accionTimeout: "bridge_transfer" | "cancel_transfer";
+};
+
+function estadoInicialTransferencia(f: FuncionRetell | null): TransferFormState {
+  const opcion = f?.transfer_option;
+  const conCallerId = opcion && "show_transferee_as_caller" in opcion ? opcion : undefined;
+  const conAnillo = opcion && "transfer_ring_duration_ms" in opcion ? opcion : undefined;
+  const conMusica = opcion && "on_hold_music" in opcion ? opcion : undefined;
+  return {
+    nombre: f?.name ?? "transferir_llamada",
+    descripcion:
+      f?.description ?? "Transfiere la llamada a un humano cuando el cliente lo pida o el agente no pueda resolver la solicitud.",
+    numero: f?.transfer_destination?.type === "predefined" ? f.transfer_destination.number : "",
+    tipo: opcion?.type ?? "cold_transfer",
+    callerId: conCallerId?.show_transferee_as_caller ? "usuario" : "agente",
+    duracionAnilloMs: conAnillo?.transfer_ring_duration_ms ?? 30000,
+    metodoSip: (opcion?.type === "cold_transfer" && opcion.cold_transfer_mode) || "sip_invite",
+    encabezadosSip: f?.custom_sip_headers
+      ? Object.entries(f.custom_sip_headers).map(([clave, valor]) => ({ clave, valor }))
+      : [],
+    hablaMientrasEsperas: f?.speak_during_execution ?? false,
+    tipoMensajeEspera: f?.execution_message_type ?? "static_text",
+    mensajeEspera: f?.execution_message_description ?? "",
+    musicaEspera: conMusica?.on_hold_music ?? "none",
+    mensajeReceptor: (opcion?.type === "warm_transfer" && opcion.private_handoff_option?.message) || "",
+    agenteDestino: (opcion?.type === "agentic_warm_transfer" && opcion.agentic_transfer_config.transfer_agent.agent_id) || "",
+    timeoutMs: (opcion?.type === "agentic_warm_transfer" && opcion.agentic_transfer_config.transfer_timeout_ms) || 30000,
+    accionTimeout: (opcion?.type === "agentic_warm_transfer" && opcion.agentic_transfer_config.action_on_timeout) || "bridge_transfer",
+  };
+}
+
+function construirFuncionTransferCall(s: TransferFormState): FuncionRetell {
+  const f: FuncionRetell = {
+    type: "transfer_call",
+    name: s.nombre.trim() || "transferir_llamada",
+    description: s.descripcion.trim() || undefined,
+    transfer_destination: { type: "predefined", number: s.numero.trim() },
+  };
+
+  if (s.tipo === "cold_transfer") {
+    f.transfer_option = {
+      type: "cold_transfer",
+      show_transferee_as_caller: s.callerId === "usuario",
+      cold_transfer_mode: s.metodoSip,
+      transfer_ring_duration_ms: s.duracionAnilloMs,
+    };
+    const headers = s.encabezadosSip.filter((h) => h.clave.trim());
+    if (headers.length > 0) {
+      f.custom_sip_headers = Object.fromEntries(headers.map((h) => [h.clave.trim(), h.valor]));
+    }
+    if (s.hablaMientrasEsperas) {
+      f.speak_during_execution = true;
+      f.execution_message_type = s.tipoMensajeEspera;
+      f.execution_message_description = s.mensajeEspera.trim();
+    }
+  } else if (s.tipo === "warm_transfer") {
+    f.transfer_option = {
+      type: "warm_transfer",
+      show_transferee_as_caller: s.callerId === "usuario",
+      transfer_ring_duration_ms: s.duracionAnilloMs,
+      on_hold_music: s.musicaEspera,
+      ...(s.mensajeReceptor.trim() ? { private_handoff_option: { type: "static_message", message: s.mensajeReceptor.trim() } } : {}),
+    };
+  } else {
+    f.transfer_option = {
+      type: "agentic_warm_transfer",
+      on_hold_music: s.musicaEspera,
+      agentic_transfer_config: {
+        transfer_agent: { agent_id: s.agenteDestino },
+        transfer_timeout_ms: s.timeoutMs,
+        action_on_timeout: s.accionTimeout,
+      },
+    };
+  }
+  return f;
+}
+
+// Sub-formulario con todas las opciones reales de "Transferencia de llamada"
+// de Retell -- se abre para crear una función nueva o para editar la
+// existente (clic en su pastilla).
+function FormularioTransferCall({
+  inicial,
+  onGuardar,
+  onCancelar,
+}: {
+  inicial: FuncionRetell | null;
+  onGuardar: (f: FuncionRetell) => void;
+  onCancelar: () => void;
+}) {
+  const [estado, setEstado] = useState<TransferFormState>(() => estadoInicialTransferencia(inicial));
+  const [agentesDestino, setAgentesDestino] = useState<AgenteRetellLite[]>([]);
+  const [cargandoAgentes, setCargandoAgentes] = useState(false);
+  const [errorAgentes, setErrorAgentes] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (estado.tipo !== "agentic_warm_transfer" || agentesDestino.length > 0 || cargandoAgentes) return;
+    setCargandoAgentes(true);
+    fetch("/api/integraciones/retell/agentes")
+      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok) {
+          setErrorAgentes(data.error ?? "No se pudo cargar la lista de agentes");
+          return;
+        }
+        setAgentesDestino(data.agentes ?? []);
+      })
+      .catch(() => setErrorAgentes("No se pudo cargar la lista de agentes"))
+      .finally(() => setCargandoAgentes(false));
+  }, [estado.tipo, agentesDestino.length, cargandoAgentes]);
+
+  function actualizarEncabezado(i: number, campo: "clave" | "valor", valor: string) {
+    setEstado((s) => ({
+      ...s,
+      encabezadosSip: s.encabezadosSip.map((h, idx) => (idx === i ? { ...h, [campo]: valor } : h)),
+    }));
+  }
+
+  function quitarEncabezado(i: number) {
+    setEstado((s) => ({ ...s, encabezadosSip: s.encabezadosSip.filter((_, idx) => idx !== i) }));
+  }
+
+  function guardar() {
+    if (!estado.numero.trim().startsWith("+")) {
+      setError("El número de destino debe estar en formato E.164 (ej. +525512345678)");
+      return;
+    }
+    if (estado.tipo === "agentic_warm_transfer" && !estado.agenteDestino) {
+      setError("Falta elegir el agente destino");
+      return;
+    }
+    if (estado.hablaMientrasEsperas && !estado.mensajeEspera.trim()) {
+      setError('Falta el mensaje para "Habla mientras esperas"');
+      return;
+    }
+    onGuardar(construirFuncionTransferCall(estado));
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onCancelar}>
+      <div
+        className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="mb-4 text-base font-semibold text-[var(--color-texto)]">Transferencia de llamada</h2>
+
+        <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Nombre</span>
+              <input value={estado.nombre} onChange={(e) => setEstado((s) => ({ ...s, nombre: e.target.value }))} className={INPUT_LOCAL} />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Transferir a</span>
+              <input
+                value={estado.numero}
+                onChange={(e) => setEstado((s) => ({ ...s, numero: e.target.value }))}
+                placeholder="+525512345678"
+                className={INPUT_LOCAL}
+              />
+            </label>
+          </div>
+
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Descripción</span>
+            <textarea
+              value={estado.descripcion}
+              onChange={(e) => setEstado((s) => ({ ...s, descripcion: e.target.value }))}
+              rows={2}
+              className={INPUT_LOCAL}
+            />
+          </label>
+
+          <div>
+            <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">¿Cómo debería gestionar la IA la transferencia?</span>
+            <div className="space-y-1.5">
+              {[
+                { valor: "cold_transfer" as const, etiqueta: "Transferencia en frío", detalle: "Transferencia de IA inmediata" },
+                { valor: "warm_transfer" as const, etiqueta: "Transferencia en caliente", detalle: "La IA le da instrucciones unidireccionales al agente" },
+                { valor: "agentic_warm_transfer" as const, etiqueta: "Transferencia cálida agencial", detalle: "La IA mantiene una conversación bidireccional con el agente destino" },
+              ].map((op) => (
+                <label key={op.valor} className="flex items-start gap-2 text-sm text-[var(--color-texto)]">
+                  <input
+                    type="radio"
+                    className="mt-0.5"
+                    checked={estado.tipo === op.valor}
+                    onChange={() => setEstado((s) => ({ ...s, tipo: op.valor }))}
+                  />
+                  <span>
+                    {op.etiqueta}
+                    <span className="block text-xs text-[var(--color-texto-mute)]">{op.detalle}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {(estado.tipo === "cold_transfer" || estado.tipo === "warm_transfer") && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Identificador de llamadas mostrado</span>
+                <select
+                  value={estado.callerId}
+                  onChange={(e) => setEstado((s) => ({ ...s, callerId: e.target.value as "agente" | "usuario" }))}
+                  className={INPUT_LOCAL}
+                >
+                  <option value="agente">Relata el número del agente</option>
+                  <option value="usuario">Número de usuario</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Duración del timbre</span>
+                <select
+                  value={estado.duracionAnilloMs}
+                  onChange={(e) => setEstado((s) => ({ ...s, duracionAnilloMs: Number(e.target.value) }))}
+                  className={INPUT_LOCAL}
+                >
+                  {OPCIONES_DURACION_ANILLO_TRANSFERENCIA.map((o) => (
+                    <option key={o.valor} value={o.valor}>
+                      {o.etiqueta}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
+
+          {estado.tipo === "cold_transfer" && (
+            <>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Método de transferencia SIP</span>
+                <select
+                  value={estado.metodoSip}
+                  onChange={(e) => setEstado((s) => ({ ...s, metodoSip: e.target.value as "sip_invite" | "sip_refer" }))}
+                  className={INPUT_LOCAL}
+                >
+                  <option value="sip_invite">Invitación SIP</option>
+                  <option value="sip_refer">SIP REFER</option>
+                </select>
+              </label>
+
+              <div>
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="text-xs font-medium text-[var(--color-texto-mute)]">Encabezados SIP personalizados</span>
+                  <button
+                    type="button"
+                    onClick={() => setEstado((s) => ({ ...s, encabezadosSip: [...s.encabezadosSip, { clave: "", valor: "" }] }))}
+                    className="text-xs font-medium text-[var(--color-marca)] hover:underline"
+                  >
+                    + Agregar
+                  </button>
+                </div>
+                {estado.encabezadosSip.map((h, i) => (
+                  <div key={i} className="mb-1.5 flex items-center gap-2">
+                    <input
+                      value={h.clave}
+                      onChange={(e) => actualizarEncabezado(i, "clave", e.target.value)}
+                      placeholder="Clave"
+                      className={INPUT_LOCAL}
+                    />
+                    <input
+                      value={h.valor}
+                      onChange={(e) => actualizarEncabezado(i, "valor", e.target.value)}
+                      placeholder="Valor"
+                      className={INPUT_LOCAL}
+                    />
+                    <button type="button" onClick={() => quitarEncabezado(i)} className="shrink-0 text-[var(--color-texto-mute)] hover:text-red-500">
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <label className="flex items-center gap-2 text-sm text-[var(--color-texto)]">
+                  <input
+                    type="checkbox"
+                    checked={estado.hablaMientrasEsperas}
+                    onChange={(e) => setEstado((s) => ({ ...s, hablaMientrasEsperas: e.target.checked }))}
+                  />
+                  Habla mientras esperas
+                </label>
+                {estado.hablaMientrasEsperas && (
+                  <div className="ml-6 mt-2 space-y-2">
+                    <div className="flex gap-2">
+                      {[
+                        { valor: "prompt" as const, etiqueta: "Inmediato" },
+                        { valor: "static_text" as const, etiqueta: "Oración estática" },
+                      ].map((op) => (
+                        <button
+                          key={op.valor}
+                          type="button"
+                          onClick={() => setEstado((s) => ({ ...s, tipoMensajeEspera: op.valor }))}
+                          className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
+                            estado.tipoMensajeEspera === op.valor
+                              ? "border-[var(--color-marca)] text-[var(--color-marca)]"
+                              : "border-[var(--color-borde)] text-[var(--color-texto)]"
+                          }`}
+                        >
+                          {op.etiqueta}
+                        </button>
+                      ))}
+                    </div>
+                    <textarea
+                      value={estado.mensajeEspera}
+                      onChange={(e) => setEstado((s) => ({ ...s, mensajeEspera: e.target.value }))}
+                      rows={2}
+                      placeholder={estado.tipoMensajeEspera === "prompt" ? "Ej. déjame buscarlo por ti" : "Frase exacta que se dirá"}
+                      className={INPUT_LOCAL}
+                    />
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {estado.tipo === "warm_transfer" && (
+            <>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Música en espera</span>
+                <select
+                  value={estado.musicaEspera}
+                  onChange={(e) => setEstado((s) => ({ ...s, musicaEspera: e.target.value as OnHoldMusic }))}
+                  className={INPUT_LOCAL}
+                >
+                  {OPCIONES_ON_HOLD_MUSIC.map((o) => (
+                    <option key={o.valor} value={o.valor}>
+                      {o.etiqueta}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Mensaje para quien recibe la llamada</span>
+                <textarea
+                  value={estado.mensajeReceptor}
+                  onChange={(e) => setEstado((s) => ({ ...s, mensajeReceptor: e.target.value }))}
+                  rows={2}
+                  placeholder="Ej. Te transfiero a un cliente que quiere confirmar su pago."
+                  className={INPUT_LOCAL}
+                />
+              </label>
+            </>
+          )}
+
+          {estado.tipo === "agentic_warm_transfer" && (
+            <>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Agente destino</span>
+                <select
+                  value={estado.agenteDestino}
+                  onChange={(e) => setEstado((s) => ({ ...s, agenteDestino: e.target.value }))}
+                  className={INPUT_LOCAL}
+                  disabled={cargandoAgentes}
+                >
+                  <option value="">{cargandoAgentes ? "Cargando…" : "Elige un agente"}</option>
+                  {agentesDestino.map((a) => (
+                    <option key={a.agentId} value={a.agentId}>
+                      {a.nombre}
+                    </option>
+                  ))}
+                </select>
+                {errorAgentes && <p className="mt-1 text-xs text-red-500">{errorAgentes}</p>}
+              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Tiempo de espera</span>
+                  <select
+                    value={estado.timeoutMs}
+                    onChange={(e) => setEstado((s) => ({ ...s, timeoutMs: Number(e.target.value) }))}
+                    className={INPUT_LOCAL}
+                  >
+                    {OPCIONES_TRANSFER_TIMEOUT_AGENCIAL.map((o) => (
+                      <option key={o.valor} value={o.valor}>
+                        {o.etiqueta}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Música en espera</span>
+                  <select
+                    value={estado.musicaEspera}
+                    onChange={(e) => setEstado((s) => ({ ...s, musicaEspera: e.target.value as OnHoldMusic }))}
+                    className={INPUT_LOCAL}
+                  >
+                    {OPCIONES_ON_HOLD_MUSIC.map((o) => (
+                      <option key={o.valor} value={o.valor}>
+                        {o.etiqueta}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div>
+                <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Acción al expirar el tiempo de espera</span>
+                <div className="space-y-1.5">
+                  {[
+                    { valor: "bridge_transfer" as const, etiqueta: "Completar la transferencia de todos modos" },
+                    { valor: "cancel_transfer" as const, etiqueta: "Cancelar la transferencia" },
+                  ].map((op) => (
+                    <label key={op.valor} className="flex items-center gap-2 text-sm text-[var(--color-texto)]">
+                      <input
+                        type="radio"
+                        checked={estado.accionTimeout === op.valor}
+                        onChange={() => setEstado((s) => ({ ...s, accionTimeout: op.valor }))}
+                      />
+                      {op.etiqueta}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {error && <p className="text-sm text-red-500">{error}</p>}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={onCancelar} className="rounded-lg border border-[var(--color-borde)] px-4 py-2 text-sm font-medium text-[var(--color-texto)] hover:opacity-80">
+              Cancelar
+            </button>
+            <button
+              onClick={guardar}
+              style={{ boxShadow: "var(--halo-accion)" }}
+              className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90"
+            >
+              Guardar
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

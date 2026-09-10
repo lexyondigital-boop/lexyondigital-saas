@@ -4,7 +4,7 @@ import { requirePermiso } from "@/lib/require-permiso";
 import { registrarActividad } from "@/lib/auditoria";
 import { sincronizarPlantillaVozConRetell, resolverApiKeyRetell, asegurarWebhookAgente, type FuncionRetell } from "@/lib/retell";
 import { origenPublico } from "@/lib/origen-publico";
-import { validarConfiguracionLlamada } from "@/lib/plantillas-voz";
+import { validarConfiguracionLlamada, validarFuncionTransferCall } from "@/lib/plantillas-voz";
 
 const AGENTES_TIPO = ["servicio", "citas", "venta", "cobranza", "legal"] as const;
 const MODOS_AGENTE = ["generado", "retell_propio"] as const;
@@ -37,6 +37,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     retell_fin_silencio_ms,
     retell_duracion_maxima_ms,
     retell_duracion_anillo_ms,
+    retell_habla_primero,
+    retell_mensaje_bienvenida,
   } = body as {
     nombre?: string;
     copyscript?: string;
@@ -59,6 +61,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     retell_fin_silencio_ms?: number;
     retell_duracion_maxima_ms?: number;
     retell_duracion_anillo_ms?: number;
+    retell_habla_primero?: boolean;
+    retell_mensaje_bienvenida?: string | null;
   };
 
   if (agente_tipo && !AGENTES_TIPO.includes(agente_tipo as (typeof AGENTES_TIPO)[number])) {
@@ -74,12 +78,17 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const errorConfiguracionLlamada = validarConfiguracionLlamada(body);
   if (errorConfiguracionLlamada) return NextResponse.json({ error: errorConfiguracionLlamada }, { status: 400 });
 
+  for (const f of retell_funciones ?? []) {
+    const errorFuncion = validarFuncionTransferCall(f);
+    if (errorFuncion) return NextResponse.json({ error: errorFuncion }, { status: 400 });
+  }
+
   const admin = createAdminClient();
 
-  if (publicada === true || retell_pantalla_llamadas === true) {
+  if (publicada === true || retell_pantalla_llamadas === true || retell_habla_primero === true) {
     const { data: actual } = await admin
       .from("plantillas_voz")
-      .select("copyscript, objetivo")
+      .select("copyscript, objetivo, retell_mensaje_bienvenida")
       .eq("id", id)
       .eq("cuenta_id", auth.perfil.cuenta_id)
       .maybeSingle();
@@ -94,6 +103,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       const objetivoFinal = objetivo ?? actual?.objetivo ?? "";
       if (!objetivoFinal.trim()) {
         return NextResponse.json({ error: "Falta el objetivo para activar la gestión de pantalla de llamadas" }, { status: 400 });
+      }
+    }
+    if (retell_habla_primero === true) {
+      const mensajeFinal = retell_mensaje_bienvenida ?? actual?.retell_mensaje_bienvenida ?? "";
+      if (!mensajeFinal.trim()) {
+        return NextResponse.json({ error: "Falta el mensaje de bienvenida para que la IA hable primero" }, { status: 400 });
       }
     }
   }
@@ -120,6 +135,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (retell_fin_silencio_ms !== undefined) cambios.retell_fin_silencio_ms = retell_fin_silencio_ms;
   if (retell_duracion_maxima_ms !== undefined) cambios.retell_duracion_maxima_ms = retell_duracion_maxima_ms;
   if (retell_duracion_anillo_ms !== undefined) cambios.retell_duracion_anillo_ms = retell_duracion_anillo_ms;
+  if (retell_habla_primero !== undefined) cambios.retell_habla_primero = retell_habla_primero;
+  if (retell_mensaje_bienvenida !== undefined) cambios.retell_mensaje_bienvenida = retell_mensaje_bienvenida?.trim() || null;
 
   const { data, error } = await admin
     .from("plantillas_voz")

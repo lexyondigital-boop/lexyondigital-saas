@@ -1,6 +1,8 @@
 // Catálogos compartidos entre Plantillas (lista de solo activar/desactivar)
 // y Agentes de Voz (donde vive toda la configuración real).
 
+import type { FuncionRetell } from "@/lib/retell";
+
 export const AGENTES_TIPO_VOZ: { valor: string; etiqueta: string; disponible: boolean }[] = [
   { valor: "servicio", etiqueta: "Servicio", disponible: true },
   { valor: "citas", etiqueta: "Recordatorio de citas", disponible: true },
@@ -72,6 +74,25 @@ export const OPCIONES_DURACION_ANILLO: { valor: number; etiqueta: string }[] = [
   etiqueta: `${seg} s`,
 }));
 
+// Rango real de Retell para transfer_ring_duration_ms (5-90 s) -- distinto
+// del timbre de la llamada completa (ring_duration_ms, arriba).
+export const OPCIONES_DURACION_ANILLO_TRANSFERENCIA: { valor: number; etiqueta: string }[] = [
+  5, 10, 15, 20, 30, 45, 60, 75, 90,
+].map((seg) => ({ valor: seg * 1000, etiqueta: `${seg} s` }));
+
+export const OPCIONES_ON_HOLD_MUSIC: { valor: "none" | "relaxing_sound" | "uplifting_beats" | "ringtone"; etiqueta: string }[] = [
+  { valor: "none", etiqueta: "Sin música" },
+  { valor: "relaxing_sound", etiqueta: "Relajante" },
+  { valor: "uplifting_beats", etiqueta: "Animada" },
+  { valor: "ringtone", etiqueta: "Tono de timbre" },
+];
+
+// Rango real de Retell para transfer_timeout_ms en transferencia agencial
+// (10 s - 5 min).
+export const OPCIONES_TRANSFER_TIMEOUT_AGENCIAL: { valor: number; etiqueta: string }[] = [
+  10, 15, 20, 30, 45, 60, 90, 120, 180, 300,
+].map((seg) => ({ valor: seg * 1000, etiqueta: seg < 60 ? `${seg} s` : `${Math.round(seg / 60)} min` }));
+
 const CLAVES_TERMINACION_DTMF = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "#", "*"] as const;
 
 // Rangos que documenta Retell para "Configuración de llamadas" -- se valida
@@ -104,6 +125,39 @@ export function validarConfiguracionLlamada(body: {
   }
   if (body.retell_duracion_anillo_ms !== undefined && (body.retell_duracion_anillo_ms < 5000 || body.retell_duracion_anillo_ms > 300000)) {
     return "La duración del timbre debe estar entre 5 y 300 segundos";
+  }
+  return null;
+}
+
+// Valida una función transfer_call antes de mandarla a Retell (que
+// respondería un 400 crudo si algo viene fuera de rango o incompleto).
+export function validarFuncionTransferCall(f: FuncionRetell): string | null {
+  if (f.type !== "transfer_call") return null;
+
+  if (f.transfer_destination?.type === "predefined" && !f.transfer_destination.number?.trim()) {
+    return "Falta el número de destino de la transferencia";
+  }
+
+  const opcion = f.transfer_option;
+  if (opcion?.type === "cold_transfer" || opcion?.type === "warm_transfer") {
+    if (
+      opcion.transfer_ring_duration_ms !== undefined &&
+      (opcion.transfer_ring_duration_ms < 5000 || opcion.transfer_ring_duration_ms > 90000)
+    ) {
+      return "La duración del timbre de la transferencia debe estar entre 5 y 90 segundos";
+    }
+  }
+  if (opcion?.type === "agentic_warm_transfer") {
+    if (!opcion.agentic_transfer_config?.transfer_agent?.agent_id) {
+      return "Falta elegir el agente destino de la transferencia agencial";
+    }
+    const timeout = opcion.agentic_transfer_config.transfer_timeout_ms;
+    if (timeout !== undefined && (timeout < 10000 || timeout > 300000)) {
+      return "El tiempo de espera de la transferencia agencial debe estar entre 10 segundos y 5 minutos";
+    }
+  }
+  if (f.speak_during_execution && !f.execution_message_description?.trim()) {
+    return "Falta el mensaje para \"Habla mientras esperas\"";
   }
   return null;
 }
