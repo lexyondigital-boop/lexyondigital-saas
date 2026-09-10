@@ -2,6 +2,7 @@
 // y Agentes de Voz (donde vive toda la configuración real).
 
 import type { FuncionRetell } from "@/lib/retell";
+import type { CampoPersonalizado, TipoCampo } from "@/lib/campos-personalizados";
 
 export const AGENTES_TIPO_VOZ: { valor: string; etiqueta: string; disponible: boolean }[] = [
   { valor: "servicio", etiqueta: "Servicio", disponible: true },
@@ -160,4 +161,63 @@ export function validarFuncionTransferCall(f: FuncionRetell): string | null {
     return "Falta el mensaje para \"Habla mientras esperas\"";
   }
   return null;
+}
+
+// Tipos de Variables que Retell puede extraer con extract_dynamic_variable
+// -- no tiene un tipo multi-selección, así que "checkbox" queda fuera.
+const TIPO_RETELL: Partial<Record<TipoCampo, "string" | "number" | "enum">> = {
+  text: "string",
+  phone: "string",
+  email: "string",
+  date: "string",
+  number: "number",
+  select: "enum",
+};
+
+// Arma la función extract_dynamic_variable de Retell a partir de las
+// Variables que el admin marcó como "a capturar" en este agente de voz --
+// análogo a construirHerramientaGuardarDatos (agente-prompt-variables.ts)
+// pero con el shape que espera Retell en vez del de nuestras Herramienta de
+// WhatsApp.
+export function construirHerramientaExtraerVariablesRetell(campos: CampoPersonalizado[]): FuncionRetell | null {
+  const capturables = campos.filter((c) => c.clave_variable && TIPO_RETELL[c.tipo]);
+  if (capturables.length === 0) return null;
+
+  return {
+    type: "extract_dynamic_variable",
+    name: "extraer_datos_llamada",
+    description: "Extrae datos que el cliente confirme o proporcione durante la llamada.",
+    variables: capturables.map((c) => ({
+      name: c.clave_variable as string,
+      type: TIPO_RETELL[c.tipo]!,
+      description: c.nombre,
+      ...(c.tipo === "select" ? { choices: c.opciones } : {}),
+      required: c.requerido,
+    })),
+  };
+}
+
+const ETIQUETA_TIPO_VOZ: Record<TipoCampo, string> = {
+  text: "texto",
+  number: "número",
+  date: "fecha",
+  select: "opción",
+  checkbox: "casillas",
+  email: "correo",
+  phone: "teléfono",
+};
+
+// Bloque de instrucción para el Copyscript -- mismo espíritu que
+// construirBloqueVariables (agente-prompt-variables.ts) pero fraseado para
+// una llamada en vivo: aquí no se le dice al modelo el nombre de ninguna
+// herramienta (Retell decide solo cuándo llamar extract_dynamic_variable).
+export function construirBloqueVariablesVoz(campos: CampoPersonalizado[]): string | null {
+  const capturables = campos.filter((c) => c.clave_variable && TIPO_RETELL[c.tipo]);
+  if (capturables.length === 0) return null;
+
+  const lineas = capturables.map(
+    (c) => `- ${c.clave_variable} (${ETIQUETA_TIPO_VOZ[c.tipo]}${c.requerido ? ", obligatorio" : ""}) — ${c.nombre}`,
+  );
+
+  return `DATOS A CONFIRMAR EN ESTA LLAMADA (pregunta y confirma verbalmente con el cliente cada uno de estos datos antes de colgar):\n${lineas.join("\n")}`;
 }

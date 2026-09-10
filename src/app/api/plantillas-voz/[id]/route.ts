@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermiso } from "@/lib/require-permiso";
 import { registrarActividad } from "@/lib/auditoria";
-import { sincronizarPlantillaVozConRetell, resolverApiKeyRetell, asegurarWebhookAgente, type FuncionRetell } from "@/lib/retell";
+import {
+  sincronizarPlantillaVozConRetell,
+  resolverApiKeyRetell,
+  asegurarWebhookAgente,
+  resolverCamposACapturar,
+  type FuncionRetell,
+} from "@/lib/retell";
 import { origenPublico } from "@/lib/origen-publico";
 import { validarConfiguracionLlamada, validarFuncionTransferCall } from "@/lib/plantillas-voz";
 
@@ -39,6 +45,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     retell_duracion_anillo_ms,
     retell_habla_primero,
     retell_mensaje_bienvenida,
+    retell_variables_a_capturar,
   } = body as {
     nombre?: string;
     copyscript?: string;
@@ -63,6 +70,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     retell_duracion_anillo_ms?: number;
     retell_habla_primero?: boolean;
     retell_mensaje_bienvenida?: string | null;
+    retell_variables_a_capturar?: string[];
   };
 
   if (agente_tipo && !AGENTES_TIPO.includes(agente_tipo as (typeof AGENTES_TIPO)[number])) {
@@ -84,6 +92,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   const admin = createAdminClient();
+
+  if (retell_variables_a_capturar !== undefined) {
+    const { invalidas } = await resolverCamposACapturar(admin, auth.perfil.cuenta_id, retell_variables_a_capturar);
+    if (invalidas.length > 0) {
+      return NextResponse.json({ error: `Variables inválidas: ${invalidas.join(", ")}` }, { status: 400 });
+    }
+  }
 
   if (publicada === true || retell_pantalla_llamadas === true || retell_habla_primero === true) {
     const { data: actual } = await admin
@@ -137,6 +152,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (retell_duracion_anillo_ms !== undefined) cambios.retell_duracion_anillo_ms = retell_duracion_anillo_ms;
   if (retell_habla_primero !== undefined) cambios.retell_habla_primero = retell_habla_primero;
   if (retell_mensaje_bienvenida !== undefined) cambios.retell_mensaje_bienvenida = retell_mensaje_bienvenida?.trim() || null;
+  if (retell_variables_a_capturar !== undefined) cambios.retell_variables_a_capturar = retell_variables_a_capturar;
 
   const { data, error } = await admin
     .from("plantillas_voz")
@@ -164,7 +180,18 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   let plantillaFinal = data;
 
   if (data.modo_agente === "generado") {
-    const sync = await sincronizarPlantillaVozConRetell(admin, auth.perfil.cuenta_id, data, `${origenPublico(request)}/api/webhooks/retell`);
+    const { campos: camposACapturar } = await resolverCamposACapturar(
+      admin,
+      auth.perfil.cuenta_id,
+      data.retell_variables_a_capturar ?? [],
+    );
+    const sync = await sincronizarPlantillaVozConRetell(
+      admin,
+      auth.perfil.cuenta_id,
+      data,
+      `${origenPublico(request)}/api/webhooks/retell`,
+      camposACapturar,
+    );
     if (sync.ok) {
       const { data: actualizada } = await admin
         .from("plantillas_voz")

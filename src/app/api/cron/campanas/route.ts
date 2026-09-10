@@ -6,6 +6,7 @@ import { resolverParametrosPlantilla, obtenerValoresContactoPorClave, sustituirP
 import { enviarCorreo, reemplazarVariablesEmail, extraerClavesVariables } from "@/lib/email-envio";
 import { obtenerOCrearConversacion } from "@/lib/conversaciones";
 import { resolverCuentaRetell, crearLlamadaRetell, telefonoAE164 } from "@/lib/retell";
+import { detectarClavesEnPrompt } from "@/lib/agente-prompt-variables";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -261,7 +262,7 @@ async function avanzarCampanaVoz(
 
   const { data: plantilla } = await supabase
     .from("plantillas_voz")
-    .select("id, publicada, retell_agent_id, retell_numero_saliente")
+    .select("id, publicada, retell_agent_id, retell_numero_saliente, copyscript, objetivo")
     .eq("id", campana.plantilla_voz_id)
     .maybeSingle();
 
@@ -334,11 +335,19 @@ async function avanzarCampanaVoz(
     return { campana_id: campana.id, contacto_id: contacto.id, ok: false, error: llamadaError?.message ?? "No se pudo registrar la llamada" };
   }
 
+  // {{clave}} del Copyscript que ya tengan un valor real para este contacto
+  // (ej. turno_visita cargado por el CSV de la campaña) -- Retell las
+  // sustituye en el prompt antes de que la llamada empiece.
+  const claves = detectarClavesEnPrompt([plantilla.objetivo, plantilla.copyscript].filter(Boolean).join("\n\n"));
+  const dynamicVariables =
+    claves.length > 0 ? await obtenerValoresContactoPorClave(supabase, campana.cuenta_id, contacto.id, claves) : undefined;
+
   const resultado = await crearLlamadaRetell(cuentaRetell.apiKey, {
     fromNumber: numeroSaliente,
     toNumber: telefonoAE164(contacto.telefono),
     metadata: { cuenta_id: campana.cuenta_id, llamada_voz_id: llamada.id },
     overrideAgentId: plantilla.retell_agent_id,
+    dynamicVariables,
   });
 
   if (!resultado.ok) {

@@ -2,6 +2,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { descifrar } from "@/lib/cifrado";
 import { normalizarDestinatario } from "@/lib/meta";
 import { obtenerOCrearConversacion } from "@/lib/conversaciones";
+import { construirHerramientaExtraerVariablesRetell, construirBloqueVariablesVoz } from "@/lib/plantillas-voz";
+import { guardarValoresCapturados } from "@/lib/captura-datos-contacto";
+import type { CampoPersonalizado } from "@/lib/campos-personalizados";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -245,6 +248,14 @@ export type TransferOption =
       };
     };
 
+export type VariableExtraccion = {
+  name: string;
+  type: "string" | "enum" | "boolean" | "number";
+  description: string;
+  choices?: string[];
+  required?: boolean;
+};
+
 export type FuncionRetell = {
   type: string;
   name: string;
@@ -255,6 +266,7 @@ export type FuncionRetell = {
   speak_during_execution?: boolean;
   execution_message_type?: "prompt" | "static_text";
   execution_message_description?: string;
+  variables?: VariableExtraccion[];
 };
 
 // El panel "Configuración de llamadas" de Retell -- un solo objeto en vez de
@@ -415,6 +427,23 @@ export async function sincronizarAgenteGenerado(
 // Junta lo que necesitan las rutas de plantillas_voz para sincronizar una
 // plantilla en modo "generado": resuelve la API key de la cuenta, arma el
 // prompt a partir de Objetivo + Copyscript, y crea/actualiza el LLM+agente.
+// Resuelve las claves elegidas en "Variables a capturar en esta llamada" a
+// sus CampoPersonalizado completos (para armar el tool de Retell), y avisa
+// cuáles claves ya no existen en Variables (ej. se borró el campo después de
+// elegirlo aquí) para que la ruta pueda rechazar el guardado.
+export async function resolverCamposACapturar(
+  admin: AdminClient,
+  cuentaId: string,
+  claves: string[],
+): Promise<{ campos: CampoPersonalizado[]; invalidas: string[] }> {
+  if (claves.length === 0) return { campos: [], invalidas: [] };
+  const { data } = await admin.from("campos_personalizados").select("*").eq("cuenta_id", cuentaId).in("clave_variable", claves);
+  const campos = (data ?? []) as CampoPersonalizado[];
+  const encontradas = new Set(campos.map((c) => c.clave_variable));
+  const invalidas = claves.filter((c) => !encontradas.has(c));
+  return { campos, invalidas };
+}
+
 export async function sincronizarPlantillaVozConRetell(
   admin: AdminClient,
   cuentaId: string,
@@ -441,15 +470,30 @@ export async function sincronizarPlantillaVozConRetell(
     retell_mensaje_bienvenida: string | null;
   },
   webhookUrl: string,
+  camposACapturar: CampoPersonalizado[] = [],
 ): Promise<{ ok: true; retellLlmId: string; retellAgentId: string; sincronizadoEn: string } | { ok: false; error: string }> {
   if (!plantilla.retell_voice_id) return { ok: false, error: "Falta elegir la voz del agente" };
 
   const apiKey = await resolverApiKeyRetell(admin, cuentaId);
   if (!apiKey) return { ok: false, error: "Esta cuenta no tiene Retell conectado" };
 
-  const prompt = [plantilla.objetivo ? `Objetivo de la llamada: ${plantilla.objetivo}` : null, plantilla.copyscript]
+  const bloqueVariables = construirBloqueVariablesVoz(camposACapturar);
+  const prompt = [
+    plantilla.objetivo ? `Objetivo de la llamada: ${plantilla.objetivo}` : null,
+    plantilla.copyscript,
+    bloqueVariables,
+  ]
     .filter(Boolean)
     .join("\n\n");
+
+  // A lo más una función extract_dynamic_variable por agente -- mismo patrón
+  // que transfer_call/end_call: si ya no hay variables a capturar, se quita
+  // la que hubiera quedado de una configuración anterior.
+  const herramientaExtraer = construirHerramientaExtraerVariablesRetell(camposACapturar);
+  const funciones = [
+    ...plantilla.retell_funciones.filter((f) => f.type !== "extract_dynamic_variable"),
+    ...(herramientaExtraer ? [herramientaExtraer] : []),
+  ];
 
   const resultado = await sincronizarAgenteGenerado(apiKey, {
     llmId: plantilla.retell_llm_id,
@@ -460,7 +504,7 @@ export async function sincronizarPlantillaVozConRetell(
     objetivo: plantilla.objetivo,
     idioma: plantilla.retell_idioma,
     colgarBuzon: plantilla.retell_colgar_buzon,
-    funciones: plantilla.retell_funciones,
+    funciones,
     webhookUrl,
     hablaPrimero: plantilla.retell_habla_primero,
     mensajeBienvenida: plantilla.retell_mensaje_bienvenida,
@@ -609,6 +653,9 @@ export type CallDataRetell = {
   duration_ms?: number | null;
   call_analysis?: { call_successful?: boolean; in_voicemail?: boolean } | null;
   call_cost?: { combined_cost?: number } | null;
+  // Valores capturados por la función extract_dynamic_variable durante la
+  // llamada -- solo disponibles una vez que la llamada terminó.
+  collected_dynamic_variables?: Record<string, string> | null;
 };
 
 // GET /v2/get-call/{id} -- se usa desde el cron de reconciliación
@@ -663,5 +710,16 @@ export async function procesarResultadoLlamadaVoz(
       const conversacion = await obtenerOCrearConversacion(admin, llamada.cuenta_id, llamada.contacto_id, contacto.telefono);
       if (conversacion) await admin.from("llamadas_voz").update({ conversacion_id: conversacion.id }).eq("id", llamada.id);
     }
+  }
+
+  // Guarda lo que el agente haya confirmado/preguntado durante la llamada
+  // (extract_dynamic_variable) con las mismas reglas de validación y destino
+  // que usa el Agente IA de WhatsApp -- mismo dato, mismo lugar, sin importar
+  // el canal. Se corre sin importar si vino de call_ended o call_analyzed
+  // (upsert, es idempotente si llega dos veces).
+  const variablesCapturadas = call.collected_dynamic_variables;
+  if (variablesCapturadas && Object.keys(variablesCapturadas).length > 0 && llamada.contacto_id) {
+    const { data: campos } = await admin.from("campos_personalizados").select("*").eq("cuenta_id", llamada.cuenta_id);
+    await guardarValoresCapturados(admin, llamada.contacto_id, (campos ?? []) as CampoPersonalizado[], variablesCapturadas);
   }
 }

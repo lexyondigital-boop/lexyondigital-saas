@@ -4,6 +4,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermiso } from "@/lib/require-permiso";
 import { resolverCuentaRetell, crearLlamadaRetell, telefonoAE164 } from "@/lib/retell";
 import { obtenerOCrearConversacion } from "@/lib/conversaciones";
+import { detectarClavesEnPrompt } from "@/lib/agente-prompt-variables";
+import { obtenerValoresContactoPorClave } from "@/lib/variables-contacto";
 
 // Historial de llamadas para el panel de Agentes de Voz de esta cuenta.
 export async function GET(_request: NextRequest) {
@@ -90,7 +92,7 @@ export async function POST(request: NextRequest) {
 
   const { data: plantilla } = await admin
     .from("plantillas_voz")
-    .select("id, publicada, retell_agent_id, retell_numero_saliente")
+    .select("id, publicada, retell_agent_id, retell_numero_saliente, copyscript, objetivo")
     .eq("id", plantilla_voz_id)
     .eq("cuenta_id", conversacion.cuenta_id)
     .maybeSingle();
@@ -146,11 +148,20 @@ export async function POST(request: NextRequest) {
 
   if (llamadaError) return NextResponse.json({ error: llamadaError.message }, { status: 500 });
 
+  // {{clave}} del Copyscript que ya tengan un valor real para este contacto
+  // -- Retell las sustituye en el prompt antes de que la llamada empiece.
+  const claves = detectarClavesEnPrompt([plantilla.objetivo, plantilla.copyscript].filter(Boolean).join("\n\n"));
+  const dynamicVariables =
+    claves.length > 0 && conversacion.contacto_id
+      ? await obtenerValoresContactoPorClave(admin, conversacion.cuenta_id, conversacion.contacto_id, claves)
+      : undefined;
+
   const resultado = await crearLlamadaRetell(cuentaRetell.apiKey, {
     fromNumber: numeroSaliente,
     toNumber: telefonoAE164(conversacion.telefono),
     metadata: { cuenta_id: conversacion.cuenta_id, llamada_voz_id: llamada.id },
     overrideAgentId: plantilla.retell_agent_id,
+    dynamicVariables,
   });
 
   if (!resultado.ok) {

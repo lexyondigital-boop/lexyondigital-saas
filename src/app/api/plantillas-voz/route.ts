@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermiso } from "@/lib/require-permiso";
 import { registrarActividad } from "@/lib/auditoria";
-import { sincronizarPlantillaVozConRetell, resolverApiKeyRetell, asegurarWebhookAgente, type FuncionRetell } from "@/lib/retell";
+import {
+  sincronizarPlantillaVozConRetell,
+  resolverApiKeyRetell,
+  asegurarWebhookAgente,
+  resolverCamposACapturar,
+  type FuncionRetell,
+} from "@/lib/retell";
 import { origenPublico } from "@/lib/origen-publico";
 import { validarConfiguracionLlamada, validarFuncionTransferCall } from "@/lib/plantillas-voz";
 
@@ -62,6 +68,7 @@ export async function POST(request: NextRequest) {
     retell_duracion_anillo_ms,
     retell_habla_primero,
     retell_mensaje_bienvenida,
+    retell_variables_a_capturar,
   } = body as {
     nombre?: string;
     copyscript?: string;
@@ -85,6 +92,7 @@ export async function POST(request: NextRequest) {
     retell_duracion_anillo_ms?: number;
     retell_habla_primero?: boolean;
     retell_mensaje_bienvenida?: string | null;
+    retell_variables_a_capturar?: string[];
   };
 
   if (!nombre?.trim()) return NextResponse.json({ error: "Falta el nombre" }, { status: 400 });
@@ -124,6 +132,12 @@ export async function POST(request: NextRequest) {
   }
 
   const admin = createAdminClient();
+
+  const clavesACapturar = retell_variables_a_capturar ?? [];
+  const { campos: camposACapturar, invalidas } = await resolverCamposACapturar(admin, auth.perfil.cuenta_id, clavesACapturar);
+  if (invalidas.length > 0) {
+    return NextResponse.json({ error: `Variables inválidas: ${invalidas.join(", ")}` }, { status: 400 });
+  }
 
   // Máximo un agente de voz por sub-cuenta por ahora -- editar o eliminar el
   // existente antes de crear otro.
@@ -183,6 +197,7 @@ export async function POST(request: NextRequest) {
       ...(retell_duracion_anillo_ms !== undefined ? { retell_duracion_anillo_ms } : {}),
       retell_habla_primero: retell_habla_primero ?? false,
       retell_mensaje_bienvenida: retell_mensaje_bienvenida?.trim() || null,
+      retell_variables_a_capturar: clavesACapturar,
     })
     .select()
     .single();
@@ -205,7 +220,13 @@ export async function POST(request: NextRequest) {
   let plantillaFinal = data;
 
   if (modoAgenteFinal === "generado") {
-    const sync = await sincronizarPlantillaVozConRetell(admin, auth.perfil.cuenta_id, data, `${origenPublico(request)}/api/webhooks/retell`);
+    const sync = await sincronizarPlantillaVozConRetell(
+      admin,
+      auth.perfil.cuenta_id,
+      data,
+      `${origenPublico(request)}/api/webhooks/retell`,
+      camposACapturar,
+    );
     if (sync.ok) {
       const { data: actualizada } = await admin
         .from("plantillas_voz")

@@ -4,7 +4,8 @@ import { calcularSlotsDisponibles } from "@/lib/disponibilidad";
 import { enviarConfirmacionCitaPorCorreo, enviarReagendamientoCitaPorCorreo, enviarCancelacionCitaPorCorreo } from "@/lib/email-citas";
 import { registrarActividad } from "@/lib/auditoria";
 import { construirBloqueAgenda } from "@/lib/agente-prompt-agenda";
-import { resolverVariablesDelPrompt, validarValorVariable, formatearDatosParaNotas } from "@/lib/agente-prompt-variables";
+import { resolverVariablesDelPrompt, formatearDatosParaNotas } from "@/lib/agente-prompt-variables";
+import { guardarValoresCapturados } from "@/lib/captura-datos-contacto";
 import type { CampoPersonalizado } from "@/lib/campos-personalizados";
 import type { Herramienta } from "@/lib/ia";
 
@@ -397,46 +398,7 @@ async function cancelarCita(admin: AdminClient, { cuentaId, contactoId, conversa
 // esta cuenta. Cada clave se valida por su tipo antes de guardar -- si no es
 // válida, el agente recibe el motivo de vuelta y puede volver a pedir el dato.
 async function guardarDatosContacto(admin: AdminClient, { contactoId, camposUsados }: ContextoAgente, input: Record<string, unknown>) {
-  const porClave = new Map(camposUsados.filter((c) => c.clave_variable).map((c) => [c.clave_variable as string, c]));
-
-  const guardados: Record<string, string> = {};
-  const errores: Record<string, string> = {};
-  const columnasReales: Record<string, string> = {};
-  const filasCustom: { contacto_id: string; campo_id: string; valor: string }[] = [];
-
-  for (const [clave, valorCrudo] of Object.entries(input)) {
-    const campo = porClave.get(clave);
-    if (!campo) {
-      errores[clave] = "esa clave no es una variable definida para este agente";
-      continue;
-    }
-    // El teléfono es la llave real de enrutamiento de WhatsApp -- nunca se
-    // sobrescribe desde acá, aunque la IA lo intente (ya se excluyó del
-    // esquema de la herramienta, esto es una segunda barrera).
-    if (campo.mapea_a_columna_real === "telefono") {
-      errores[clave] = "el teléfono no se puede modificar por el agente";
-      continue;
-    }
-    const errorValidacion = validarValorVariable(campo.tipo, valorCrudo);
-    if (errorValidacion) {
-      errores[clave] = errorValidacion;
-      continue;
-    }
-    const valor = String(valorCrudo).trim();
-    if (campo.mapea_a_columna_real === "nombre_completo") columnasReales.nombre_completo = valor;
-    else if (campo.mapea_a_columna_real === "correo_electronico") columnasReales.correo_electronico = valor;
-    else filasCustom.push({ contacto_id: contactoId, campo_id: campo.id, valor });
-    guardados[clave] = valor;
-  }
-
-  if (Object.keys(columnasReales).length > 0) {
-    await admin.from("contactos").update(columnasReales).eq("id", contactoId);
-  }
-  if (filasCustom.length > 0) {
-    await admin.from("valores_campos_personalizados").upsert(filasCustom, { onConflict: "contacto_id,campo_id" });
-  }
-
-  return { guardados, ...(Object.keys(errores).length > 0 ? { errores } : {}) };
+  return guardarValoresCapturados(admin, contactoId, camposUsados, input);
 }
 
 // Arma el texto "Etiqueta: valor" con los datos ya capturados de este

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/Badge";
 import { GeneradorCopyscriptModal } from "@/components/GeneradorCopyscriptModal";
 import { ReporteLlamadasRetell } from "@/components/ReporteLlamadasRetell";
@@ -25,7 +26,7 @@ import {
   type StatusLlamadaVoz,
   type ResultadoLlamadaVoz,
 } from "@/lib/llamadas-voz";
-import type { FuncionRetell, TransferOption, OnHoldMusic } from "@/lib/retell";
+import type { FuncionRetell, OnHoldMusic } from "@/lib/retell";
 
 const INPUT_LOCAL =
   "w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]";
@@ -89,9 +90,11 @@ type PlantillaVozAgente = {
   retell_duracion_anillo_ms: number;
   retell_habla_primero: boolean;
   retell_mensaje_bienvenida: string | null;
+  retell_variables_a_capturar: string[];
 };
 
 type AgenteRetellLite = { agentId: string; nombre: string };
+type CampoPersonalizadoLite = { id: string; nombre: string; clave_variable: string | null; tipo: string };
 type VozRetellLite = { voiceId: string; nombre: string; proveedor: string; acento: string | null; genero: string | null };
 
 const OPCIONES_FUNCION: { type: string; etiqueta: string; disponible: boolean }[] = [
@@ -103,7 +106,7 @@ const OPCIONES_FUNCION: { type: string; etiqueta: string; disponible: boolean }[
   { type: "custom", etiqueta: "Función personalizada", disponible: false },
 ];
 
-export function AgentesVozView({ permisos }: { permisos: Record<string, boolean> }) {
+export function AgentesVozView({ permisos, cuentaId }: { permisos: Record<string, boolean>; cuentaId: string }) {
   const [llamadas, setLlamadas] = useState<Llamada[] | null>(null);
   const [transcripcionAbierta, setTranscripcionAbierta] = useState<Llamada | null>(null);
 
@@ -142,7 +145,7 @@ export function AgentesVozView({ permisos }: { permisos: Record<string, boolean>
         ))}
       </div>
 
-      {permisos.manage_plantillas_voz && <SeccionAgente />}
+      {permisos.manage_plantillas_voz && <SeccionAgente cuentaId={cuentaId} />}
 
       <div className="mt-6 overflow-x-auto rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)]">
         {llamadas === null ? (
@@ -229,7 +232,7 @@ export function AgentesVozView({ permisos }: { permisos: Record<string, boolean>
 // → Voz solo deja activar/desactivar el agente ya creado. Máximo un agente
 // por sub-cuenta por ahora: si ya existe uno, se muestra su tarjeta en vez
 // del botón de crear.
-function SeccionAgente() {
+function SeccionAgente({ cuentaId }: { cuentaId: string }) {
   const [plantillas, setPlantillas] = useState<PlantillaVozAgente[] | null>(null);
   const [editando, setEditando] = useState<PlantillaVozAgente | "nueva" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -292,6 +295,7 @@ function SeccionAgente() {
       {editando && (
         <FormularioAgenteVoz
           plantilla={editando === "nueva" ? null : editando}
+          cuentaId={cuentaId}
           onGuardado={() => {
             setEditando(null);
             cargar();
@@ -349,10 +353,12 @@ function SeccionAgente() {
 
 function FormularioAgenteVoz({
   plantilla,
+  cuentaId,
   onGuardado,
   onCancelar,
 }: {
   plantilla: PlantillaVozAgente | null;
+  cuentaId: string;
   onGuardado: () => void;
   onCancelar: () => void;
 }) {
@@ -381,6 +387,8 @@ function FormularioAgenteVoz({
   const [retellDuracionAnilloMs, setRetellDuracionAnilloMs] = useState(plantilla?.retell_duracion_anillo_ms ?? 30000);
   const [retellHablaPrimero, setRetellHablaPrimero] = useState(plantilla?.retell_habla_primero ?? false);
   const [retellMensajeBienvenida, setRetellMensajeBienvenida] = useState(plantilla?.retell_mensaje_bienvenida ?? "");
+  const [variablesACapturar, setVariablesACapturar] = useState<string[]>(plantilla?.retell_variables_a_capturar ?? []);
+  const [camposDisponibles, setCamposDisponibles] = useState<CampoPersonalizadoLite[]>([]);
   const [mostrarConfigLlamadas, setMostrarConfigLlamadas] = useState(false);
   const [funciones, setFunciones] = useState<FuncionRetell[]>(
     plantilla?.retell_funciones ?? [{ type: "end_call", name: "fin_de_llamada", description: "Fin de la llamada" }],
@@ -413,6 +421,15 @@ function FormularioAgenteVoz({
       .catch(() => setErrorOpciones("No se pudo cargar la lista de Retell"))
       .finally(() => setCargandoOpciones(false));
   }, [modoAgente]);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase
+      .from("campos_personalizados")
+      .select("id, nombre, clave_variable, tipo")
+      .eq("cuenta_id", cuentaId)
+      .then(({ data }) => setCamposDisponibles((data ?? []) as CampoPersonalizadoLite[]));
+  }, [cuentaId]);
 
   function elegirOpcionFuncion(type: string) {
     if (type === "transfer_call") {
@@ -481,6 +498,7 @@ function FormularioAgenteVoz({
       retell_duracion_anillo_ms: modoAgente === "generado" ? retellDuracionAnilloMs : undefined,
       retell_habla_primero: modoAgente === "generado" ? retellHablaPrimero : undefined,
       retell_mensaje_bienvenida: modoAgente === "generado" ? retellMensajeBienvenida : undefined,
+      retell_variables_a_capturar: modoAgente === "generado" ? variablesACapturar : undefined,
     };
     const res = plantilla
       ? await fetch(`/api/plantillas-voz/${plantilla.id}`, {
@@ -676,6 +694,41 @@ function FormularioAgenteVoz({
                   </div>
                 )}
               </div>
+            </div>
+
+            <div>
+              <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Variables a capturar en esta llamada</span>
+              <p className="mb-2 text-xs text-[var(--color-texto-mute)]">
+                Marca los datos que el agente debe preguntar y guardar durante la llamada (ej. si el cliente confirmó una visita). Para
+                que el agente LEA un dato que el contacto ya tenga (ej. el turno cargado por la campaña), escribe {"{{clave}}"}{" "}
+                directamente en el Copyscript -- no hace falta marcarlo aquí.
+              </p>
+              {camposDisponibles.filter((c) => c.clave_variable && c.tipo !== "checkbox").length === 0 ? (
+                <p className="text-xs text-[var(--color-texto-mute)]">
+                  Todavía no hay Variables con clave configuradas en esta cuenta.
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {camposDisponibles
+                    .filter((c) => c.clave_variable && c.tipo !== "checkbox")
+                    .map((c) => (
+                      <label key={c.id} className="flex items-center gap-2 text-sm text-[var(--color-texto)]">
+                        <input
+                          type="checkbox"
+                          checked={variablesACapturar.includes(c.clave_variable as string)}
+                          onChange={(e) =>
+                            setVariablesACapturar((actuales) =>
+                              e.target.checked
+                                ? [...actuales, c.clave_variable as string]
+                                : actuales.filter((v) => v !== c.clave_variable),
+                            )
+                          }
+                        />
+                        {c.nombre} <span className="text-xs text-[var(--color-texto-mute)]">({c.clave_variable})</span>
+                      </label>
+                    ))}
+                </div>
+              )}
             </div>
 
             <div className="border-t border-[var(--color-borde)] pt-3">
