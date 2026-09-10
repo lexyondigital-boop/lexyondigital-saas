@@ -9,6 +9,8 @@ import { LABEL_CATEGORIA, LABEL_ACCION, agruparPorCategoria, type Permiso } from
 
 type Equipo = { id: string; nombre: string; descripcion: string | null; color: string; created_at: string };
 
+type Membresia = { id: string; rol: "admin" | "agente"; email: string | null; nombre: string | null; cuenta_casa: string | null };
+
 type PerfilUsuario = {
   id: string;
   nombre: string | null;
@@ -115,6 +117,7 @@ function TabUsuarios({
   const supabase = createClient();
   const [usuarios, setUsuarios] = useState<PerfilUsuario[]>([]);
   const [ultimaActividad, setUltimaActividad] = useState<Record<string, string>>({});
+  const [membresias, setMembresias] = useState<Membresia[]>([]);
   const [cargando, setCargando] = useState(true);
   const [filtroEquipo, setFiltroEquipo] = useState<string>("todos");
   const [filtroTipo, setFiltroTipo] = useState<"todos" | "admin" | "usuario" | "profesionista">("todos");
@@ -169,6 +172,10 @@ function TabUsuarios({
 
   useEffect(() => {
     cargar();
+    fetch("/api/membresias-cuenta")
+      .then((res) => res.json())
+      .then((data) => setMembresias(data.membresias ?? []))
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -371,6 +378,32 @@ function TabUsuarios({
           </table>
         )}
       </div>
+
+      {membresias.length > 0 && (
+        <div className="mt-8 border-t border-[var(--color-borde)] pt-6">
+          <p className="mb-1 text-sm font-medium text-[var(--color-texto)]">Acceso adicional desde otra cuenta</p>
+          <p className="mb-4 text-xs text-[var(--color-texto-mute)]">
+            Personas que tienen su propio login en otra sub-cuenta y también pueden entrar a esta. Se administra desde
+            la cuenta general.
+          </p>
+          <div className="space-y-2">
+            {membresias.map((m) => (
+              <div
+                key={m.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-4"
+              >
+                <div>
+                  <p className="text-sm font-medium text-[var(--color-texto)]">{m.nombre ?? m.email}</p>
+                  <p className="text-xs text-[var(--color-texto-mute)]">
+                    {m.email} · vive en {m.cuenta_casa ?? "otra cuenta"}
+                  </p>
+                </div>
+                <Badge tono="marca">{m.rol === "admin" ? "Administrador" : "Agente"}</Badge>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
