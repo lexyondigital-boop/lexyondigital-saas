@@ -76,8 +76,6 @@ const CLAVES_TERMINACION_DTMF = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9
 
 // Rangos que documenta Retell para "Configuración de llamadas" -- se valida
 // aquí antes de mandarlo, en vez de dejar que Retell responda un 400 crudo.
-// Compartido entre las rutas de plantillas_voz (por sub-cuenta) y
-// plantillas_voz_maestras (plantillas base de la cuenta master).
 export function validarConfiguracionLlamada(body: {
   retell_dtmf_timeout_ms?: number;
   retell_dtmf_clave_terminacion?: string | null;

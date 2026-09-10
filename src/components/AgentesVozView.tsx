@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { GeneradorCopyscriptModal } from "@/components/GeneradorCopyscriptModal";
 import { ReporteLlamadasRetell } from "@/components/ReporteLlamadasRetell";
@@ -23,22 +22,6 @@ import {
   type StatusLlamadaVoz,
   type ResultadoLlamadaVoz,
 } from "@/lib/llamadas-voz";
-
-type Categoria = {
-  valor: string;
-  etiqueta: string;
-  descripcion: string;
-  disponible: boolean;
-};
-
-const CATEGORIAS: Categoria[] = [
-  { valor: "legal", etiqueta: "Legal", descripcion: "Despachos y asesoría jurídica", disponible: true },
-  { valor: "medicos", etiqueta: "Médicos", descripcion: "Consultorios y clínicas", disponible: true },
-  { valor: "inmobiliario", etiqueta: "Inmobiliarios", descripcion: "Venta y renta de propiedades", disponible: true },
-  { valor: "servicios", etiqueta: "Servicios", descripcion: "Agendamiento y atención a clientes", disponible: true },
-  { valor: "cobranza", etiqueta: "Cobranza", descripcion: "Recordatorios y gestión de pagos", disponible: true },
-  { valor: "ventas", etiqueta: "Ventas", descripcion: "Prospección y seguimiento comercial", disponible: true },
-];
 
 type Llamada = {
   id: string;
@@ -107,34 +90,6 @@ type PlantillaVozAgente = {
   retell_duracion_anillo_ms: number;
 };
 
-// Plantilla maestra de la cuenta master, tal como la ve una sub-cuenta al
-// elegir un punto de partida para un agente nuevo -- mismos campos de
-// configuración que PlantillaVozAgente, sin lo que es propio de un agente ya
-// creado (publicada, modo_agente, retell_agent_id).
-type PlantillaSemilla = {
-  id: string;
-  nombre: string;
-  descripcion: string | null;
-  numero_asignado?: string | null;
-  agente_tipo: string;
-  categoria: string;
-  copyscript: string;
-  objetivo: string | null;
-  retell_voice_id: string | null;
-  retell_idioma: string;
-  retell_colgar_buzon: boolean;
-  retell_colgar_ivr: boolean;
-  retell_pantalla_llamadas: boolean;
-  retell_dtmf_activo: boolean;
-  retell_dtmf_timeout_ms: number;
-  retell_dtmf_clave_terminacion: string | null;
-  retell_dtmf_limite_digitos: number | null;
-  retell_fin_silencio_ms: number;
-  retell_duracion_maxima_ms: number;
-  retell_duracion_anillo_ms: number;
-  retell_funciones: FuncionRetell[];
-};
-
 type AgenteRetellLite = { agentId: string; nombre: string };
 type VozRetellLite = { voiceId: string; nombre: string; proveedor: string; acento: string | null; genero: string | null };
 
@@ -148,79 +103,25 @@ const OPCIONES_FUNCION: { type: string; etiqueta: string; disponible: boolean }[
 ];
 
 export function AgentesVozView({ permisos }: { permisos: Record<string, boolean> }) {
-  const [categoria, setCategoria] = useState<string | null>(null);
+  const [llamadas, setLlamadas] = useState<Llamada[] | null>(null);
+  const [transcripcionAbierta, setTranscripcionAbierta] = useState<Llamada | null>(null);
+
+  useEffect(() => {
+    fetch("/api/llamadas-voz")
+      .then((res) => res.json())
+      .then((data) => setLlamadas(data.llamadas ?? []));
+  }, []);
+
+  const stats = calcularStats(llamadas ?? []);
 
   return (
     <div>
       <h1 className="text-xl font-bold text-[var(--color-texto)]">Agentes de Voz</h1>
       <p className="mt-1 text-sm text-[var(--color-texto-mute)]">
-        Llamadas automatizadas con IA (Retell) organizadas por tipo de negocio.
+        Llamadas automatizadas con IA (Retell) para esta cuenta.
       </p>
 
-      {categoria === null ? (
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {CATEGORIAS.map((c) => (
-            <button
-              key={c.valor}
-              disabled={!c.disponible}
-              onClick={() => c.disponible && setCategoria(c.valor)}
-              className={
-                c.disponible
-                  ? "rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-5 text-left transition-colors hover:border-[var(--color-marca)]"
-                  : "cursor-not-allowed rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-5 text-left opacity-50"
-              }
-            >
-              <div className="mb-2 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-[var(--color-texto)]">{c.etiqueta}</h3>
-                {!c.disponible && <Badge tono="mute">Próximamente</Badge>}
-              </div>
-              <p className="text-xs text-[var(--color-texto-mute)]">{c.descripcion}</p>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <CategoriaWorkspace categoria={categoria} onVolver={() => setCategoria(null)} permisos={permisos} />
-      )}
-
-      {categoria === null && (
-        <ReporteLlamadasRetell
-          fetchUrl="/api/llamadas-voz/reporte-retell-cuenta"
-          titulo="Reporte de Retell"
-          descripcion="Datos en vivo directo de Retell para esta cuenta: estado, duración, costo y grabación de cada llamada."
-        />
-      )}
-    </div>
-  );
-}
-
-function CategoriaWorkspace({
-  categoria,
-  onVolver,
-  permisos,
-}: {
-  categoria: string;
-  onVolver: () => void;
-  permisos: Record<string, boolean>;
-}) {
-  const [llamadas, setLlamadas] = useState<Llamada[] | null>(null);
-  const [transcripcionAbierta, setTranscripcionAbierta] = useState<Llamada | null>(null);
-
-  useEffect(() => {
-    setLlamadas(null);
-    fetch(`/api/llamadas-voz?categoria=${categoria}`)
-      .then((res) => res.json())
-      .then((data) => setLlamadas(data.llamadas ?? []));
-  }, [categoria]);
-
-  const stats = calcularStats(llamadas ?? []);
-
-  return (
-    <div className="mt-6">
-      <button onClick={onVolver} className="mb-4 text-sm font-medium text-[var(--color-marca)] hover:underline">
-        ← Volver a categorías
-      </button>
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           { etiqueta: "Total de llamadas", valor: stats.total },
           { etiqueta: "En progreso", valor: stats.enProgreso },
@@ -240,7 +141,7 @@ function CategoriaWorkspace({
         ))}
       </div>
 
-      {permisos.manage_plantillas_voz && <SeccionPlantillas categoria={categoria} />}
+      {permisos.manage_plantillas_voz && <SeccionAgente />}
 
       <div className="mt-6 overflow-x-auto rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)]">
         {llamadas === null ? (
@@ -313,30 +214,34 @@ function CategoriaWorkspace({
           </div>
         </div>
       )}
+
+      <ReporteLlamadasRetell
+        fetchUrl="/api/llamadas-voz/reporte-retell-cuenta"
+        titulo="Reporte de Retell"
+        descripcion="Datos en vivo directo de Retell para esta cuenta: estado, duración, costo y grabación de cada llamada."
+      />
     </div>
   );
 }
 
 // Todo se crea y configura aquí (contenido + agente de Retell) -- Plantillas
-// → Voz solo deja activar/desactivar los agentes ya creados.
-function SeccionPlantillas({ categoria }: { categoria: string }) {
+// → Voz solo deja activar/desactivar el agente ya creado. Máximo un agente
+// por sub-cuenta por ahora: si ya existe uno, se muestra su tarjeta en vez
+// del botón de crear.
+function SeccionAgente() {
   const [plantillas, setPlantillas] = useState<PlantillaVozAgente[] | null>(null);
   const [editando, setEditando] = useState<PlantillaVozAgente | "nueva" | null>(null);
-  const [semillaElegida, setSemillaElegida] = useState<PlantillaSemilla | null>(null);
-  const [mostrarSelector, setMostrarSelector] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function cargar() {
-    const res = await fetch(`/api/plantillas-voz?categoria=${categoria}`);
+    const res = await fetch("/api/plantillas-voz");
     const data = await res.json().catch(() => ({}));
     setPlantillas(data.plantillas ?? []);
   }
 
   useEffect(() => {
-    setPlantillas(null);
     cargar();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categoria]);
+  }, []);
 
   async function alternarActiva(p: PlantillaVozAgente) {
     setError(null);
@@ -348,17 +253,6 @@ function SeccionPlantillas({ categoria }: { categoria: string }) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       setError(data.error ?? "No se pudo actualizar");
-      return;
-    }
-    cargar();
-  }
-
-  async function duplicar(id: string) {
-    setError(null);
-    const res = await fetch(`/api/plantillas-voz/${id}/duplicar`, { method: "POST" });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setError(data.error ?? "No se pudo duplicar");
       return;
     }
     cargar();
@@ -376,53 +270,39 @@ function SeccionPlantillas({ categoria }: { categoria: string }) {
     cargar();
   }
 
+  const yaTieneAgente = (plantillas?.length ?? 0) > 0;
+
   return (
     <div className="mt-6">
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-base font-semibold text-[var(--color-texto)]">Plantillas</h2>
-        <button
-          onClick={() => setMostrarSelector(true)}
-          style={{ boxShadow: "var(--halo-accion)" }}
-          className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90"
-        >
-          Nuevo agente de voz
-        </button>
+        <h2 className="text-base font-semibold text-[var(--color-texto)]">Tu agente de voz</h2>
+        {!yaTieneAgente && plantillas !== null && (
+          <button
+            onClick={() => setEditando("nueva")}
+            style={{ boxShadow: "var(--halo-accion)" }}
+            className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90"
+          >
+            Crear agente de voz
+          </button>
+        )}
       </div>
       {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
-
-      {mostrarSelector && (
-        <SelectorPlantillaMaestra
-          categoria={categoria}
-          onElegir={(semilla) => {
-            setSemillaElegida(semilla);
-            setEditando("nueva");
-            setMostrarSelector(false);
-          }}
-          onCancelar={() => setMostrarSelector(false)}
-        />
-      )}
 
       {editando && (
         <FormularioAgenteVoz
           plantilla={editando === "nueva" ? null : editando}
-          semilla={editando === "nueva" ? semillaElegida : null}
-          categoriaWorkspace={categoria}
           onGuardado={() => {
             setEditando(null);
-            setSemillaElegida(null);
             cargar();
           }}
-          onCancelar={() => {
-            setEditando(null);
-            setSemillaElegida(null);
-          }}
+          onCancelar={() => setEditando(null)}
         />
       )}
 
       {plantillas === null ? (
         <p className="text-sm text-[var(--color-texto-mute)]">Cargando…</p>
       ) : plantillas.length === 0 ? (
-        <p className="text-sm text-[var(--color-texto-mute)]">Todavía no hay agentes de voz creados.</p>
+        <p className="text-sm text-[var(--color-texto-mute)]">Todavía no tienes un agente de voz creado.</p>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {plantillas.map((p) => (
@@ -451,9 +331,6 @@ function SeccionPlantillas({ categoria }: { categoria: string }) {
                 <button onClick={() => setEditando(p)} className="text-xs font-medium text-[var(--color-marca)] hover:underline">
                   Editar
                 </button>
-                <button onClick={() => duplicar(p.id)} className="text-xs font-medium text-[var(--color-marca)] hover:underline">
-                  Duplicar
-                </button>
                 <button onClick={() => alternarActiva(p)} className="text-xs font-medium text-[var(--color-marca)] hover:underline">
                   {p.publicada ? "Desactivar" : "Activar"}
                 </button>
@@ -469,180 +346,41 @@ function SeccionPlantillas({ categoria }: { categoria: string }) {
   );
 }
 
-// Paso intermedio al crear un agente nuevo: elegir una plantilla maestra de
-// la cuenta master como punto de partida (precarga el formulario, se puede
-// editar todo después) o empezar en blanco, como ya funcionaba antes.
-function SelectorPlantillaMaestra({
-  categoria,
-  onElegir,
-  onCancelar,
-}: {
-  categoria: string;
-  onElegir: (semilla: PlantillaSemilla | null) => void;
-  onCancelar: () => void;
-}) {
-  const [plantillas, setPlantillas] = useState<PlantillaSemilla[] | null>(null);
-  const [modoRetell, setModoRetell] = useState<"master" | "propia" | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch(`/api/plantillas-voz-maestras/disponibles?categoria=${categoria}`)
-      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
-      .then(({ ok, data }) => {
-        if (!ok) {
-          setError(data.error ?? "No se pudieron cargar las plantillas maestras");
-          return;
-        }
-        setPlantillas(data.plantillas ?? []);
-        setModoRetell(data.modoRetell ?? null);
-      })
-      .catch(() => setError("No se pudieron cargar las plantillas maestras"));
-  }, [categoria]);
-
-  const esCuentaPropia = modoRetell === "propia";
-
-  const porCategoria = new Map<string, PlantillaSemilla[]>();
-  for (const p of plantillas ?? []) {
-    porCategoria.set(p.categoria, [...(porCategoria.get(p.categoria) ?? []), p]);
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onCancelar}>
-      <div
-        className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="mb-1 text-base font-semibold text-[var(--color-texto)]">Elige un punto de partida</h2>
-        <p className="mb-4 text-sm text-[var(--color-texto-mute)]">
-          {esCuentaPropia
-            ? "Puedes usar una plantilla ya lista y editarla después, o empezar completamente en blanco."
-            : "Usas la cuenta incluida de lexyondigital -- solo puedes partir de una plantilla con número asignado."}
-        </p>
-
-        {esCuentaPropia && (
-          <button
-            onClick={() => onElegir(null)}
-            className="mb-4 w-full rounded-xl border border-dashed border-[var(--color-borde)] p-4 text-left text-sm font-medium text-[var(--color-marca)] hover:border-[var(--color-marca)]"
-          >
-            + Empezar en blanco
-          </button>
-        )}
-
-        {!esCuentaPropia && (
-          <div className="mb-4 rounded-xl border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-4 text-sm text-[var(--color-texto)]">
-            <p>
-              Con la cuenta incluida, cada plantilla necesita un número asignado por tu administrador antes de poder
-              usarla -- <strong>aplican cargos por uso</strong>.
-            </p>
-            <p className="mt-2 text-[var(--color-texto-mute)]">
-              ¿Prefieres usar tu propia cuenta de Retell?{" "}
-              <Link href="/configuracion" className="font-medium text-[var(--color-marca)] hover:underline">
-                Conéctala en Configuración
-              </Link>
-              .
-            </p>
-          </div>
-        )}
-
-        {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
-
-        {plantillas === null ? (
-          <p className="text-sm text-[var(--color-texto-mute)]">Cargando…</p>
-        ) : plantillas.length === 0 ? (
-          <p className="text-sm text-[var(--color-texto-mute)]">Todavía no hay plantillas maestras disponibles.</p>
-        ) : (
-          <div className="space-y-4">
-            {[...porCategoria.entries()].map(([categoria, items]) => (
-              <div key={categoria}>
-                <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--color-texto-mute)]">
-                  {CATEGORIAS_VOZ.find((c) => c.valor === categoria)?.etiqueta ?? categoria}
-                </h3>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {items.map((p) => {
-                    const bloqueada = !esCuentaPropia && !p.numero_asignado;
-                    return (
-                      <button
-                        key={p.id}
-                        disabled={bloqueada}
-                        onClick={() => !bloqueada && onElegir(p)}
-                        className={
-                          bloqueada
-                            ? "cursor-not-allowed rounded-xl border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-4 text-left opacity-50"
-                            : "rounded-xl border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-4 text-left hover:border-[var(--color-marca)]"
-                        }
-                      >
-                        <p className="text-sm font-medium text-[var(--color-texto)]">{p.nombre}</p>
-                        {p.descripcion && <p className="mt-1 text-xs text-[var(--color-texto-mute)]">{p.descripcion}</p>}
-                        {!esCuentaPropia && (
-                          <p className="mt-1 text-xs text-[var(--color-texto-mute)]">
-                            {p.numero_asignado
-                              ? `Se usará el número ${p.numero_asignado}`
-                              : "Sin número asignado -- pide a tu administrador"}
-                          </p>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <button onClick={onCancelar} className="mt-4 text-sm font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
-          Cancelar
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function FormularioAgenteVoz({
   plantilla,
-  semilla,
-  categoriaWorkspace,
   onGuardado,
   onCancelar,
 }: {
   plantilla: PlantillaVozAgente | null;
-  semilla?: PlantillaSemilla | null;
-  categoriaWorkspace: string;
   onGuardado: () => void;
   onCancelar: () => void;
 }) {
-  const [nombre, setNombre] = useState(plantilla?.nombre ?? semilla?.nombre ?? "");
-  const [copyscript, setCopyscript] = useState(plantilla?.copyscript ?? semilla?.copyscript ?? "");
-  const [objetivo, setObjetivo] = useState(plantilla?.objetivo ?? semilla?.objetivo ?? "");
-  const [agenteTipo, setAgenteTipo] = useState(plantilla?.agente_tipo ?? semilla?.agente_tipo ?? "servicio");
-  const [categoria, setCategoria] = useState(plantilla?.categoria ?? semilla?.categoria ?? categoriaWorkspace);
+  const [nombre, setNombre] = useState(plantilla?.nombre ?? "");
+  const [copyscript, setCopyscript] = useState(plantilla?.copyscript ?? "");
+  const [objetivo, setObjetivo] = useState(plantilla?.objetivo ?? "");
+  const [agenteTipo, setAgenteTipo] = useState(plantilla?.agente_tipo ?? "servicio");
+  const [categoria, setCategoria] = useState(plantilla?.categoria ?? "servicios");
   const [modoAgente, setModoAgente] = useState<"generado" | "retell_propio">(plantilla?.modo_agente ?? "generado");
   const [retellAgentId, setRetellAgentId] = useState(plantilla?.retell_agent_id ?? "");
-  const [retellVoiceId, setRetellVoiceId] = useState(plantilla?.retell_voice_id ?? semilla?.retell_voice_id ?? "");
-  const [retellIdioma, setRetellIdioma] = useState(plantilla?.retell_idioma ?? semilla?.retell_idioma ?? "es-419");
-  const [retellColgarBuzon, setRetellColgarBuzon] = useState(plantilla?.retell_colgar_buzon ?? semilla?.retell_colgar_buzon ?? true);
-  const [retellColgarIvr, setRetellColgarIvr] = useState(plantilla?.retell_colgar_ivr ?? semilla?.retell_colgar_ivr ?? true);
-  const [retellPantallaLlamadas, setRetellPantallaLlamadas] = useState(
-    plantilla?.retell_pantalla_llamadas ?? semilla?.retell_pantalla_llamadas ?? false,
-  );
-  const [retellDtmfActivo, setRetellDtmfActivo] = useState(plantilla?.retell_dtmf_activo ?? semilla?.retell_dtmf_activo ?? false);
-  const [retellDtmfTimeoutMs, setRetellDtmfTimeoutMs] = useState(plantilla?.retell_dtmf_timeout_ms ?? semilla?.retell_dtmf_timeout_ms ?? 2500);
+  const [retellVoiceId, setRetellVoiceId] = useState(plantilla?.retell_voice_id ?? "");
+  const [retellIdioma, setRetellIdioma] = useState(plantilla?.retell_idioma ?? "es-419");
+  const [retellColgarBuzon, setRetellColgarBuzon] = useState(plantilla?.retell_colgar_buzon ?? true);
+  const [retellColgarIvr, setRetellColgarIvr] = useState(plantilla?.retell_colgar_ivr ?? true);
+  const [retellPantallaLlamadas, setRetellPantallaLlamadas] = useState(plantilla?.retell_pantalla_llamadas ?? false);
+  const [retellDtmfActivo, setRetellDtmfActivo] = useState(plantilla?.retell_dtmf_activo ?? false);
+  const [retellDtmfTimeoutMs, setRetellDtmfTimeoutMs] = useState(plantilla?.retell_dtmf_timeout_ms ?? 2500);
   const [retellDtmfClaveTerminacion, setRetellDtmfClaveTerminacion] = useState<string | null>(
-    plantilla?.retell_dtmf_clave_terminacion ?? semilla?.retell_dtmf_clave_terminacion ?? null,
+    plantilla?.retell_dtmf_clave_terminacion ?? null,
   );
   const [retellDtmfLimiteDigitos, setRetellDtmfLimiteDigitos] = useState<number | null>(
-    plantilla?.retell_dtmf_limite_digitos ?? semilla?.retell_dtmf_limite_digitos ?? null,
+    plantilla?.retell_dtmf_limite_digitos ?? null,
   );
-  const [retellFinSilencioMs, setRetellFinSilencioMs] = useState(plantilla?.retell_fin_silencio_ms ?? semilla?.retell_fin_silencio_ms ?? 600000);
-  const [retellDuracionMaximaMs, setRetellDuracionMaximaMs] = useState(
-    plantilla?.retell_duracion_maxima_ms ?? semilla?.retell_duracion_maxima_ms ?? 3600000,
-  );
-  const [retellDuracionAnilloMs, setRetellDuracionAnilloMs] = useState(
-    plantilla?.retell_duracion_anillo_ms ?? semilla?.retell_duracion_anillo_ms ?? 30000,
-  );
+  const [retellFinSilencioMs, setRetellFinSilencioMs] = useState(plantilla?.retell_fin_silencio_ms ?? 600000);
+  const [retellDuracionMaximaMs, setRetellDuracionMaximaMs] = useState(plantilla?.retell_duracion_maxima_ms ?? 3600000);
+  const [retellDuracionAnilloMs, setRetellDuracionAnilloMs] = useState(plantilla?.retell_duracion_anillo_ms ?? 30000);
   const [mostrarConfigLlamadas, setMostrarConfigLlamadas] = useState(false);
   const [funciones, setFunciones] = useState<FuncionRetell[]>(
-    plantilla?.retell_funciones ??
-      semilla?.retell_funciones ?? [{ type: "end_call", name: "fin_de_llamada", description: "Fin de la llamada" }],
+    plantilla?.retell_funciones ?? [{ type: "end_call", name: "fin_de_llamada", description: "Fin de la llamada" }],
   );
   const [mostrarAgregarFuncion, setMostrarAgregarFuncion] = useState(false);
   const [agregandoTransferencia, setAgregandoTransferencia] = useState(false);
@@ -734,7 +472,6 @@ function FormularioAgenteVoz({
       objetivo,
       agente_tipo: agenteTipo,
       categoria,
-      ...(!plantilla && semilla?.id ? { plantilla_madre_id: semilla.id } : {}),
       modo_agente: modoAgente,
       retell_agent_id: modoAgente === "retell_propio" ? retellAgentId : undefined,
       retell_voice_id: modoAgente === "generado" ? retellVoiceId : undefined,

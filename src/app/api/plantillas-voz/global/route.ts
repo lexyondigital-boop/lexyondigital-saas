@@ -2,9 +2,8 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermiso } from "@/lib/require-permiso";
 
-// Agentes de voz YA CREADOS en cada sub-cuenta (no las plantillas maestras,
-// que son solo el blueprint) -- para que la cuenta administradora vea de un
-// vistazo qué Agent ID de Retell tiene configurado cada sub-cuenta. Datos
+// Agentes de voz de cada sub-cuenta -- para que la cuenta administradora vea
+// de un vistazo qué Agent ID de Retell tiene configurado cada una. Datos
 // puramente de nuestra base, sin llamar a Retell.
 export async function GET() {
   const auth = await requirePermiso("view_agentes_voz");

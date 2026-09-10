@@ -5,30 +5,20 @@ import { requirePermiso } from "@/lib/require-permiso";
 import { resolverCuentaRetell, crearLlamadaRetell, telefonoAE164 } from "@/lib/retell";
 import { obtenerOCrearConversacion } from "@/lib/conversaciones";
 
-// Historial de llamadas para el panel de Agentes de Voz -- filtrable por
-// categoría (cada categoría tiene su propio workspace en AgentesVozView).
-export async function GET(request: NextRequest) {
+// Historial de llamadas para el panel de Agentes de Voz de esta cuenta.
+export async function GET(_request: NextRequest) {
   const auth = await requirePermiso("view_agentes_voz");
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  const { searchParams } = new URL(request.url);
-  const categoria = searchParams.get("categoria");
-
   const admin = createAdminClient();
-  let query = admin
+  const { data, error } = await admin
     .from("llamadas_voz")
     .select(
-      categoria
-        ? "id, status, resultado, duracion_segundos, transcripcion, audio_url, created_at, contacto:contactos(nombre, telefono), plantilla:plantillas_voz!inner(nombre, agente_tipo, categoria)"
-        : "id, status, resultado, duracion_segundos, transcripcion, audio_url, created_at, contacto:contactos(nombre, telefono), plantilla:plantillas_voz(nombre, agente_tipo, categoria)"
+      "id, status, resultado, duracion_segundos, transcripcion, audio_url, created_at, contacto:contactos(nombre, telefono), plantilla:plantillas_voz(nombre, agente_tipo, categoria)",
     )
     .eq("cuenta_id", auth.perfil.cuenta_id)
     .order("created_at", { ascending: false })
     .limit(200);
-
-  if (categoria) query = query.eq("plantilla.categoria", categoria);
-
-  const { data, error } = await query;
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ llamadas: data ?? [] });

@@ -374,8 +374,8 @@ function PlantillasVozSection() {
   return (
     <div>
       <p className="mb-4 text-sm text-[var(--color-texto-mute)]">
-        Los agentes de voz se crean y configuran en Agentes de Voz → Servicios. Aquí solo activas o desactivas cuáles
-        están disponibles para enviar desde Conversaciones y Contactos.
+        Tu agente de voz se crea y configura en Agentes de Voz. Aquí solo lo activas o desactivas para enviar desde
+        Conversaciones y Contactos.
       </p>
 
       {error && <p className="mb-4 text-sm text-red-500">{error}</p>}
@@ -383,7 +383,7 @@ function PlantillasVozSection() {
       {cargando ? (
         <p className="text-sm text-[var(--color-texto-mute)]">Cargando…</p>
       ) : plantillas.length === 0 ? (
-        <p className="text-sm text-[var(--color-texto-mute)]">Todavía no hay agentes de voz creados.</p>
+        <p className="text-sm text-[var(--color-texto-mute)]">Todavía no tienes un agente de voz creado.</p>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {plantillas.map((p) => (

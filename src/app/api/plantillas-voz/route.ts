@@ -45,7 +45,6 @@ export async function POST(request: NextRequest) {
     objetivo,
     agente_tipo,
     categoria,
-    plantilla_madre_id,
     modo_agente,
     retell_agent_id,
     retell_voice_id,
@@ -67,7 +66,6 @@ export async function POST(request: NextRequest) {
     objetivo?: string;
     agente_tipo?: string;
     categoria?: string;
-    plantilla_madre_id?: string | null;
     modo_agente?: string;
     retell_agent_id?: string | null;
     retell_voice_id?: string | null;
@@ -114,39 +112,35 @@ export async function POST(request: NextRequest) {
 
   const admin = createAdminClient();
 
-  // En modo "incluido" (o sin Retell conectado todavía) cada plantilla
-  // necesita un número asignado por la cuenta master -- sin eso no hay de
-  // dónde sacar el número saliente, así que no se deja crear el agente.
-  let numeroAsignado: string | null = null;
+  // Máximo un agente de voz por sub-cuenta por ahora -- editar o eliminar el
+  // existente antes de crear otro.
+  const { count: agentesExistentes } = await admin
+    .from("plantillas_voz")
+    .select("id", { count: "exact", head: true })
+    .eq("cuenta_id", auth.perfil.cuenta_id);
+  if ((agentesExistentes ?? 0) > 0) {
+    return NextResponse.json(
+      { error: "Ya existe un agente de voz para esta cuenta -- edítalo o elimínalo antes de crear uno nuevo" },
+      { status: 409 },
+    );
+  }
+
+  // Necesita un número saliente de Retell configurado (propio o el incluido
+  // de lexyondigital, ambos se configuran igual en Configuración →
+  // Integraciones) -- sin eso no hay de dónde sacar el número para llamar.
   if (modoAgenteFinal === "generado") {
     const { data: cuentaRetell } = await admin
       .from("cuentas_retell")
-      .select("modo")
+      .select("numero_saliente")
       .eq("cuenta_id", auth.perfil.cuenta_id)
       .eq("activo", true)
       .maybeSingle();
 
-    if (cuentaRetell?.modo !== "propia") {
-      if (!plantilla_madre_id) {
-        return NextResponse.json(
-          { error: "Con la cuenta incluida, necesitas partir de una plantilla con número asignado, o conectar tu propia cuenta de Retell" },
-          { status: 409 },
-        );
-      }
-      const { data: asignacion } = await admin
-        .from("plantillas_voz_maestras_numeros_asignados")
-        .select("numero")
-        .eq("cuenta_id", auth.perfil.cuenta_id)
-        .eq("plantilla_maestra_id", plantilla_madre_id)
-        .maybeSingle();
-
-      if (!asignacion) {
-        return NextResponse.json(
-          { error: "Esta plantilla todavía no tiene un número asignado para tu cuenta -- pide a tu administrador que te asigne uno, o conecta tu propia cuenta de Retell" },
-          { status: 409 },
-        );
-      }
-      numeroAsignado = asignacion.numero;
+    if (!cuentaRetell?.numero_saliente) {
+      return NextResponse.json(
+        { error: "Falta configurar el número saliente de Retell en Configuración → Integraciones antes de crear tu agente" },
+        { status: 409 },
+      );
     }
   }
 
@@ -159,13 +153,11 @@ export async function POST(request: NextRequest) {
       objetivo: objetivo?.trim() || null,
       agente_tipo: agenteTipoFinal,
       categoria: categoriaFinal,
-      ...(plantilla_madre_id !== undefined ? { plantilla_madre_id } : {}),
       modo_agente: modoAgenteFinal,
       retell_agent_id: modoAgenteFinal === "retell_propio" ? retell_agent_id : null,
       retell_voice_id: modoAgenteFinal === "generado" ? (retell_voice_id ?? null) : null,
       retell_idioma: retell_idioma ?? "es-419",
       retell_colgar_buzon: retell_colgar_buzon ?? true,
-      ...(numeroAsignado ? { retell_numero_saliente: numeroAsignado } : {}),
       ...(retell_funciones !== undefined ? { retell_funciones } : {}),
       ...(retell_colgar_ivr !== undefined ? { retell_colgar_ivr } : {}),
       ...(retell_pantalla_llamadas !== undefined ? { retell_pantalla_llamadas } : {}),
