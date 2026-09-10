@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { obtenerPermisosEfectivos } from "@/lib/permisos-efectivos";
+import { resolverPerfilActivo } from "@/lib/perfil-activo";
 
 // Generaliza require-admin-cuenta.ts para rutas gateadas por un permiso
 // granular (view_pipeline, manage_deals, etc.) en vez de por rol -- un
@@ -16,13 +17,13 @@ export async function requirePermiso(clave: string) {
     return { error: "No autenticado" as const, status: 401 as const };
   }
 
-  const { data: perfil } = await supabase.from("perfiles").select("rol, cuenta_id").eq("id", user.id).single();
+  const perfil = await resolverPerfilActivo(supabase, user.id, user.app_metadata);
 
   if (!perfil) {
     return { error: "Sin cuenta asociada" as const, status: 403 as const };
   }
 
-  const permisos = await obtenerPermisosEfectivos(user.id, perfil.rol as "super_admin" | "admin" | "agente");
+  const permisos = await obtenerPermisosEfectivos(user.id, perfil.rol);
 
   if (!permisos[clave]) {
     return { error: "No tienes permiso para hacer esto" as const, status: 403 as const };

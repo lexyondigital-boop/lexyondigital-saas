@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { resolverPerfilActivo } from "@/lib/perfil-activo";
 
 // Usado por las rutas de Usuarios/Equipos: el admin (o super_admin) de la
 // PROPIA cuenta puede gestionar su equipo, a diferencia de
@@ -14,7 +15,7 @@ export async function requireAdminCuenta() {
     return { error: "No autenticado" as const, status: 401 as const };
   }
 
-  const { data: perfil } = await supabase.from("perfiles").select("rol, cuenta_id").eq("id", user.id).single();
+  const perfil = await resolverPerfilActivo(supabase, user.id, user.app_metadata);
 
   if (!perfil || (perfil.rol !== "admin" && perfil.rol !== "super_admin")) {
     return { error: "Solo un administrador puede hacer esto" as const, status: 403 as const };
