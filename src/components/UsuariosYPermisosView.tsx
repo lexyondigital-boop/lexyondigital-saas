@@ -36,7 +36,7 @@ export function UsuariosYPermisosView({ cuentaId, miPerfilId }: { cuentaId: stri
 
   async function cargarComun() {
     const [{ data: eq }, { data: pc }] = await Promise.all([
-      supabase.from("equipos").select("id, nombre, descripcion, color, created_at").order("nombre"),
+      supabase.from("equipos").select("id, nombre, descripcion, color, created_at").eq("cuenta_id", cuentaId).order("nombre"),
       supabase.from("permisos_catalogo").select("clave, nombre, categoria"),
     ]);
     setEquipos(eq ?? []);
@@ -89,9 +89,13 @@ export function UsuariosYPermisosView({ cuentaId, miPerfilId }: { cuentaId: stri
           onVerLogs={verLogsDeUsuario}
         />
       )}
-      {tab === "equipos" && <TabEquipos equipos={equipos} onCambio={cargarComun} />}
+      {tab === "equipos" && <TabEquipos cuentaId={cuentaId} equipos={equipos} onCambio={cargarComun} />}
       {tab === "auditoria" && (
-        <TabAuditoria filtroUsuarioInicial={filtroUsuarioAuditoria} onFiltroConsumido={() => setFiltroUsuarioAuditoria(null)} />
+        <TabAuditoria
+          cuentaId={cuentaId}
+          filtroUsuarioInicial={filtroUsuarioAuditoria}
+          onFiltroConsumido={() => setFiltroUsuarioAuditoria(null)}
+        />
       )}
     </div>
   );
@@ -130,6 +134,7 @@ function TabUsuarios({
     const { data: perfiles } = await supabase
       .from("perfiles")
       .select("id, nombre, telefono, rol, activo, equipo_id, created_at, es_profesional, profesional_id")
+      .eq("cuenta_id", cuentaId)
       .order("created_at", { ascending: false });
 
     const idsUsuarios = (perfiles ?? []).map((p) => p.id);
@@ -160,6 +165,7 @@ function TabUsuarios({
     const { data: logs } = await supabase
       .from("logs_actividad")
       .select("perfil_id, created_at")
+      .eq("cuenta_id", cuentaId)
       .order("created_at", { ascending: false })
       .limit(500);
 
@@ -863,7 +869,7 @@ function FormularioUsuario({
 // TAB EQUIPOS
 // ============================================================
 
-function TabEquipos({ equipos, onCambio }: { equipos: Equipo[]; onCambio: () => void }) {
+function TabEquipos({ cuentaId, equipos, onCambio }: { cuentaId: string; equipos: Equipo[]; onCambio: () => void }) {
   const supabase = createClient();
   const [conteos, setConteos] = useState<Record<string, number>>({});
   const [mostrarForm, setMostrarForm] = useState(false);
@@ -871,7 +877,7 @@ function TabEquipos({ equipos, onCambio }: { equipos: Equipo[]; onCambio: () => 
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from("perfiles").select("equipo_id").not("equipo_id", "is", null);
+      const { data } = await supabase.from("perfiles").select("equipo_id").eq("cuenta_id", cuentaId).not("equipo_id", "is", null);
       const mapa: Record<string, number> = {};
       for (const p of data ?? []) {
         if (p.equipo_id) mapa[p.equipo_id] = (mapa[p.equipo_id] ?? 0) + 1;
@@ -1074,7 +1080,15 @@ type LogActividad = {
   created_at: string;
 };
 
-function TabAuditoria({ filtroUsuarioInicial, onFiltroConsumido }: { filtroUsuarioInicial: string | null; onFiltroConsumido: () => void }) {
+function TabAuditoria({
+  cuentaId,
+  filtroUsuarioInicial,
+  onFiltroConsumido,
+}: {
+  cuentaId: string;
+  filtroUsuarioInicial: string | null;
+  onFiltroConsumido: () => void;
+}) {
   const supabase = createClient();
   const [logs, setLogs] = useState<LogActividad[]>([]);
   const [usuarios, setUsuarios] = useState<{ id: string; nombre: string | null }[]>([]);
@@ -1094,14 +1108,14 @@ function TabAuditoria({ filtroUsuarioInicial, onFiltroConsumido }: { filtroUsuar
 
   async function cargar() {
     setCargando(true);
-    let query = supabase.from("logs_actividad").select("*").order("created_at", { ascending: false }).limit(1000);
+    let query = supabase.from("logs_actividad").select("*").eq("cuenta_id", cuentaId).order("created_at", { ascending: false }).limit(1000);
     if (filtroUsuario !== "todos") query = query.eq("perfil_id", filtroUsuario);
     if (desde) query = query.gte("created_at", desde);
     if (hasta) query = query.lte("created_at", `${hasta}T23:59:59`);
 
     const [{ data: logsData }, { data: perfiles }] = await Promise.all([
       query,
-      supabase.from("perfiles").select("id, nombre"),
+      supabase.from("perfiles").select("id, nombre").eq("cuenta_id", cuentaId),
     ]);
     setLogs(logsData ?? []);
     setUsuarios(perfiles ?? []);
