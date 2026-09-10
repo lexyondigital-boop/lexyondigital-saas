@@ -649,6 +649,24 @@ function MembresiasAdicionales({ id, membresias, onCambio }: { id: string; membr
     onCambio();
   }
 
+  async function cambiarRolMembresia(membresiaId: string, nuevoRol: string) {
+    await fetch(`/api/cuentas/${id}/membresias/${membresiaId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rol: nuevoRol }),
+    });
+    onCambio();
+  }
+
+  const [reenviando, setReenviando] = useState<string | null>(null);
+
+  async function reenviarCorreoMembresia(m: Membresia) {
+    setReenviando(m.perfil_id);
+    await fetch(`/api/cuentas/${id}/usuarios/${m.perfil_id}/reenviar`, { method: "POST" });
+    setReenviando(null);
+    alert(`Le reenviamos el correo para definir su contraseña a ${m.email}`);
+  }
+
   return (
     <div className="mt-8 border-t border-[var(--color-borde)] pt-6">
       <div className="mb-4 flex items-center justify-between">
@@ -716,8 +734,22 @@ function MembresiasAdicionales({ id, membresias, onCambio }: { id: string; membr
                   {m.email} · vive en {m.cuenta_casa ?? "otra cuenta"}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
-                <Badge tono="marca">{m.rol === "admin" ? "Administrador" : "Agente"}</Badge>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={m.rol}
+                  onChange={(e) => cambiarRolMembresia(m.id, e.target.value)}
+                  className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2.5 py-1.5 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+                >
+                  <option value="admin">Administrador</option>
+                  <option value="agente">Agente</option>
+                </select>
+                <button
+                  onClick={() => reenviarCorreoMembresia(m)}
+                  disabled={reenviando === m.perfil_id}
+                  className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-1.5 text-sm font-medium text-[var(--color-texto)] transition-opacity hover:opacity-80 disabled:opacity-50"
+                >
+                  {reenviando === m.perfil_id ? "Enviando…" : "Reenviar correo"}
+                </button>
                 <button
                   onClick={() => quitar(m.id)}
                   className="rounded-lg px-3 py-1.5 text-sm font-medium transition-opacity hover:opacity-80"
@@ -753,13 +785,34 @@ function NuevoUsuarioForm({ id, onCreado }: { id: string; onCreado: () => void }
       body: JSON.stringify({ nombre, telefono, email, rol }),
     });
     const data = await res.json();
-    setEnviando(false);
 
     if (!res.ok) {
+      if (data.yaRegistrado) {
+        const confirmado = confirm(
+          `Este usuario ya se encuentra registrado en la cuenta "${data.cuentaCasa}". ¿Quieres registrarlo en esta cuenta como acceso adicional?`,
+        );
+        if (confirmado) {
+          const resMembresia = await fetch(`/api/cuentas/${id}/membresias`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, rol }),
+          });
+          setEnviando(false);
+          if (!resMembresia.ok) {
+            const dataMembresia = await resMembresia.json().catch(() => ({}));
+            setError(dataMembresia.error ?? "No se pudo dar acceso");
+            return;
+          }
+          onCreado();
+          return;
+        }
+      }
+      setEnviando(false);
       setError(data.error ?? "No se pudo crear el usuario");
       return;
     }
 
+    setEnviando(false);
     onCreado();
   }
 

@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdminCuenta } from "@/lib/require-admin-cuenta";
 import { registrarActividad, registrarCambioPermiso } from "@/lib/auditoria";
 import { origenPublico } from "@/lib/origen-publico";
+import { buscarPerfilPorEmail } from "@/lib/buscar-perfil-por-email";
 
 // Autoservicio: el admin de una sub-cuenta da de alta gente de su propio
 // equipo. Distinto de /api/cuentas/[id]/usuarios, que es del panel del
@@ -94,6 +95,18 @@ export async function POST(request: NextRequest) {
 
   if (perfilExistente) {
     return NextResponse.json({ error: "Ya existe un usuario con ese correo en tu equipo." }, { status: 409 });
+  }
+
+  // El correo no es de nadie de esta cuenta -- pero puede ya existir en
+  // OTRA (Supabase Auth exige correos únicos, así que crear uno nuevo
+  // fallaría). En vez de un error crudo, se ofrece registrarlo aquí como
+  // acceso adicional (ver /api/usuarios/membresia).
+  const encontradoEnOtraCuenta = await buscarPerfilPorEmail(admin, email);
+  if (encontradoEnOtraCuenta) {
+    return NextResponse.json(
+      { yaRegistrado: true, cuentaCasa: encontradoEnOtraCuenta.cuentaNombre, error: "Ese correo ya está registrado en otra cuenta" },
+      { status: 409 },
+    );
   }
 
   const { data: nuevoUsuario, error: authError } = await admin.auth.admin.createUser({

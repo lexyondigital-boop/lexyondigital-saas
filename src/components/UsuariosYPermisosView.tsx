@@ -9,7 +9,7 @@ import { LABEL_CATEGORIA, LABEL_ACCION, agruparPorCategoria, type Permiso } from
 
 type Equipo = { id: string; nombre: string; descripcion: string | null; color: string; created_at: string };
 
-type Membresia = { id: string; rol: "admin" | "agente"; email: string | null; nombre: string | null; cuenta_casa: string | null };
+type Membresia = { id: string; perfil_id: string; rol: "admin" | "agente"; email: string | null; nombre: string | null; cuenta_casa: string | null };
 
 type PerfilUsuario = {
   id: string;
@@ -118,6 +118,7 @@ function TabUsuarios({
   const [usuarios, setUsuarios] = useState<PerfilUsuario[]>([]);
   const [ultimaActividad, setUltimaActividad] = useState<Record<string, string>>({});
   const [membresias, setMembresias] = useState<Membresia[]>([]);
+  const [mostrarFormMembresia, setMostrarFormMembresia] = useState(false);
   const [cargando, setCargando] = useState(true);
   const [filtroEquipo, setFiltroEquipo] = useState<string>("todos");
   const [filtroTipo, setFiltroTipo] = useState<"todos" | "admin" | "usuario" | "profesionista">("todos");
@@ -172,10 +173,7 @@ function TabUsuarios({
 
   useEffect(() => {
     cargar();
-    fetch("/api/membresias-cuenta")
-      .then((res) => res.json())
-      .then((data) => setMembresias(data.membresias ?? []))
-      .catch(() => {});
+    cargarMembresias();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -216,6 +214,34 @@ function TabUsuarios({
     await fetch(`/api/usuarios/${u.id}/reenviar-clave`, { method: "POST" });
     setReenviando(null);
     alert(`Le reenviamos el correo para definir su contraseña a ${u.email}`);
+  }
+
+  async function cargarMembresias() {
+    const res = await fetch("/api/membresias-cuenta");
+    const data = await res.json().catch(() => ({}));
+    setMembresias(data.membresias ?? []);
+  }
+
+  async function cambiarRolMembresia(m: Membresia, rol: string) {
+    await fetch(`/api/usuarios/membresia/${m.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rol }),
+    });
+    cargarMembresias();
+  }
+
+  async function reenviarAccesoMembresia(m: Membresia) {
+    setReenviando(m.perfil_id);
+    await fetch(`/api/usuarios/${m.perfil_id}/reenviar-clave`, { method: "POST" });
+    setReenviando(null);
+    alert(`Le reenviamos el correo para definir su contraseña a ${m.email}`);
+  }
+
+  async function quitarMembresia(m: Membresia) {
+    if (!confirm(`¿Quitar el acceso de ${m.nombre ?? m.email} a esta cuenta?`)) return;
+    await fetch(`/api/usuarios/membresia/${m.id}`, { method: "DELETE" });
+    cargarMembresias();
   }
 
   return (
@@ -379,13 +405,34 @@ function TabUsuarios({
         )}
       </div>
 
-      {membresias.length > 0 && (
-        <div className="mt-8 border-t border-[var(--color-borde)] pt-6">
-          <p className="mb-1 text-sm font-medium text-[var(--color-texto)]">Acceso adicional desde otra cuenta</p>
-          <p className="mb-4 text-xs text-[var(--color-texto-mute)]">
-            Personas que tienen su propio login en otra sub-cuenta y también pueden entrar a esta. Se administra desde
-            la cuenta general.
-          </p>
+      <div className="mt-8 border-t border-[var(--color-borde)] pt-6">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-[var(--color-texto)]">Acceso adicional desde otra cuenta</p>
+            <p className="text-xs text-[var(--color-texto-mute)]">
+              Personas que ya tienen su propio login en otra sub-cuenta y también pueden entrar a esta.
+            </p>
+          </div>
+          <button
+            onClick={() => setMostrarFormMembresia((v) => !v)}
+            className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-1.5 text-sm font-medium text-[var(--color-texto)] transition-opacity hover:opacity-80"
+          >
+            {mostrarFormMembresia ? "Cancelar" : "Dar acceso"}
+          </button>
+        </div>
+
+        {mostrarFormMembresia && (
+          <FormularioDarAcceso
+            onGuardado={() => {
+              setMostrarFormMembresia(false);
+              cargarMembresias();
+            }}
+          />
+        )}
+
+        {membresias.length === 0 ? (
+          <p className="text-sm text-[var(--color-texto-mute)]">Nadie tiene acceso adicional a esta cuenta todavía.</p>
+        ) : (
           <div className="space-y-2">
             {membresias.map((m) => (
               <div
@@ -398,13 +445,96 @@ function TabUsuarios({
                     {m.email} · vive en {m.cuenta_casa ?? "otra cuenta"}
                   </p>
                 </div>
-                <Badge tono="marca">{m.rol === "admin" ? "Administrador" : "Agente"}</Badge>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={m.rol}
+                    onChange={(e) => cambiarRolMembresia(m, e.target.value)}
+                    className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2.5 py-1.5 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+                  >
+                    <option value="admin">Administrador</option>
+                    <option value="agente">Agente</option>
+                  </select>
+                  <button
+                    onClick={() => reenviarAccesoMembresia(m)}
+                    disabled={reenviando === m.perfil_id}
+                    className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-1.5 text-sm font-medium text-[var(--color-texto)] transition-opacity hover:opacity-80 disabled:opacity-50"
+                  >
+                    {reenviando === m.perfil_id ? "Enviando…" : "Reenviar correo"}
+                  </button>
+                  <button
+                    onClick={() => quitarMembresia(m)}
+                    className="rounded-lg px-3 py-1.5 text-sm font-medium transition-opacity hover:opacity-80"
+                    style={{ color: "#ef4444", background: "color-mix(in srgb, #ef4444 14%, transparent)" }}
+                  >
+                    Quitar acceso
+                  </button>
+                </div>
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
+  );
+}
+
+function FormularioDarAcceso({ onGuardado }: { onGuardado: () => void }) {
+  const [email, setEmail] = useState("");
+  const [rol, setRol] = useState<"admin" | "agente">("agente");
+  const [enviando, setEnviando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function agregar(e: FormEvent) {
+    e.preventDefault();
+    setEnviando(true);
+    setError(null);
+    const res = await fetch("/api/usuarios/membresia", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, rol }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setEnviando(false);
+    if (!res.ok) {
+      setError(data.error ?? "No se pudo dar acceso");
+      return;
+    }
+    onGuardado();
+  }
+
+  return (
+    <form onSubmit={agregar} className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-4">
+      <label className="block">
+        <span className="mb-1.5 block text-xs font-medium text-[var(--color-texto-mute)]">Correo del usuario existente</span>
+        <input
+          type="email"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+        />
+      </label>
+      <label className="block">
+        <span className="mb-1.5 block text-xs font-medium text-[var(--color-texto-mute)]">Rol en esta cuenta</span>
+        <select
+          value={rol}
+          onChange={(e) => setRol(e.target.value as "admin" | "agente")}
+          className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+        >
+          <option value="admin">Administrador</option>
+          <option value="agente">Agente</option>
+        </select>
+      </label>
+      <button
+        type="submit"
+        disabled={enviando}
+        style={{ boxShadow: "var(--halo-accion)" }}
+        className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
+      >
+        {enviando ? "Guardando…" : "Dar acceso"}
+      </button>
+      {error && <p className="w-full text-sm text-red-500">{error}</p>}
+    </form>
   );
 }
 
@@ -520,12 +650,33 @@ function FormularioUsuario({
           profesional: datosProfesional,
         }),
       });
-      setEnviando(false);
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
+        if (data.yaRegistrado) {
+          const confirmado = confirm(
+            `Este usuario ya se encuentra registrado en la cuenta "${data.cuentaCasa}". ¿Quieres registrarlo en esta cuenta como acceso adicional?`,
+          );
+          if (confirmado) {
+            const resMembresia = await fetch("/api/usuarios/membresia", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email, rol }),
+            });
+            setEnviando(false);
+            if (!resMembresia.ok) {
+              const dataMembresia = await resMembresia.json().catch(() => ({}));
+              setError(dataMembresia.error ?? "No se pudo dar acceso");
+              return;
+            }
+            onGuardado();
+            return;
+          }
+        }
+        setEnviando(false);
         setError(data.error ?? "No se pudo crear el usuario");
         return;
       }
+      setEnviando(false);
     }
 
     onGuardado();

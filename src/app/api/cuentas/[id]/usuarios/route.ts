@@ -3,6 +3,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireSuperAdmin } from "@/lib/require-super-admin";
 import { origenPublico } from "@/lib/origen-publico";
+import { buscarPerfilPorEmail } from "@/lib/buscar-perfil-por-email";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireSuperAdmin();
@@ -17,6 +18,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const rolFinal = rol === "agente" ? "agente" : "admin";
   const admin = createAdminClient();
+
+  // El correo puede ya pertenecer a alguien de OTRA sub-cuenta -- Supabase
+  // Auth exige correos únicos, así que crear uno nuevo fallaría feo. Se
+  // ofrece registrarlo aquí como acceso adicional en vez de eso (ver
+  // /api/cuentas/[id]/membresias).
+  const encontrado = await buscarPerfilPorEmail(admin, email);
+  if (encontrado && encontrado.cuentaId === cuenta_id) {
+    return NextResponse.json({ error: "Ya existe un usuario con ese correo en esta cuenta." }, { status: 409 });
+  }
+  if (encontrado) {
+    return NextResponse.json(
+      { yaRegistrado: true, cuentaCasa: encontrado.cuentaNombre, error: "Ese correo ya está registrado en otra cuenta" },
+      { status: 409 },
+    );
+  }
 
   const { data: nuevoUsuario, error: authError } = await admin.auth.admin.createUser({
     email: email.trim(),

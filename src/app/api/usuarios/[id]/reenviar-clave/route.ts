@@ -16,14 +16,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { id } = await params;
   const admin = createAdminClient();
 
-  const { data: perfil } = await admin
-    .from("perfiles")
-    .select("id")
-    .eq("id", id)
-    .eq("cuenta_id", auth.perfil.cuenta_id)
-    .maybeSingle();
+  // Puede ser un perfil de casa de esta cuenta, o alguien con acceso
+  // adicional (membresias_cuenta) -- el reenvío es sobre la persona, no
+  // sobre a través de cuál cuenta se le está pidiendo.
+  const { data: perfilCasa } = await admin.from("perfiles").select("id").eq("id", id).eq("cuenta_id", auth.perfil.cuenta_id).maybeSingle();
+  const { data: membresia } = perfilCasa
+    ? { data: null }
+    : await admin.from("membresias_cuenta").select("perfil_id").eq("perfil_id", id).eq("cuenta_id", auth.perfil.cuenta_id).eq("activo", true).maybeSingle();
 
-  if (!perfil) {
+  if (!perfilCasa && !membresia) {
     return NextResponse.json({ error: "Usuario no encontrado en tu cuenta" }, { status: 404 });
   }
 
