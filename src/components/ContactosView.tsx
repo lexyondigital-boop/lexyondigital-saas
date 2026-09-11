@@ -200,6 +200,14 @@ export function ContactosView({
   );
 
   useEffect(() => {
+    // Mientras cargar() no ha resuelto, camposPersonalizados sigue vacío y
+    // columnasDisponibles solo trae las columnas fijas -- si se guardara acá,
+    // la fusión de abajo descartaría cualquier columna personalizada (ej.
+    // "Cuenta") que el usuario ya hubiera dejado visible, porque todavía no
+    // aparece en "disponibles". Se espera a que termine de cargar para que
+    // columnasDisponibles ya traiga el catálogo completo.
+    if (cargando) return;
+
     let guardada: ColumnaConfig[] = [];
     try {
       const raw = localStorage.getItem(claveColumnas(cuentaId));
@@ -209,7 +217,7 @@ export function ContactosView({
     }
     setConfigColumnas(fusionarConfigColumnas(guardada, columnasDisponibles));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [columnasDisponibles]);
+  }, [columnasDisponibles, cargando]);
 
   useEffect(() => {
     if (configColumnas.length === 0) return;
