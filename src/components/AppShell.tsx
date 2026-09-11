@@ -75,6 +75,7 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const [menuAbierto, setMenuAbierto] = useState(false);
+  const [colapsado, setColapsado] = useState(false);
   const [nombreCuenta, setNombreCuenta] = useState<string | null>(null);
   const [cuentasDisponibles, setCuentasDisponibles] = useState<
     { cuenta_id: string; nombre: string; codigo: string | null; es_casa: boolean }[]
@@ -135,6 +136,28 @@ export function AppShell({
     setMenuAbierto(false);
   }, [pathname]);
 
+  // El colapso del sidebar (solo aplica en escritorio, ver clases md: abajo)
+  // se recuerda por dispositivo -- cada quien deja su barra como la prefiere.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("sidebar_colapsado") === "1") setColapsado(true);
+    } catch {
+      // Modo privado / storage bloqueado -- simplemente no se recuerda la preferencia.
+    }
+  }, []);
+
+  function alternarColapso() {
+    setColapsado((actual) => {
+      const nuevo = !actual;
+      try {
+        localStorage.setItem("sidebar_colapsado", nuevo ? "1" : "0");
+      } catch {
+        // Igual que arriba: si no se puede guardar, solo no persiste.
+      }
+      return nuevo;
+    });
+  }
+
   return (
     <div className="flex min-h-screen bg-[var(--color-bg)]">
       <InactivityWatcher />
@@ -143,15 +166,20 @@ export function AppShell({
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 -translate-x-full flex-col border-r border-[var(--color-borde)] bg-[var(--color-bg-elevada)] transition-transform duration-200 md:sticky md:top-0 md:h-screen md:w-64 md:shrink-0 md:translate-x-0 ${
-          menuAbierto ? "translate-x-0" : ""
-        }`}
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 -translate-x-full flex-col border-r border-[var(--color-borde)] bg-[var(--color-bg-elevada)] transition-[width,transform] duration-200 md:sticky md:top-0 md:h-screen md:shrink-0 md:translate-x-0 ${
+          colapsado ? "md:w-16" : "md:w-64"
+        } ${menuAbierto ? "translate-x-0" : ""}`}
       >
-        <div className="flex items-center justify-between border-b border-[var(--color-borde)] p-5">
-          <div>
+        <div className={`flex items-center border-b border-[var(--color-borde)] p-5 ${colapsado ? "md:justify-center md:px-2" : "justify-between"}`}>
+          <div className={colapsado ? "md:hidden" : ""}>
             <Logo tamaño="sm" />
             <p className="mt-1 truncate text-xs text-[var(--color-texto-mute)]">{nombreCuenta ?? "Administración"}</p>
           </div>
+          {colapsado && (
+            <div className="hidden md:block">
+              <Logo tamaño="sm" soloIcono />
+            </div>
+          )}
           <button
             onClick={() => setMenuAbierto(false)}
             aria-label="Cerrar menú"
@@ -171,10 +199,12 @@ export function AppShell({
                 <span
                   key={item.href}
                   title="Próximamente"
-                  className="flex cursor-not-allowed items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-[var(--color-texto-mute)] opacity-50"
+                  className={`flex cursor-not-allowed items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-[var(--color-texto-mute)] opacity-50 ${colapsado ? "md:justify-center" : ""}`}
                 >
-                  <Icono />
-                  {item.label}
+                  <span className="relative shrink-0">
+                    <Icono />
+                  </span>
+                  <span className={colapsado ? "md:hidden" : ""}>{item.label}</span>
                 </span>
               );
             }
@@ -183,17 +213,32 @@ export function AppShell({
               <Link
                 key={item.href}
                 href={item.href}
-                className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors"
+                title={colapsado ? item.label : undefined}
+                className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${colapsado ? "md:justify-center" : ""}`}
                 style={
                   activo
                     ? { background: "var(--color-marca)", color: "var(--color-accion-fg)" }
                     : { color: "var(--color-texto)" }
                 }
               >
-                <Icono />
-                {item.label}
-                {item.href === "/conversaciones" && cuentaId && <NotificacionesConversaciones cuentaId={cuentaId} />}
-                {item.href === "/pipeline" && cuentaId && <NotificacionesPipeline cuentaId={cuentaId} />}
+                <span className="relative shrink-0">
+                  <Icono />
+                  {item.href === "/conversaciones" && cuentaId && (
+                    <span className={colapsado ? "hidden md:inline" : "hidden"}>
+                      <NotificacionesConversaciones cuentaId={cuentaId} compacto />
+                    </span>
+                  )}
+                  {item.href === "/pipeline" && cuentaId && (
+                    <span className={colapsado ? "hidden md:inline" : "hidden"}>
+                      <NotificacionesPipeline cuentaId={cuentaId} compacto />
+                    </span>
+                  )}
+                </span>
+                <span className={colapsado ? "md:hidden" : ""}>{item.label}</span>
+                <span className={`contents ${colapsado ? "md:!hidden" : ""}`}>
+                  {item.href === "/conversaciones" && cuentaId && <NotificacionesConversaciones cuentaId={cuentaId} />}
+                  {item.href === "/pipeline" && cuentaId && <NotificacionesPipeline cuentaId={cuentaId} />}
+                </span>
               </Link>
             );
           })}
@@ -201,14 +246,15 @@ export function AppShell({
 
         <div className="space-y-3 border-t border-[var(--color-borde)] p-4">
           {email && (
-            <div className="flex items-center gap-2.5">
+            <div className={`flex items-center gap-2.5 ${colapsado ? "md:justify-center" : ""}`}>
               <div
                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
                 style={{ background: "var(--color-marca)" }}
+                title={colapsado ? email : undefined}
               >
                 {email[0]?.toUpperCase()}
               </div>
-              <span className="truncate text-sm text-[var(--color-texto-mute)]">{email}</span>
+              <span className={`truncate text-sm text-[var(--color-texto-mute)] ${colapsado ? "md:hidden" : ""}`}>{email}</span>
             </div>
           )}
           {cuentasDisponibles.length > 1 && (
@@ -216,7 +262,7 @@ export function AppShell({
               value={cuentaId}
               onChange={(e) => cambiarCuenta(e.target.value)}
               disabled={cambiandoCuenta}
-              className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)] disabled:opacity-60"
+              className={`w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)] disabled:opacity-60 ${colapsado ? "md:hidden" : ""}`}
             >
               {cuentasDisponibles.map((c) => (
                 <option key={c.cuenta_id} value={c.cuenta_id}>
@@ -226,10 +272,29 @@ export function AppShell({
               ))}
             </select>
           )}
-          <ThemeSwitcher />
-          <LogoutButton />
+          <div className={colapsado ? "md:hidden" : ""}>
+            <ThemeSwitcher />
+          </div>
+          <div className={colapsado ? "md:hidden" : ""}>
+            <LogoutButton />
+          </div>
         </div>
       </aside>
+
+      {/* Divisor para ocultar/mostrar el sidebar, igual que en Conversaciones --
+          los íconos quedan visibles en el riel colapsado y cada uno sigue
+          abriendo su sección al hacer clic. Solo en escritorio: en móvil el
+          menú ya es un cajón aparte que se abre con el ☰. */}
+      <div className="hidden w-3 shrink-0 items-start justify-center pt-24 md:flex">
+        <button
+          onClick={alternarColapso}
+          title={colapsado ? "Mostrar menú" : "Ocultar menú"}
+          aria-label={colapsado ? "Mostrar menú" : "Ocultar menú"}
+          className="sticky top-24 flex h-8 w-6 items-center justify-center rounded-full border border-[var(--color-borde)] bg-[var(--color-tarjeta)] text-xs text-[var(--color-texto-mute)] hover:bg-[var(--color-bg-elevada)] hover:text-[var(--color-texto)]"
+        >
+          {colapsado ? "›" : "‹"}
+        </button>
+      </div>
 
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center justify-between border-b border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-4 md:hidden">

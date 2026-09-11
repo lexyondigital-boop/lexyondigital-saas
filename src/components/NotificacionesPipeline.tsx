@@ -12,7 +12,7 @@ import { createClient } from "@/lib/supabase/client";
 const UMBRAL_DORMIDO_DIAS = 7;
 const UMBRAL_TAREA_HORAS = 48;
 
-export function NotificacionesPipeline({ cuentaId }: { cuentaId: string }) {
+export function NotificacionesPipeline({ cuentaId, compacto }: { cuentaId: string; compacto?: boolean }) {
   const [alertas, setAlertas] = useState(0);
 
   useEffect(() => {
@@ -55,6 +55,16 @@ export function NotificacionesPipeline({ cuentaId }: { cuentaId: string }) {
   }, [cuentaId]);
 
   if (alertas === 0) return null;
+
+  if (compacto) {
+    return (
+      <span
+        className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--color-bg-elevada)]"
+        style={{ background: "var(--color-aviso)" }}
+        aria-label={`${alertas} alertas de pipeline`}
+      />
+    );
+  }
 
   return (
     <span

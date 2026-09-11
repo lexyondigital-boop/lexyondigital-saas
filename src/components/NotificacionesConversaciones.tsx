@@ -9,7 +9,7 @@ type UltimoMensaje = { direccion: "entrante" | "saliente"; created_at: string };
 // "Conversaciones" en la barra lateral. "Pendiente" = una conversación
 // abierta cuyo último mensaje es entrante y llegó después de la última vez
 // que un humano la abrió (ultimo_visto_en, actualizado en ConversacionesView).
-export function NotificacionesConversaciones({ cuentaId }: { cuentaId: string }) {
+export function NotificacionesConversaciones({ cuentaId, compacto }: { cuentaId: string; compacto?: boolean }) {
   const [pendientes, setPendientes] = useState(0);
   const audioCtxRef = useRef<AudioContext | null>(null);
 
@@ -105,6 +105,18 @@ export function NotificacionesConversaciones({ cuentaId }: { cuentaId: string })
   }, [cuentaId]);
 
   if (pendientes === 0) return null;
+
+  // En el riel colapsado no hay espacio para el conteo -- se muestra solo un
+  // punto sobre el ícono en vez del número.
+  if (compacto) {
+    return (
+      <span
+        className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--color-bg-elevada)]"
+        style={{ background: "var(--color-ia)" }}
+        aria-label={`${pendientes} conversaciones pendientes`}
+      />
+    );
+  }
 
   return (
     <span

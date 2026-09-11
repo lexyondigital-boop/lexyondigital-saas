@@ -2,13 +2,13 @@
 // degradado + "Lexyon" en texto sólido + "Digital" en degradado). Si existe
 // el archivo vectorial original del logo, reemplazar este componente por ese
 // SVG exportado — esto es una reconstrucción visual, no el activo oficial.
-export function Logo({ tamaño = "md" }: { tamaño?: "sm" | "md" }) {
+export function Logo({ tamaño = "md", soloIcono = false }: { tamaño?: "sm" | "md"; soloIcono?: boolean }) {
   const alturaTexto = tamaño === "sm" ? "text-lg" : "text-2xl";
   const tamañoIcono = tamaño === "sm" ? 28 : 36;
 
   return (
     <div className="flex items-center gap-2.5">
-      <svg width={tamañoIcono} height={tamañoIcono} viewBox="0 0 40 40" fill="none" aria-hidden="true">
+      <svg width={tamañoIcono} height={tamañoIcono} viewBox="0 0 40 40" fill="none" aria-hidden="true" className="shrink-0">
         <defs>
           <linearGradient id="lexyon-gradiente" x1="0" y1="40" x2="40" y2="0">
             <stop offset="0%" stopColor="#a855f7" />
@@ -20,19 +20,21 @@ export function Logo({ tamaño = "md" }: { tamaño?: "sm" | "md" }) {
         <rect width="40" height="40" rx="10" fill="url(#lexyon-gradiente)" />
         <path d="M14 10v16a4 4 0 0 0 4 4h9" stroke="white" strokeWidth="3.5" strokeLinecap="round" fill="none" />
       </svg>
-      <span className={`${alturaTexto} font-bold text-[var(--color-texto)]`}>
-        Lexyon
-        <span
-          style={{
-            backgroundImage: "linear-gradient(90deg, #a855f7, #ec4899, #ffb020, #35d6c4)",
-            WebkitBackgroundClip: "text",
-            backgroundClip: "text",
-            color: "transparent",
-          }}
-        >
-          Digital
+      {!soloIcono && (
+        <span className={`${alturaTexto} font-bold text-[var(--color-texto)]`}>
+          Lexyon
+          <span
+            style={{
+              backgroundImage: "linear-gradient(90deg, #a855f7, #ec4899, #ffb020, #35d6c4)",
+              WebkitBackgroundClip: "text",
+              backgroundClip: "text",
+              color: "transparent",
+            }}
+          >
+            Digital
+          </span>
         </span>
-      </span>
+      )}
     </div>
   );
 }
