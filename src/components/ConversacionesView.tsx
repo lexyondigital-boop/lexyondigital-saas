@@ -528,6 +528,7 @@ function PanelConversacion({
   const [cargando, setCargando] = useState(true);
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);
+  const [modoComposer, setModoComposer] = useState<"mensaje" | "plantilla" | "llamada">("mensaje");
   const [procesandoSugerencia, setProcesandoSugerencia] = useState<string | null>(null);
   const [templatesAprobados, setTemplatesAprobados] = useState<{ id: string; name: string }[]>([]);
   const [templateSeleccionado, setTemplateSeleccionado] = useState("");
@@ -866,86 +867,125 @@ function PanelConversacion({
         <div ref={finRef} />
       </div>
 
-      <div className="flex gap-2 border-t border-[var(--color-borde)] p-4">
-        <input
-          value={texto}
-          onChange={(e) => setTexto(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") enviar();
-          }}
-          placeholder="Escribe un mensaje…"
-          className="flex-1 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
-        />
-        <button
-          onClick={enviar}
-          disabled={enviando}
-          style={{ boxShadow: "var(--halo-accion)" }}
-          className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
-        >
-          Enviar
-        </button>
-      </div>
+      {(() => {
+        const modosDisponibles: { valor: "mensaje" | "plantilla" | "llamada"; etiqueta: string }[] = [
+          { valor: "mensaje", etiqueta: "Mensaje" },
+          ...(templatesAprobados.length > 0 ? [{ valor: "plantilla" as const, etiqueta: "Plantilla" }] : []),
+          ...(plantillasVozPublicadas.length > 0 ? [{ valor: "llamada" as const, etiqueta: "Llamada" }] : []),
+        ];
+        // Si la plantilla o el agente de voz elegido dejó de estar disponible
+        // (o nunca lo estuvo) el modo activo cae de vuelta a "mensaje" -- no
+        // se puede quedar mostrando una pestaña que ya no existe.
+        const modo = modosDisponibles.some((m) => m.valor === modoComposer) ? modoComposer : "mensaje";
 
-      {templatesAprobados.length > 0 && (
-        <div className="space-y-2 border-t border-[var(--color-borde)] p-4">
-          <div className="flex gap-2">
-            <select
-              value={templateSeleccionado}
-              onChange={(e) => setTemplateSeleccionado(e.target.value)}
-              className="flex-1 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
-            >
-              <option value="">Enviar una plantilla…</option>
-              {templatesAprobados.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={enviarPlantilla}
-              disabled={!templateSeleccionado || enviandoPlantilla || cargandoPrevia}
-              className="shrink-0 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-4 py-2 text-sm font-semibold text-[var(--color-texto)] transition-opacity hover:opacity-80 disabled:opacity-50"
-            >
-              {enviandoPlantilla ? "Enviando…" : "Enviar plantilla"}
-            </button>
-          </div>
-          {cargandoPrevia && <p className="text-xs text-[var(--color-texto-mute)]">Cargando vista previa…</p>}
-          {previaPlantilla && (
-            <div className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-3 text-sm text-[var(--color-texto)]">
-              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-[var(--color-texto-mute)]">Vista previa</p>
-              <p className="whitespace-pre-wrap">{previaPlantilla.body}</p>
-              {previaPlantilla.footer_texto && <p className="mt-1 text-xs text-[var(--color-texto-mute)]">{previaPlantilla.footer_texto}</p>}
-            </div>
-          )}
-        </div>
-      )}
+        return (
+          <div className="border-t border-[var(--color-borde)] p-4">
+            {modosDisponibles.length > 1 && (
+              <div className="mb-2 flex gap-1">
+                {modosDisponibles.map((m) => (
+                  <button
+                    key={m.valor}
+                    type="button"
+                    onClick={() => setModoComposer(m.valor)}
+                    className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                      modo === m.valor
+                        ? "bg-[var(--color-accion)] text-[var(--color-accion-fg)]"
+                        : "border border-[var(--color-borde)] text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]"
+                    }`}
+                  >
+                    {m.etiqueta}
+                  </button>
+                ))}
+              </div>
+            )}
 
-      {plantillasVozPublicadas.length > 0 && (
-        <div className="space-y-2 border-t border-[var(--color-borde)] p-4">
-          <div className="flex gap-2">
-            <select
-              value={plantillaVozSeleccionada}
-              onChange={(e) => setPlantillaVozSeleccionada(e.target.value)}
-              className="flex-1 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
-            >
-              <option value="">Llamar con plantilla de voz…</option>
-              {plantillasVozPublicadas.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.nombre}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={llamarConPlantillaVoz}
-              disabled={!plantillaVozSeleccionada || llamando}
-              className="shrink-0 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-4 py-2 text-sm font-semibold text-[var(--color-texto)] transition-opacity hover:opacity-80 disabled:opacity-50"
-            >
-              {llamando ? "Llamando…" : "Llamar"}
-            </button>
+            {modo === "mensaje" && (
+              <div className="flex gap-2">
+                <input
+                  value={texto}
+                  onChange={(e) => setTexto(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") enviar();
+                  }}
+                  placeholder="Escribe un mensaje…"
+                  className="flex-1 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+                />
+                <button
+                  onClick={enviar}
+                  disabled={enviando}
+                  style={{ boxShadow: "var(--halo-accion)" }}
+                  className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
+                >
+                  Enviar
+                </button>
+              </div>
+            )}
+
+            {modo === "plantilla" && (
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <select
+                    value={templateSeleccionado}
+                    onChange={(e) => setTemplateSeleccionado(e.target.value)}
+                    className="flex-1 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+                  >
+                    <option value="">Enviar una plantilla…</option>
+                    {templatesAprobados.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={enviarPlantilla}
+                    disabled={!templateSeleccionado || enviandoPlantilla || cargandoPrevia}
+                    className="shrink-0 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-4 py-2 text-sm font-semibold text-[var(--color-texto)] transition-opacity hover:opacity-80 disabled:opacity-50"
+                  >
+                    {enviandoPlantilla ? "Enviando…" : "Enviar plantilla"}
+                  </button>
+                </div>
+                {cargandoPrevia && <p className="text-xs text-[var(--color-texto-mute)]">Cargando vista previa…</p>}
+                {previaPlantilla && (
+                  <div className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-3 text-sm text-[var(--color-texto)]">
+                    <p className="mb-1 text-xs font-medium uppercase tracking-wide text-[var(--color-texto-mute)]">Vista previa</p>
+                    <p className="whitespace-pre-wrap">{previaPlantilla.body}</p>
+                    {previaPlantilla.footer_texto && (
+                      <p className="mt-1 text-xs text-[var(--color-texto-mute)]">{previaPlantilla.footer_texto}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {modo === "llamada" && (
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <select
+                    value={plantillaVozSeleccionada}
+                    onChange={(e) => setPlantillaVozSeleccionada(e.target.value)}
+                    className="flex-1 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+                  >
+                    <option value="">Llamar con plantilla de voz…</option>
+                    {plantillasVozPublicadas.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.nombre}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={llamarConPlantillaVoz}
+                    disabled={!plantillaVozSeleccionada || llamando}
+                    className="shrink-0 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-4 py-2 text-sm font-semibold text-[var(--color-texto)] transition-opacity hover:opacity-80 disabled:opacity-50"
+                  >
+                    {llamando ? "Llamando…" : "Llamar"}
+                  </button>
+                </div>
+                {errorLlamada && <p className="text-xs text-red-500">{errorLlamada}</p>}
+              </div>
+            )}
           </div>
-          {errorLlamada && <p className="text-xs text-red-500">{errorLlamada}</p>}
-        </div>
-      )}
+        );
+      })()}
     </>
   );
 }
