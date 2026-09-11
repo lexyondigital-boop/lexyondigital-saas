@@ -1195,9 +1195,9 @@ function SugerenciaIA({
   const [borrador, setBorrador] = useState(mensaje.sugerencia_ia ?? "");
 
   return (
-    <div className="mt-1.5 flex justify-start">
+    <div className="mt-1.5 w-full">
       <div
-        className="max-w-[80%] rounded-2xl border p-3"
+        className="w-full rounded-2xl border p-3"
         style={{ borderColor: "var(--color-ia)", background: "color-mix(in srgb, var(--color-ia) 10%, transparent)" }}
       >
         <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--color-ia)" }}>
@@ -1211,7 +1211,7 @@ function SugerenciaIA({
             value={borrador}
             onChange={(e) => setBorrador(e.target.value)}
             rows={2}
-            className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2.5 py-1.5 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+            className="w-full resize-y rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2.5 py-1.5 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
           />
         )}
 

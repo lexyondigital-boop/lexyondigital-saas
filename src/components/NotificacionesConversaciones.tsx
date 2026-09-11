@@ -91,8 +91,15 @@ export function NotificacionesConversaciones({ cuentaId }: { cuentaId: string })
       )
       .subscribe();
 
+    // Respaldo: Realtime es "best effort" -- si un evento se pierde (o la
+    // reconexión del socket tarda), esto se autocorrige solo en máximo 15 s
+    // en vez de dejar la esferita atorada hasta que alguien recargue la
+    // página a mano.
+    const intervalo = setInterval(calcularPendientes, 15000);
+
     return () => {
       supabase.removeChannel(canal);
+      clearInterval(intervalo);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cuentaId]);
