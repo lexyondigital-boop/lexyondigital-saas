@@ -5,8 +5,17 @@ import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/Badge";
 import { actualizarEtiquetasContacto } from "@/lib/etiquetas-contacto";
 import { ETIQUETA_STATUS_LLAMADA, ETIQUETA_RESULTADO_LLAMADA, formatearDuracionLlamada, type StatusLlamadaVoz, type ResultadoLlamadaVoz } from "@/lib/llamadas-voz";
+import { LABEL_CAMPANA_STATUS, TONO_CAMPANA_STATUS } from "@/components/ContactosView";
+import type { CampoPersonalizado } from "@/lib/campos-personalizados";
 
-type ContactoCrudo = { nombre: string | null; nombre_completo: string | null; etiquetas: string[] | null; etiquetas_actualizadas_en: string | null };
+type ContactoCrudo = {
+  nombre: string | null;
+  nombre_completo: string | null;
+  etiquetas: string[] | null;
+  etiquetas_actualizadas_en: string | null;
+  asignado_a: string | null;
+  campana_status: string | null;
+};
 
 type ConversacionCruda = {
   id: string;
@@ -18,6 +27,8 @@ type ConversacionCruda = {
   ultimo_visto_en: string;
   contactos: ContactoCrudo | ContactoCrudo[] | null;
 };
+
+type PerfilLite = { id: string; nombre: string | null };
 
 type Conversacion = {
   id: string;
@@ -31,6 +42,8 @@ type Conversacion = {
   etiquetas: string[];
   etiquetaActualizadaEn: string | null;
   etapaId: string | null;
+  asignadoA: string | null;
+  campanaStatus: string | null;
 };
 
 type Mensaje = {
@@ -215,8 +228,12 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
   const [busqueda, setBusqueda] = useState("");
   const [filtroEtapa, setFiltroEtapa] = useState("");
   const [filtroEtiqueta, setFiltroEtiqueta] = useState("");
+  const [filtroStatus, setFiltroStatus] = useState<"" | "abierta" | "cerrada">("");
   const [etapas, setEtapas] = useState<EtapaPipeline[]>([]);
   const [catalogoEtiquetasFiltro, setCatalogoEtiquetasFiltro] = useState<EtiquetaCatalogoConversacion[]>([]);
+  const [perfiles, setPerfiles] = useState<PerfilLite[]>([]);
+  const [camposPersonalizados, setCamposPersonalizados] = useState<CampoPersonalizado[]>([]);
+  const [valoresPorContacto, setValoresPorContacto] = useState<Record<string, Record<string, string>>>({});
   const [seleccionada, setSeleccionada] = useState<string | null>(null);
   const autoSeleccionHecha = useRef(false);
 
@@ -225,18 +242,24 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
     const { data } = await supabase
       .from("conversaciones")
       .select(
-        "id, telefono, status, agente_ia_activo, contacto_id, created_at, ultimo_visto_en, contactos(nombre, nombre_completo, etiquetas, etiquetas_actualizadas_en)",
+        "id, telefono, status, agente_ia_activo, contacto_id, created_at, ultimo_visto_en, contactos(nombre, nombre_completo, etiquetas, etiquetas_actualizadas_en, asignado_a, campana_status)",
       )
       .order("created_at", { ascending: false });
 
     const crudas = (data as ConversacionCruda[]) ?? [];
 
     const contactoIds = [...new Set(crudas.map((c) => c.contacto_id))];
-    const { data: dealsRecientes } = await supabase
-      .from("deals")
-      .select("contacto_id, etapa_id, created_at")
-      .in("contacto_id", contactoIds.length > 0 ? contactoIds : [""])
-      .order("created_at", { ascending: false });
+    const [{ data: dealsRecientes }, { data: valores }] = await Promise.all([
+      supabase
+        .from("deals")
+        .select("contacto_id, etapa_id, created_at")
+        .in("contacto_id", contactoIds.length > 0 ? contactoIds : [""])
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("valores_campos_personalizados")
+        .select("contacto_id, campo_id, valor")
+        .in("contacto_id", contactoIds.length > 0 ? contactoIds : [""]),
+    ]);
 
     // Ya viene ordenado por más reciente primero -- el primero que se ve
     // por cada contacto es su deal más reciente, sin importar el estado.
@@ -244,6 +267,13 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
     for (const d of dealsRecientes ?? []) {
       if (!(d.contacto_id in etapaPorContacto)) etapaPorContacto[d.contacto_id] = d.etapa_id;
     }
+
+    const valoresMapa: Record<string, Record<string, string>> = {};
+    for (const v of valores ?? []) {
+      if (!valoresMapa[v.contacto_id]) valoresMapa[v.contacto_id] = {};
+      valoresMapa[v.contacto_id][v.campo_id] = v.valor ?? "";
+    }
+    setValoresPorContacto(valoresMapa);
 
     const lista: Conversacion[] = crudas.map((c) => {
       const contacto = contactoDe(c);
@@ -259,6 +289,8 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
         etiquetas: contacto?.etiquetas ?? [],
         etiquetaActualizadaEn: contacto?.etiquetas_actualizadas_en ?? null,
         etapaId: etapaPorContacto[c.contacto_id] ?? null,
+        asignadoA: contacto?.asignado_a ?? null,
+        campanaStatus: contacto?.campana_status ?? null,
       };
     });
     setConversaciones(lista);
@@ -301,6 +333,20 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
       .select("id, nombre")
       .order("nombre")
       .then(({ data }) => setCatalogoEtiquetasFiltro(data ?? []));
+    supabase
+      .from("perfiles")
+      .select("id, nombre")
+      .eq("activo", true)
+      .order("nombre")
+      .then(({ data }) => setPerfiles(data ?? []));
+    // Solo las variables personalizadas (no nombre/teléfono/correo, que ya
+    // se muestran aparte) -- mismo criterio que la tabla de Contactos.
+    supabase
+      .from("campos_personalizados")
+      .select("*")
+      .eq("es_fijo", false)
+      .order("orden")
+      .then(({ data }) => setCamposPersonalizados((data as CampoPersonalizado[]) ?? []));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -328,8 +374,9 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
     if (q) lista = lista.filter((c) => c.nombreContacto?.toLowerCase().includes(q) || c.telefono.includes(q));
     if (filtroEtapa) lista = lista.filter((c) => c.etapaId === filtroEtapa);
     if (filtroEtiqueta) lista = lista.filter((c) => c.etiquetas.includes(filtroEtiqueta));
+    if (filtroStatus) lista = lista.filter((c) => c.status === filtroStatus);
     return [...lista].sort((a, b) => compararConversaciones(a, b, previews));
-  }, [conversaciones, busqueda, filtroEtapa, filtroEtiqueta, previews]);
+  }, [conversaciones, busqueda, filtroEtapa, filtroEtiqueta, filtroStatus, previews]);
 
   const conversacionActiva = conversaciones.find((c) => c.id === seleccionada) ?? null;
 
@@ -347,6 +394,15 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
             className="mt-3 w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-1.5 text-sm text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
           />
           <div className="mt-2 flex gap-2">
+            <select
+              value={filtroStatus}
+              onChange={(e) => setFiltroStatus(e.target.value as "" | "abierta" | "cerrada")}
+              className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2 py-1.5 text-xs text-[var(--color-texto)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-marca)]"
+            >
+              <option value="">Abiertas y cerradas</option>
+              <option value="abierta">Solo abiertas</option>
+              <option value="cerrada">Solo cerradas</option>
+            </select>
             <select
               value={filtroEtapa}
               onChange={(e) => setFiltroEtapa(e.target.value)}
@@ -381,6 +437,11 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
           ) : (
             filtradas.map((c) => {
               const preview = previews[c.id];
+              const valoresContacto = valoresPorContacto[c.contacto_id] ?? {};
+              const camposMostrar = camposPersonalizados
+                .map((campo) => ({ nombre: campo.nombre, valor: valoresContacto[campo.id] }))
+                .filter((v): v is { nombre: string; valor: string } => !!v.valor);
+              const asignadoNombre = c.asignadoA ? (perfiles.find((p) => p.id === c.asignadoA)?.nombre ?? "Sin nombre") : "Sin asignar";
               return (
                 <button
                   key={c.id}
@@ -394,6 +455,17 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
                     </span>
                     <Badge tono={c.status === "abierta" ? "en-vivo" : "mute"}>
                       {c.status === "abierta" ? "Abierta" : "Cerrada"}
+                    </Badge>
+                  </div>
+                  {camposMostrar.length > 0 && (
+                    <p className="mt-0.5 truncate text-xs text-[var(--color-texto-mute)]">
+                      {camposMostrar.map((v) => `${v.nombre}: ${v.valor}`).join(" · ")}
+                    </p>
+                  )}
+                  <p className="mt-0.5 truncate text-xs text-[var(--color-texto-mute)]">Asignado a: {asignadoNombre}</p>
+                  <div className="mt-1">
+                    <Badge tono={c.campanaStatus ? (TONO_CAMPANA_STATUS[c.campanaStatus] ?? "mute") : "mute"}>
+                      {c.campanaStatus ? (LABEL_CAMPANA_STATUS[c.campanaStatus] ?? c.campanaStatus) : "No contactado"}
                     </Badge>
                   </div>
                   <p className="mt-1 truncate text-xs text-[var(--color-texto-mute)]">

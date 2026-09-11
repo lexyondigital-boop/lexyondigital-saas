@@ -54,7 +54,7 @@ export const LABEL_CAMPANA_STATUS: Record<string, string> = {
   fallido: "Fallido",
 };
 
-const TONO_CAMPANA_STATUS: Record<string, "aviso" | "en-vivo" | "marca" | "ia" | "mute"> = {
+export const TONO_CAMPANA_STATUS: Record<string, "aviso" | "en-vivo" | "marca" | "ia" | "mute"> = {
   pendiente: "mute",
   enviado: "aviso",
   entregado: "marca",
@@ -91,8 +91,17 @@ function valorPersonalizadoMostrable(campo: CampoPersonalizado, valor: string | 
   return valor;
 }
 
-export function ContactosView({ cuentaId, puedeExportar = false }: { cuentaId: string; puedeExportar?: boolean }) {
+export function ContactosView({
+  cuentaId,
+  puedeExportar = false,
+  puedeVerConversaciones = false,
+}: {
+  cuentaId: string;
+  puedeExportar?: boolean;
+  puedeVerConversaciones?: boolean;
+}) {
   const supabase = createClient();
+  const router = useRouter();
   const [contactos, setContactos] = useState<Contacto[]>([]);
   const [etiquetasCatalogo, setEtiquetasCatalogo] = useState<string[]>([]);
   const [catalogoEtiquetas, setCatalogoEtiquetas] = useState<EtiquetaCatalogo[]>([]);
@@ -101,6 +110,8 @@ export function ContactosView({ cuentaId, puedeExportar = false }: { cuentaId: s
   const [etapas, setEtapas] = useState<EtapaLite[]>([]);
   const [dealsPorContacto, setDealsPorContacto] = useState<Record<string, DealLite>>({});
   const [perfiles, setPerfiles] = useState<PerfilLite[]>([]);
+  const [conversacionPorContacto, setConversacionPorContacto] = useState<Record<string, string>>({});
+  const [abriendoConversacion, setAbriendoConversacion] = useState<string | null>(null);
   const [configColumnas, setConfigColumnas] = useState<ColumnaConfig[]>([]);
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState("");
@@ -119,7 +130,7 @@ export function ContactosView({ cuentaId, puedeExportar = false }: { cuentaId: s
 
   async function cargar() {
     setCargando(true);
-    const [{ data: c }, { data: e }, { data: cp }, { data: vp }, { data: et }, { data: d }, { data: p }] = await Promise.all([
+    const [{ data: c }, { data: e }, { data: cp }, { data: vp }, { data: et }, { data: d }, { data: p }, { data: conv }] = await Promise.all([
       supabase.from("contactos").select("*").order("created_at", { ascending: false }),
       supabase.from("etiquetas").select("id, nombre, color").order("nombre"),
       supabase.from("campos_personalizados").select("*").order("orden"),
@@ -127,6 +138,7 @@ export function ContactosView({ cuentaId, puedeExportar = false }: { cuentaId: s
       supabase.from("etapas_pipeline").select("id, nombre, color, orden").order("orden"),
       supabase.from("deals").select("id, contacto_id, etapa_id, estado, created_at").order("created_at", { ascending: false }),
       supabase.from("perfiles").select("id, nombre").eq("activo", true).order("nombre"),
+      supabase.from("conversaciones").select("id, contacto_id, status, created_at").order("created_at", { ascending: false }),
     ]);
     setContactos(c ?? []);
     setEtiquetasCatalogo((e ?? []).map((x) => x.nombre));
@@ -154,6 +166,19 @@ export function ContactosView({ cuentaId, puedeExportar = false }: { cuentaId: s
       }
     }
     setDealsPorContacto(dealsMap);
+
+    // Misma lógica de "más relevante": una abierta gana sobre una cerrada;
+    // entre dos del mismo estado, la más reciente (conv ya viene ordenado
+    // desc por created_at, así que la primera que se encuentre por contacto
+    // gana salvo que una abierta aparezca después).
+    const conversacionesPorContacto: Record<string, { id: string; status: string }> = {};
+    for (const conversacion of (conv as { id: string; contacto_id: string; status: string }[]) ?? []) {
+      const actual = conversacionesPorContacto[conversacion.contacto_id];
+      if (!actual || (actual.status !== "abierta" && conversacion.status === "abierta")) {
+        conversacionesPorContacto[conversacion.contacto_id] = { id: conversacion.id, status: conversacion.status };
+      }
+    }
+    setConversacionPorContacto(Object.fromEntries(Object.entries(conversacionesPorContacto).map(([k, v]) => [k, v.id])));
 
     setCargando(false);
   }
@@ -276,6 +301,33 @@ export function ContactosView({ cuentaId, puedeExportar = false }: { cuentaId: s
     setContactos((prev) => prev.map((c) => (c.id === contactoId ? { ...c, etiquetas: nuevas } : c)));
     const { error } = await actualizarEtiquetasContacto(supabase, contactoId, nuevas);
     if (error) cargar();
+  }
+
+  // Si ya existe una conversación (abierta o cerrada) para este contacto, va
+  // directo -- si nunca ha tenido ninguna, crea una (misma forma que
+  // obtenerOCrearConversacion del lado del servidor) y va a esa.
+  async function irAConversacion(contacto: Contacto) {
+    const existente = conversacionPorContacto[contacto.id];
+    if (existente) {
+      router.push(`/conversaciones?conversacion_id=${existente}`);
+      return;
+    }
+    setAbriendoConversacion(contacto.id);
+    const { data: nueva, error } = await supabase
+      .from("conversaciones")
+      .insert({
+        cuenta_id: cuentaId,
+        contacto_id: contacto.id,
+        telefono: contacto.telefono,
+        status: "abierta",
+        agente_ia_activo: true,
+        ventana_activa: false,
+      })
+      .select("id")
+      .single();
+    setAbriendoConversacion(null);
+    if (error || !nueva) return;
+    router.push(`/conversaciones?conversacion_id=${nueva.id}`);
   }
 
   function descargarCsv() {
@@ -510,6 +562,17 @@ export function ContactosView({ cuentaId, puedeExportar = false }: { cuentaId: s
                     </td>
                   ))}
                   <td className="px-5 py-3.5 text-right">
+                    {puedeVerConversaciones && (
+                      <button
+                        onClick={() => irAConversacion(c)}
+                        disabled={abriendoConversacion === c.id}
+                        title="Ir a la conversación"
+                        aria-label="Ir a la conversación"
+                        className="mr-3 inline-flex align-middle text-base text-[var(--color-marca)] hover:opacity-80 disabled:opacity-50"
+                      >
+                        💬
+                      </button>
+                    )}
                     <button
                       onClick={() => setEnviandoPlantillaA(c)}
                       className="mr-3 text-sm font-medium text-[var(--color-marca)] hover:underline"
