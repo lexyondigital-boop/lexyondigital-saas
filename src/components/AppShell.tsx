@@ -76,6 +76,7 @@ export function AppShell({
   const pathname = usePathname();
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [colapsado, setColapsado] = useState(false);
+  const [esDesktop, setEsDesktop] = useState(false);
   const [nombreCuenta, setNombreCuenta] = useState<string | null>(null);
   const [cuentasDisponibles, setCuentasDisponibles] = useState<
     { cuenta_id: string; nombre: string; codigo: string | null; es_casa: boolean }[]
@@ -145,6 +146,21 @@ export function AppShell({
       // Modo privado / storage bloqueado -- simplemente no se recuerda la preferencia.
     }
   }, []);
+
+  // Para saber si el riel de íconos realmente está en modo angosto (el
+  // colapso de escritorio solo aplica en md+, ver clases de <aside> abajo) --
+  // así el badge de pendientes se monta UNA sola vez, con la variante
+  // correcta, en vez de montar compacto y completo a la vez ocultando uno
+  // con CSS (eso duplicaba las consultas y las suscripciones de Realtime con
+  // el mismo nombre de canal, y tumbaba la pestaña).
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    setEsDesktop(mq.matches);
+    const manejador = (e: MediaQueryListEvent) => setEsDesktop(e.matches);
+    mq.addEventListener("change", manejador);
+    return () => mq.removeEventListener("change", manejador);
+  }, []);
+  const rielCompacto = colapsado && esDesktop;
 
   function alternarColapso() {
     setColapsado((actual) => {
@@ -223,22 +239,16 @@ export function AppShell({
               >
                 <span className="relative shrink-0">
                   <Icono />
-                  {item.href === "/conversaciones" && cuentaId && (
-                    <span className={colapsado ? "hidden md:inline" : "hidden"}>
-                      <NotificacionesConversaciones cuentaId={cuentaId} compacto />
-                    </span>
+                  {rielCompacto && item.href === "/conversaciones" && cuentaId && (
+                    <NotificacionesConversaciones cuentaId={cuentaId} compacto />
                   )}
-                  {item.href === "/pipeline" && cuentaId && (
-                    <span className={colapsado ? "hidden md:inline" : "hidden"}>
-                      <NotificacionesPipeline cuentaId={cuentaId} compacto />
-                    </span>
+                  {rielCompacto && item.href === "/pipeline" && cuentaId && (
+                    <NotificacionesPipeline cuentaId={cuentaId} compacto />
                   )}
                 </span>
                 <span className={colapsado ? "md:hidden" : ""}>{item.label}</span>
-                <span className={`contents ${colapsado ? "md:!hidden" : ""}`}>
-                  {item.href === "/conversaciones" && cuentaId && <NotificacionesConversaciones cuentaId={cuentaId} />}
-                  {item.href === "/pipeline" && cuentaId && <NotificacionesPipeline cuentaId={cuentaId} />}
-                </span>
+                {!rielCompacto && item.href === "/conversaciones" && cuentaId && <NotificacionesConversaciones cuentaId={cuentaId} />}
+                {!rielCompacto && item.href === "/pipeline" && cuentaId && <NotificacionesPipeline cuentaId={cuentaId} />}
               </Link>
             );
           })}
