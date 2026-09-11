@@ -235,6 +235,7 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
   const [camposPersonalizados, setCamposPersonalizados] = useState<CampoPersonalizado[]>([]);
   const [valoresPorContacto, setValoresPorContacto] = useState<Record<string, Record<string, string>>>({});
   const [seleccionada, setSeleccionada] = useState<string | null>(null);
+  const [listaColapsada, setListaColapsada] = useState(false);
   const autoSeleccionHecha = useRef(false);
 
   async function cargarLista() {
@@ -381,9 +382,9 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
   const conversacionActiva = conversaciones.find((c) => c.id === seleccionada) ?? null;
 
   return (
-    <div className="flex h-[calc(100vh-6rem)] gap-4">
+    <div className="flex h-[calc(100vh-6rem)] gap-2">
       <div
-        className={`${seleccionada ? "hidden md:flex" : "flex"} w-full shrink-0 flex-col rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] md:w-80`}
+        className={`${seleccionada ? "hidden md:flex" : "flex"} ${listaColapsada ? "md:!hidden" : ""} w-full shrink-0 flex-col rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] md:w-80`}
       >
         <div className="border-b border-[var(--color-borde)] p-4">
           <h1 className="text-base font-bold text-[var(--color-texto)]">Conversaciones</h1>
@@ -476,6 +477,17 @@ export function ConversacionesView({ cuentaId }: { cuentaId: string }) {
             })
           )}
         </div>
+      </div>
+
+      <div className="hidden w-3 shrink-0 items-start justify-center pt-6 md:flex">
+        <button
+          type="button"
+          onClick={() => setListaColapsada((v) => !v)}
+          title={listaColapsada ? "Mostrar conversaciones" : "Ocultar conversaciones"}
+          className="flex h-8 w-6 items-center justify-center rounded-full border border-[var(--color-borde)] bg-[var(--color-tarjeta)] text-xs text-[var(--color-texto-mute)] hover:bg-[var(--color-bg-elevada)] hover:text-[var(--color-texto)]"
+        >
+          {listaColapsada ? "›" : "‹"}
+        </button>
       </div>
 
       <div
