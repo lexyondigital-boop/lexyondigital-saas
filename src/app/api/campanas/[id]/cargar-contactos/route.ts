@@ -140,5 +140,55 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     omitidos,
     columnas_ignoradas: ignorados,
     contactos: contactosFinales ?? [],
+    // Contactos que este lote creó de cero (no existían antes) -- son los
+    // únicos que "Cancelar" en la revisión puede borrar. Uno que ya existía
+    // y solo se actualizó nunca debe desaparecer por cancelar una carga.
+    ids_nuevos: nuevos.map(([telefono]) => idsPorTelefono.get(telefono)!),
   });
+}
+
+// Deshace una carga: borra SOLO los contactos que esa carga creó de cero
+// (nunca uno que ya existía y solo se actualizó). Se usa desde "Cancelar" en
+// la pantalla de revisión, cuando el usuario decide no quedarse con lo que
+// acaba de subir. El cascade de campana_contactos / valores_campos_personalizados
+// se encarga de limpiar lo demás.
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requirePermiso("edit_campaigns");
+  if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  const { id: campanaId } = await params;
+  const cuentaId = auth.perfil.cuenta_id;
+  const admin = createAdminClient();
+
+  const { data: campana } = await admin.from("campanas").select("id").eq("id", campanaId).eq("cuenta_id", cuentaId).maybeSingle();
+  if (!campana) return NextResponse.json({ error: "Campaña no encontrada" }, { status: 404 });
+
+  const body = await request.json().catch(() => ({}));
+  const ids: string[] = Array.isArray(body.ids) ? body.ids.filter((id: unknown) => typeof id === "string") : [];
+  if (ids.length === 0) return NextResponse.json({ ok: true, eliminados: 0 });
+
+  const { error, count } = await admin
+    .from("contactos")
+    .delete({ count: "exact" })
+    .eq("cuenta_id", cuentaId)
+    .in("id", ids);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  const { count: totalDestinatarios } = await admin
+    .from("campana_contactos")
+    .select("id", { count: "exact", head: true })
+    .eq("campana_id", campanaId);
+  await admin.from("campanas").update({ total_destinatarios: totalDestinatarios ?? 0 }).eq("id", campanaId);
+
+  await registrarActividad({
+    cuentaId,
+    perfilId: auth.user.id,
+    accion: "cancel_campaign_contacts_load",
+    recursoTipo: "campana",
+    recursoId: campanaId,
+    detalles: { eliminados: count ?? ids.length },
+    request,
+  });
+
+  return NextResponse.json({ ok: true, eliminados: count ?? ids.length });
 }

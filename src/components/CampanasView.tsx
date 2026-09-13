@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Papa from "papaparse";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/Badge";
 import { AsistentePlantillaModal } from "@/components/AsistentePlantillaModal";
@@ -563,6 +564,7 @@ function CargarContactosModal({
   const [asignadoA, setAsignadoA] = useState("");
   const [archivo, setArchivo] = useState<File | null>(null);
   const [subiendo, setSubiendo] = useState(false);
+  const [progreso, setProgreso] = useState<{ hechas: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [resultado, setResultado] = useState<{
     importados: number;
@@ -570,6 +572,7 @@ function CargarContactosModal({
     omitidos: { fila: number; motivo: string }[];
     columnas_ignoradas: string[];
     contactos: ContactoImportado[];
+    ids_nuevos: string[];
   } | null>(null);
   const [camposOpcionales, setCamposOpcionales] = useState<CampoCsvOpcional[]>([
     { clave: "nombre_completo", etiqueta: "Nombre completo" },
@@ -603,26 +606,83 @@ function CargarContactosModal({
     });
   }
 
+  const CONTACTOS_POR_LOTE = 100;
+
+  // Se sube en lotes (en vez de un solo POST con todo el archivo) para poder
+  // mostrar un contador real de avance -- cada lote es su propio CSV
+  // (encabezado + un pedazo de filas) que pasa por la misma ruta de siempre,
+  // y los resultados se van acumulando.
   async function subir() {
     if (!archivo) return;
     setSubiendo(true);
     setError(null);
 
-    const formData = new FormData();
-    formData.append("archivo", archivo);
-    formData.append("pais", pais);
-    if (asignadoA) formData.append("asignado_a", asignadoA);
-
-    const res = await fetch(`/api/campanas/${campana.id}/cargar-contactos`, { method: "POST", body: formData });
-    const data = await res.json();
-    setSubiendo(false);
-
-    if (!res.ok) {
-      setError(data.error ?? "No se pudo cargar el archivo");
+    const texto = await archivo.text();
+    const { data: filas } = Papa.parse<string[]>(texto, { skipEmptyLines: true });
+    if (filas.length < 2) {
+      setSubiendo(false);
+      setError("El archivo no tiene filas de datos");
       return;
     }
+    const encabezado = filas[0];
+    const filasDatos = filas.slice(1);
+    setProgreso({ hechas: 0, total: filasDatos.length });
 
-    setResultado(data);
+    const acumulado = {
+      importados: 0,
+      actualizados: 0,
+      omitidos: [] as { fila: number; motivo: string }[],
+      columnas_ignoradas: [] as string[],
+      contactos: [] as ContactoImportado[],
+      ids_nuevos: [] as string[],
+    };
+    const idsVistos = new Set<string>();
+
+    for (let inicio = 0; inicio < filasDatos.length; inicio += CONTACTOS_POR_LOTE) {
+      const lote = filasDatos.slice(inicio, inicio + CONTACTOS_POR_LOTE);
+      const csvLote = Papa.unparse([encabezado, ...lote]);
+      const archivoLote = new File([csvLote], archivo.name, { type: "text/csv" });
+
+      const formData = new FormData();
+      formData.append("archivo", archivoLote);
+      formData.append("pais", pais);
+      if (asignadoA) formData.append("asignado_a", asignadoA);
+
+      const res = await fetch(`/api/campanas/${campana.id}/cargar-contactos`, { method: "POST", body: formData });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSubiendo(false);
+        setProgreso(null);
+        setError(data.error ?? "No se pudo cargar el archivo");
+        return;
+      }
+
+      acumulado.importados += data.importados ?? 0;
+      acumulado.actualizados += data.actualizados ?? 0;
+      // El número de fila que reporta cada lote es relativo a SU propio
+      // mini-CSV (empieza en 2) -- se corrige sumando dónde arrancaba este
+      // lote en el archivo real, para que coincida con la fila que el
+      // usuario ve si abre su CSV original.
+      for (const o of data.omitidos ?? []) acumulado.omitidos.push({ fila: o.fila + inicio, motivo: o.motivo });
+      for (const col of data.columnas_ignoradas ?? []) {
+        if (!acumulado.columnas_ignoradas.includes(col)) acumulado.columnas_ignoradas.push(col);
+      }
+      for (const c of data.contactos ?? []) {
+        if (!idsVistos.has(c.id)) {
+          idsVistos.add(c.id);
+          acumulado.contactos.push(c);
+        }
+      }
+      for (const id of data.ids_nuevos ?? []) {
+        if (!acumulado.ids_nuevos.includes(id)) acumulado.ids_nuevos.push(id);
+      }
+
+      setProgreso({ hechas: Math.min(inicio + lote.length, filasDatos.length), total: filasDatos.length });
+    }
+
+    setSubiendo(false);
+    setProgreso(null);
+    setResultado(acumulado);
   }
 
   return (
@@ -682,29 +742,60 @@ function CargarContactosModal({
               </a>
             </div>
 
-            <label className="block">
+            <div>
               <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Archivo CSV</span>
-              <input type="file" accept=".csv,text/csv" onChange={(e) => setArchivo(e.target.files?.[0] ?? null)} className="text-sm text-[var(--color-texto)]" />
-            </label>
+              <div className="flex flex-wrap items-center gap-3">
+                <label
+                  htmlFor="archivo-csv-campana"
+                  className="cursor-pointer rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm font-medium text-[var(--color-texto)] transition-colors hover:bg-[var(--color-tarjeta)]"
+                >
+                  Seleccionar archivo
+                </label>
+                <input
+                  id="archivo-csv-campana"
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}
+                  className="hidden"
+                />
+                <span className={`truncate text-sm ${archivo ? "font-medium text-[var(--color-en-vivo)]" : "text-[var(--color-texto-mute)]"}`}>
+                  {archivo ? `✓ ${archivo.name}` : "Ningún archivo seleccionado"}
+                </span>
+              </div>
+            </div>
 
             {error && <p className="text-sm text-red-500">{error}</p>}
 
-            <div className="flex gap-3">
-              <button
-                onClick={subir}
-                disabled={!archivo || subiendo}
-                style={{ boxShadow: "var(--halo-accion)" }}
-                className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
-              >
-                {subiendo ? "Subiendo…" : "Subir archivo"}
-              </button>
-              <button onClick={onCancelar} className="rounded-lg px-4 py-2 text-sm font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
-                Cancelar
-              </button>
-            </div>
+            {progreso ? (
+              <div className="space-y-1.5">
+                <p className="text-sm text-[var(--color-texto)]">
+                  Subiendo {progreso.hechas} de {progreso.total} contactos…
+                </p>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--color-bg-elevada)]">
+                  <div
+                    className="h-full rounded-full bg-[var(--color-marca)] transition-all"
+                    style={{ width: `${progreso.total > 0 ? Math.round((progreso.hechas / progreso.total) * 100) : 0}%` }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="flex gap-3">
+                <button
+                  onClick={subir}
+                  disabled={!archivo || subiendo}
+                  style={{ boxShadow: "var(--halo-accion)" }}
+                  className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
+                >
+                  {subiendo ? "Subiendo…" : "Subir archivo"}
+                </button>
+                <button onClick={onCancelar} className="rounded-lg px-4 py-2 text-sm font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
+                  Cancelar
+                </button>
+              </div>
+            )}
           </div>
         ) : (
-          <RevisionContactosImportados resultado={resultado} onListo={onListo} />
+          <RevisionContactosImportados resultado={resultado} campanaId={campana.id} onListo={onListo} />
         )}
       </div>
     </div>
@@ -721,12 +812,24 @@ const COLUMNAS_REVISION = [
 
 function RevisionContactosImportados({
   resultado,
+  campanaId,
   onListo,
 }: {
-  resultado: { importados: number; actualizados: number; omitidos: { fila: number; motivo: string }[]; columnas_ignoradas: string[]; contactos: ContactoImportado[] };
+  resultado: {
+    importados: number;
+    actualizados: number;
+    omitidos: { fila: number; motivo: string }[];
+    columnas_ignoradas: string[];
+    contactos: ContactoImportado[];
+    ids_nuevos: string[];
+  };
+  campanaId: string;
   onListo: () => void;
 }) {
   const [columnasVisibles, setColumnasVisibles] = useState<Set<string>>(new Set(COLUMNAS_REVISION.map((c) => c.id)));
+  const [confirmandoCancelacion, setConfirmandoCancelacion] = useState(false);
+  const [cancelando, setCancelando] = useState(false);
+  const [errorCancelar, setErrorCancelar] = useState<string | null>(null);
 
   function alternar(id: string) {
     setColumnasVisibles((prev) => {
@@ -735,6 +838,25 @@ function RevisionContactosImportados({
       else copia.add(id);
       return copia;
     });
+  }
+
+  // Borra SOLO los contactos que esta carga creó de cero -- uno que ya
+  // existía y solo se actualizó nunca se toca (ver ids_nuevos en la ruta).
+  async function cancelarCarga() {
+    setCancelando(true);
+    setErrorCancelar(null);
+    const res = await fetch(`/api/campanas/${campanaId}/cargar-contactos`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: resultado.ids_nuevos }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setCancelando(false);
+    if (!res.ok) {
+      setErrorCancelar(data.error ?? "No se pudo cancelar la carga");
+      return;
+    }
+    onListo();
   }
 
   return (
@@ -793,13 +915,51 @@ function RevisionContactosImportados({
         </table>
       </div>
 
-      <button
-        onClick={onListo}
-        style={{ boxShadow: "var(--halo-accion)" }}
-        className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90"
-      >
-        Listo
-      </button>
+      {errorCancelar && <p className="text-sm text-red-500">{errorCancelar}</p>}
+
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          onClick={onListo}
+          disabled={cancelando}
+          style={{ boxShadow: "var(--halo-accion)" }}
+          className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
+        >
+          Listo
+        </button>
+
+        {resultado.ids_nuevos.length > 0 &&
+          (confirmandoCancelacion ? (
+            <span className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="text-[var(--color-texto-mute)]">
+                ¿Borrar los {resultado.ids_nuevos.length} contactos nuevos que se acaban de crear?
+              </span>
+              <button
+                type="button"
+                onClick={cancelarCarga}
+                disabled={cancelando}
+                className="font-medium text-red-500 hover:underline disabled:opacity-60"
+              >
+                {cancelando ? "Borrando…" : "Sí, borrar"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmandoCancelacion(false)}
+                disabled={cancelando}
+                className="text-[var(--color-texto-mute)] hover:text-[var(--color-texto)] disabled:opacity-60"
+              >
+                No
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmandoCancelacion(true)}
+              className="text-sm font-medium text-red-500 hover:underline"
+            >
+              Cancelar y borrar estos contactos
+            </button>
+          ))}
+      </div>
     </div>
   );
 }
