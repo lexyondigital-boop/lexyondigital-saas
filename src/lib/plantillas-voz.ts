@@ -174,6 +174,26 @@ const TIPO_RETELL: Partial<Record<TipoCampo, "string" | "number" | "enum">> = {
   select: "enum",
 };
 
+// En Voz, a diferencia de WhatsApp, {{clave}} y "clave a capturar" NO pueden
+// ser la misma sintaxis: el mismo Copyscript necesita poder LEER un dato que
+// ya existe (ej. {{nombre_completo}} para personalizar el saludo, o
+// {{turno_visita}} cargado por el CSV) sin que el agente intente además
+// pedírselo/pisarlo al cliente durante la llamada. Por eso "a capturar" usa
+// corchetes dobles [[clave]] -- una sintaxis a propósito distinta de
+// {{clave}} (ver detectarClavesEnPrompt en agente-prompt-variables.ts, que
+// sigue siendo solo de lectura) para que nunca se puedan confundir.
+const REGEX_VARIABLE_A_CAPTURAR = /\[\[\s*([a-zA-Z0-9_]+)\s*\]\]/g;
+
+export function detectarClavesACapturarEnPrompt(prompt: string): string[] {
+  const encontradas: string[] = [];
+  let m: RegExpExecArray | null;
+  const regex = new RegExp(REGEX_VARIABLE_A_CAPTURAR);
+  while ((m = regex.exec(prompt))) {
+    if (!encontradas.includes(m[1])) encontradas.push(m[1]);
+  }
+  return encontradas;
+}
+
 // Arma la función extract_dynamic_variable de Retell a partir de las
 // Variables que el admin marcó como "a capturar" en este agente de voz --
 // análogo a construirHerramientaGuardarDatos (agente-prompt-variables.ts)

@@ -19,6 +19,7 @@ import {
   OPCIONES_DURACION_ANILLO_TRANSFERENCIA,
   OPCIONES_ON_HOLD_MUSIC,
   OPCIONES_TRANSFER_TIMEOUT_AGENCIAL,
+  detectarClavesACapturarEnPrompt,
 } from "@/lib/plantillas-voz";
 import {
   ETIQUETA_STATUS_LLAMADA,
@@ -438,26 +439,34 @@ function FormularioAgenteVoz({
       .then(({ data }) => setCamposDisponibles((data ?? []) as CampoPersonalizadoLite[]));
   }, [cuentaId]);
 
-  // Qué variables se leen/capturan ya NO se marca aparte -- se detecta solo
-  // de las {{clave}} que aparezcan en el Copyscript u Objetivo, cruzadas
-  // contra el catálogo de Variables de la cuenta. Mismo cálculo que hace el
-  // servidor al guardar (ver /api/plantillas-voz), para que lo que se ve
+  // Qué se lee y qué se captura ya NO se marca aparte -- se detecta solo del
+  // Copyscript/Objetivo, y con sintaxis DISTINTA a propósito: {{clave}} es
+  // de lectura (personalizar con un dato que el contacto ya tiene, ej. el
+  // nombre o el turno cargado por CSV -- nunca se pide/pisa durante la
+  // llamada), [[clave]] es de captura (se pregunta y se guarda lo que
+  // confirme el cliente, cableado nativo en Retell). Mismo cálculo que hace
+  // el servidor al guardar (ver /api/plantillas-voz), para que lo que se ve
   // aquí sea justo lo que se sincroniza con Retell.
-  const clavesEnCopyscript = useMemo(
-    () => detectarClavesEnPrompt([objetivo, copyscript].filter(Boolean).join("\n\n")),
-    [objetivo, copyscript],
+  const promptCompleto = useMemo(() => [objetivo, copyscript].filter(Boolean).join("\n\n"), [objetivo, copyscript]);
+  const clavesLectura = useMemo(() => detectarClavesEnPrompt(promptCompleto), [promptCompleto]);
+  const clavesCaptura = useMemo(() => detectarClavesACapturarEnPrompt(promptCompleto), [promptCompleto]);
+  const variablesLectura = useMemo(
+    () => camposDisponibles.filter((c) => c.clave_variable && clavesLectura.includes(c.clave_variable)),
+    [camposDisponibles, clavesLectura],
   );
   const variablesDetectadas = useMemo(
-    () => camposDisponibles.filter((c) => c.clave_variable && clavesEnCopyscript.includes(c.clave_variable)),
-    [camposDisponibles, clavesEnCopyscript],
+    () => camposDisponibles.filter((c) => c.clave_variable && clavesCaptura.includes(c.clave_variable)),
+    [camposDisponibles, clavesCaptura],
   );
   const clavesNoDefinidas = useMemo(() => {
     const definidas = new Set(camposDisponibles.map((c) => c.clave_variable).filter(Boolean));
-    return clavesEnCopyscript.filter((c) => !definidas.has(c));
-  }, [camposDisponibles, clavesEnCopyscript]);
+    const lectura = clavesLectura.filter((c) => !definidas.has(c)).map((c) => `{{${c}}}`);
+    const captura = clavesCaptura.filter((c) => !definidas.has(c)).map((c) => `[[${c}]]`);
+    return [...lectura, ...captura];
+  }, [camposDisponibles, clavesLectura, clavesCaptura]);
 
-  function insertarVariable(clave: string) {
-    const textoInsertar = `{{${clave}}}`;
+  function insertarVariable(clave: string, modo: "leer" | "capturar") {
+    const textoInsertar = modo === "leer" ? `{{${clave}}}` : `[[${clave}]]`;
     const textarea = copyscriptRef.current;
     if (!textarea) {
       setCopyscript((c) => c + textoInsertar);
@@ -630,24 +639,42 @@ function FormularioAgenteVoz({
                   {"{ }"} Insertar variable
                 </button>
                 {mostrarInsertarVariable && (
-                  <div className="absolute right-0 z-10 mt-1 w-72 rounded-lg border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-1 shadow-lg">
+                  <div className="absolute right-0 z-10 mt-1 w-80 rounded-lg border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-1 shadow-lg">
                     {camposDisponibles.filter((c) => c.clave_variable).length === 0 ? (
                       <p className="px-2 py-1.5 text-xs text-[var(--color-texto-mute)]">
                         Todavía no hay Variables con clave configuradas en esta cuenta.
                       </p>
                     ) : (
-                      camposDisponibles
-                        .filter((c) => c.clave_variable)
-                        .map((c) => (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() => insertarVariable(c.clave_variable as string)}
-                            className="block w-full rounded px-2 py-1.5 text-left text-xs text-[var(--color-texto)] hover:bg-[var(--color-bg-elevada)]"
-                          >
-                            {c.nombre} <span className="text-[var(--color-texto-mute)]">{`{{${c.clave_variable}}}`}</span>
-                          </button>
-                        ))
+                      <>
+                        <p className="px-2 pb-1 pt-1 text-[10px] uppercase tracking-wide text-[var(--color-texto-mute)]">
+                          Leer = decir un dato que ya existe · Capturar = preguntar y guardar
+                        </p>
+                        {camposDisponibles
+                          .filter((c) => c.clave_variable)
+                          .map((c) => (
+                            <div key={c.id} className="flex items-center justify-between gap-1 rounded px-2 py-1 hover:bg-[var(--color-bg-elevada)]">
+                              <span className="truncate text-xs text-[var(--color-texto)]">{c.nombre}</span>
+                              <span className="flex shrink-0 gap-1">
+                                <button
+                                  type="button"
+                                  title={`Leer: {{${c.clave_variable}}}`}
+                                  onClick={() => insertarVariable(c.clave_variable as string, "leer")}
+                                  className="rounded border border-[var(--color-borde)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-texto)] hover:bg-[var(--color-tarjeta)]"
+                                >
+                                  Leer
+                                </button>
+                                <button
+                                  type="button"
+                                  title={`Capturar: [[${c.clave_variable}]]`}
+                                  onClick={() => insertarVariable(c.clave_variable as string, "capturar")}
+                                  className="rounded border border-[var(--color-borde)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-texto)] hover:bg-[var(--color-tarjeta)]"
+                                >
+                                  Capturar
+                                </button>
+                              </span>
+                            </div>
+                          ))}
+                      </>
                     )}
                   </div>
                 )}
@@ -659,9 +686,9 @@ function FormularioAgenteVoz({
           </div>
           <textarea ref={copyscriptRef} value={copyscript} onChange={(e) => setCopyscript(e.target.value)} rows={8} className={INPUT_LOCAL} />
           <p className="mt-1 text-xs text-[var(--color-texto-mute)]">
-            Usa "Insertar variable" (o escribe {"{{clave}}"} directo) para cada dato que el agente deba manejar -- si el contacto ya lo
-            tiene (ej. el turno cargado por la campaña) se lee en voz antes de la llamada, y lo que el cliente confirme o corrija durante
-            la llamada se guarda solo, sin marcar nada aparte.
+            Usa "Insertar variable" (o escríbelo directo): {"{{clave}}"} <strong>lee</strong> un dato que el contacto ya tenga (ej. su
+            nombre o el turno cargado por la campaña) -- nunca se pregunta ni se pisa. {"[[clave]]"} <strong>captura</strong>: le pide al
+            agente que pregunte y guarde lo que confirme el cliente, cableado nativo en Retell. No marques nada aparte.
           </p>
         </label>
 
@@ -801,30 +828,53 @@ function FormularioAgenteVoz({
             </div>
 
             <div ref={variablesSectionRef}>
-              <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Variables que el agente lee y captura</span>
+              <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Variables detectadas</span>
               <p className="mb-2 text-xs text-[var(--color-texto-mute)]">
-                Se detectan solas: cualquier {"{{clave}}"} que escribas en el Copyscript u Objetivo (usa "Insertar variable" arriba) se
-                sustituye por el dato real si el contacto ya lo tiene, y además queda cableada de forma nativa en Retell para guardar lo
-                que el cliente confirme durante la llamada -- no hay nada que marcar aparte.
+                Se detectan solas del Copyscript/Objetivo -- no hay nada que marcar aparte. {"{{clave}}"} se sustituye por el dato real
+                si el contacto ya lo tiene; {"[[clave]]"} queda cableada de forma nativa en Retell para preguntar y guardar lo que
+                confirme el cliente.
               </p>
-              {variablesDetectadas.length === 0 ? (
-                <p className="text-xs text-[var(--color-texto-mute)]">
-                  Todavía no hay ninguna {"{{clave}}"} en el Copyscript/Objetivo que coincida con una Variable de la cuenta.
-                </p>
-              ) : (
-                <div className="space-y-1">
-                  {variablesDetectadas.map((c) => (
-                    <p key={c.id} className="text-sm text-[var(--color-texto)]">
-                      {c.nombre} <span className="text-xs text-[var(--color-texto-mute)]">({c.clave_variable})</span>
-                    </p>
-                  ))}
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-texto-mute)]">
+                    Se leen ({"{{clave}}"})
+                  </p>
+                  {variablesLectura.length === 0 ? (
+                    <p className="text-xs text-[var(--color-texto-mute)]">Ninguna todavía.</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {variablesLectura.map((c) => (
+                        <p key={c.id} className="text-sm text-[var(--color-texto)]">
+                          {c.nombre} <span className="text-xs text-[var(--color-texto-mute)]">({c.clave_variable})</span>
+                        </p>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
+                <div>
+                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-texto-mute)]">
+                    Se capturan ([[clave]])
+                  </p>
+                  {variablesDetectadas.length === 0 ? (
+                    <p className="text-xs text-[var(--color-texto-mute)]">Ninguna todavía.</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {variablesDetectadas.map((c) => (
+                        <p key={c.id} className="text-sm text-[var(--color-texto)]">
+                          {c.nombre} <span className="text-xs text-[var(--color-texto-mute)]">({c.clave_variable})</span>
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {clavesNoDefinidas.length > 0 && (
                 <p className="mt-2 text-xs text-amber-500">
                   ⚠️ {clavesNoDefinidas.length === 1 ? "Esta clave no coincide" : "Estas claves no coinciden"} con ninguna Variable de la
-                  cuenta, así que no se va a sustituir ni a capturar: {clavesNoDefinidas.map((c) => `{{${c}}}`).join(", ")}. Revisa que
-                  esté bien escrita o créala en Variables.
+                  cuenta, así que no se va a sustituir ni a capturar: {clavesNoDefinidas.join(", ")}. Revisa que esté bien escrita o
+                  créala en Variables.
                 </p>
               )}
             </div>

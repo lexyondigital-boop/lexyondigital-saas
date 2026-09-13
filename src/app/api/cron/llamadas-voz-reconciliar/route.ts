@@ -4,13 +4,15 @@ import { resolverApiKeyRetell, obtenerLlamadaRetell, procesarResultadoLlamadaVoz
 
 const ESTADOS_EN_CURSO_RETELL = new Set(["registered", "ongoing"]);
 
-// Llamado por un cron externo (crontab en la VPS) cada 5 minutos. El
-// webhook de Retell (call_ended/call_analyzed) no tiene entrega
-// garantizada -- se confirmó empíricamente que algunas llamadas se quedan
-// "en_progreso" en nuestra tabla aunque en Retell ya aparecen "ended". Este
-// cron busca esas llamadas atoradas y las actualiza consultando
-// directamente el estado real en Retell (get-call), en vez de depender
-// solo del webhook.
+// Llamado por un cron externo (crontab en la VPS) cada minuto. El webhook de
+// Retell (call_ended/call_analyzed) no tiene entrega garantizada -- se
+// confirmó empíricamente (y de nuevo revisando timestamps reales: TODAS las
+// llamadas recientes se actualizaron justo en un múltiplo de 5 minutos, la
+// cadencia vieja de este cron, nunca por el webhook) que las llamadas se
+// quedan "en_progreso" en nuestra tabla aunque en Retell ya aparecen
+// "ended". Este cron busca esas llamadas atoradas y las actualiza
+// consultando directamente el estado real en Retell (get-call), en vez de
+// depender solo del webhook.
 export async function POST(request: NextRequest) {
   const auth = request.headers.get("authorization");
   if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -19,9 +21,9 @@ export async function POST(request: NextRequest) {
 
   const admin = createAdminClient();
 
-  // Solo llamadas con al menos 3 minutos de antigüedad -- una llamada
-  // recién creada todavía puede estar genuinamente en curso.
-  const limiteAntiguedad = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+  // Solo llamadas con al menos 1 minuto de antigüedad -- una llamada recién
+  // creada todavía puede estar genuinamente en curso.
+  const limiteAntiguedad = new Date(Date.now() - 60 * 1000).toISOString();
 
   const { data: atoradas, error } = await admin
     .from("llamadas_voz")

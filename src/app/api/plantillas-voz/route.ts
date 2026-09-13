@@ -9,9 +9,8 @@ import {
   resolverCamposACapturar,
   type FuncionRetell,
 } from "@/lib/retell";
-import { detectarClavesEnPrompt } from "@/lib/agente-prompt-variables";
 import { origenPublico } from "@/lib/origen-publico";
-import { validarConfiguracionLlamada, validarFuncionTransferCall } from "@/lib/plantillas-voz";
+import { validarConfiguracionLlamada, validarFuncionTransferCall, detectarClavesACapturarEnPrompt } from "@/lib/plantillas-voz";
 
 const AGENTES_TIPO = ["servicio", "citas", "venta", "cobranza", "legal"] as const;
 const CATEGORIAS = ["legal", "medicos", "inmobiliario", "servicios", "cobranza", "ventas"] as const;
@@ -133,12 +132,13 @@ export async function POST(request: NextRequest) {
   const admin = createAdminClient();
 
   // Qué variables se capturan durante la llamada ya NO se marca aparte -- se
-  // detecta directo de las {{clave}} que el admin escribió en el Copyscript
-  // (u Objetivo), cruzadas contra el catálogo de Variables de la cuenta.
-  // Así el Copyscript es la única fuente de verdad: lo que ahí se pide es
-  // justo lo que Retell recibe la instrucción nativa de capturar -- nunca
-  // hay que marcar nada por separado, ni se puede desincronizar.
-  const clavesDetectadas = detectarClavesEnPrompt([objetivo, copyscript].filter(Boolean).join("\n\n"));
+  // detecta directo de las [[clave]] (corchetes dobles) que el admin haya
+  // escrito en el Copyscript/Objetivo, cruzadas contra el catálogo de
+  // Variables de la cuenta. {{clave}} (llave doble) es una sintaxis
+  // DISTINTA y sigue siendo solo de lectura (ver detectarClavesEnPrompt) --
+  // así {{nombre_completo}} para personalizar el saludo nunca se confunde
+  // con algo que haya que pedirle/pisarle al cliente durante la llamada.
+  const clavesDetectadas = detectarClavesACapturarEnPrompt([objetivo, copyscript].filter(Boolean).join("\n\n"));
   const { campos: camposACapturar } = await resolverCamposACapturar(admin, auth.perfil.cuenta_id, clavesDetectadas);
   const clavesACapturar = camposACapturar.map((c) => c.clave_variable as string);
 

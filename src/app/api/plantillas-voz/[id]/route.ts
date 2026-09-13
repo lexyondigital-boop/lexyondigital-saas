@@ -9,9 +9,8 @@ import {
   resolverCamposACapturar,
   type FuncionRetell,
 } from "@/lib/retell";
-import { detectarClavesEnPrompt } from "@/lib/agente-prompt-variables";
 import { origenPublico } from "@/lib/origen-publico";
-import { validarConfiguracionLlamada, validarFuncionTransferCall } from "@/lib/plantillas-voz";
+import { validarConfiguracionLlamada, validarFuncionTransferCall, detectarClavesACapturarEnPrompt } from "@/lib/plantillas-voz";
 
 const AGENTES_TIPO = ["servicio", "citas", "venta", "cobranza", "legal"] as const;
 const MODOS_AGENTE = ["generado", "retell_propio"] as const;
@@ -120,11 +119,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   // Qué variables se capturan durante la llamada ya NO se marca aparte -- se
-  // detecta directo de las {{clave}} del Copyscript/Objetivo finales,
-  // cruzadas contra el catálogo de Variables de la cuenta. El Copyscript es
-  // la única fuente de verdad: nunca puede quedar desincronizado de lo que
-  // Retell recibe la instrucción nativa de capturar.
-  const clavesDetectadas = detectarClavesEnPrompt([objetivoFinal, copyscriptFinal].filter(Boolean).join("\n\n"));
+  // detecta directo de las [[clave]] (corchetes dobles) del Copyscript/
+  // Objetivo finales, cruzadas contra el catálogo de Variables de la
+  // cuenta. {{clave}} (llave doble) sigue siendo una sintaxis DISTINTA, solo
+  // de lectura -- así {{nombre_completo}} para personalizar el saludo nunca
+  // se confunde con algo que haya que pedirle/pisarle al cliente.
+  const clavesDetectadas = detectarClavesACapturarEnPrompt([objetivoFinal, copyscriptFinal].filter(Boolean).join("\n\n"));
   const { campos: camposACapturarDetectados } = await resolverCamposACapturar(admin, auth.perfil.cuenta_id, clavesDetectadas);
   const clavesACapturar = camposACapturarDetectados.map((c) => c.clave_variable as string);
 
