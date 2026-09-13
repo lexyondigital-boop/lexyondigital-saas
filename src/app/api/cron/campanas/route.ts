@@ -262,7 +262,7 @@ async function avanzarCampanaVoz(
 
   const { data: plantilla } = await supabase
     .from("plantillas_voz")
-    .select("id, publicada, retell_agent_id, retell_numero_saliente, copyscript, objetivo")
+    .select("id, publicada, retell_agent_id, retell_numero_saliente, copyscript, objetivo, retell_variables_a_capturar")
     .eq("id", campana.plantilla_voz_id)
     .maybeSingle();
 
@@ -337,8 +337,14 @@ async function avanzarCampanaVoz(
 
   // {{clave}} del Copyscript que ya tengan un valor real para este contacto
   // (ej. turno_visita cargado por el CSV de la campaña) -- Retell las
-  // sustituye en el prompt antes de que la llamada empiece.
-  const claves = detectarClavesEnPrompt([plantilla.objetivo, plantilla.copyscript].filter(Boolean).join("\n\n"));
+  // sustituye en el prompt antes de que la llamada empiece. Se excluyen las
+  // marcadas como "a capturar": esas las llena la llamada misma, y
+  // sustituirlas de entrada arriesgaría meter un valor viejo de una llamada
+  // anterior en vez de dejar que el agente pregunte de nuevo.
+  const variablesACapturar = new Set(plantilla.retell_variables_a_capturar ?? []);
+  const claves = detectarClavesEnPrompt([plantilla.objetivo, plantilla.copyscript].filter(Boolean).join("\n\n")).filter(
+    (c) => !variablesACapturar.has(c),
+  );
   const dynamicVariables =
     claves.length > 0 ? await obtenerValoresContactoPorClave(supabase, campana.cuenta_id, contacto.id, claves) : undefined;
 

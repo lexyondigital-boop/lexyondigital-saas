@@ -616,24 +616,40 @@ function FormularioAgenteVoz({
                   {"{ }"} Insertar variable
                 </button>
                 {mostrarInsertarVariable && (
-                  <div className="absolute right-0 z-10 mt-1 w-64 rounded-lg border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-1 shadow-lg">
+                  <div className="absolute right-0 z-10 mt-1 w-72 rounded-lg border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-1 shadow-lg">
                     {camposDisponibles.filter((c) => c.clave_variable).length === 0 ? (
                       <p className="px-2 py-1.5 text-xs text-[var(--color-texto-mute)]">
                         Todavía no hay Variables con clave configuradas en esta cuenta.
                       </p>
                     ) : (
-                      camposDisponibles
-                        .filter((c) => c.clave_variable)
-                        .map((c) => (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() => insertarVariable(c.clave_variable as string)}
-                            className="block w-full rounded px-2 py-1.5 text-left text-xs text-[var(--color-texto)] hover:bg-[var(--color-bg-elevada)]"
-                          >
-                            {c.nombre} <span className="text-[var(--color-texto-mute)]">{`{{${c.clave_variable}}}`}</span>
-                          </button>
-                        ))
+                      <>
+                        {camposDisponibles
+                          .filter((c) => c.clave_variable && !variablesACapturar.includes(c.clave_variable))
+                          .map((c) => (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => insertarVariable(c.clave_variable as string)}
+                              className="block w-full rounded px-2 py-1.5 text-left text-xs text-[var(--color-texto)] hover:bg-[var(--color-bg-elevada)]"
+                            >
+                              {c.nombre} <span className="text-[var(--color-texto-mute)]">{`{{${c.clave_variable}}}`}</span>
+                            </button>
+                          ))}
+                        {camposDisponibles.some((c) => c.clave_variable && variablesACapturar.includes(c.clave_variable)) && (
+                          <div className="mt-1 border-t border-[var(--color-borde)] px-2 pt-1.5">
+                            <p className="mb-1 text-[10px] uppercase tracking-wide text-[var(--color-texto-mute)]">
+                              Se llenan durante la llamada
+                            </p>
+                            {camposDisponibles
+                              .filter((c) => c.clave_variable && variablesACapturar.includes(c.clave_variable))
+                              .map((c) => (
+                                <p key={c.id} title="Ya está marcada en 'Variables a capturar' -- no hace falta insertarla aquí" className="cursor-not-allowed px-2 py-1 text-left text-xs text-[var(--color-texto-mute)]">
+                                  {c.nombre}
+                                </p>
+                              ))}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
@@ -832,9 +848,11 @@ function FormularioAgenteVoz({
                             {c.nombre} <span className="text-xs text-[var(--color-texto-mute)]">({c.clave_variable})</span>
                           </label>
                           {tambienEsLectura && (
-                            <p className="ml-6 mt-0.5 text-xs text-amber-500">
-                              ⚠️ También aparece como {`{{${c.clave_variable}}}`} en el Copyscript -- si es un dato que ya traes por CSV
-                              (de lectura), desmárcala aquí para que no se pida/pise durante la llamada.
+                            <p className="ml-6 mt-0.5 text-xs text-[var(--color-texto-mute)]">
+                              💡 No hace falta escribir {`{{${c.clave_variable}}}`} en el Copyscript para esta variable -- el sistema ya
+                              sabe guardar aquí lo que responda el cliente. Basta con redactar la pregunta en español (ej. "pregunta si
+                              confirma la visita"). Si esta variable normalmente viene ya con un dato del CSV (de lectura), en cambio sí
+                              desmárcala arriba.
                             </p>
                           )}
                         </div>

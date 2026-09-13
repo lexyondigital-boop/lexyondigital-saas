@@ -563,6 +563,9 @@ function CargarContactosModal({
   const [pais, setPais] = useState<"MX">("MX");
   const [asignadoA, setAsignadoA] = useState("");
   const [archivo, setArchivo] = useState<File | null>(null);
+  const [verificando, setVerificando] = useState(false);
+  const [verificacion, setVerificacion] = useState<{ total: number; existentes: number } | null>(null);
+  const [actualizarExistentes, setActualizarExistentes] = useState(true);
   const [subiendo, setSubiendo] = useState(false);
   const [progreso, setProgreso] = useState<{ hechas: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -608,12 +611,42 @@ function CargarContactosModal({
 
   const CONTACTOS_POR_LOTE = 100;
 
+  // Antes de escribir nada: se avisa cuántos de estos teléfonos ya existen
+  // en la cuenta (ej. un contacto que ya había salido en una campaña
+  // anterior y ahora vuelve con una fecha de visita distinta), para que el
+  // usuario decida si quiere que este archivo actualice sus datos o no --
+  // en vez de pisarlos en silencio como pasaba antes.
+  async function iniciarSubida() {
+    if (!archivo) return;
+    setError(null);
+    setVerificando(true);
+
+    const formData = new FormData();
+    formData.append("archivo", archivo);
+    formData.append("pais", pais);
+
+    const res = await fetch(`/api/campanas/${campana.id}/cargar-contactos/verificar`, { method: "POST", body: formData });
+    const data = await res.json().catch(() => ({}));
+    setVerificando(false);
+
+    if (!res.ok) {
+      setError(data.error ?? "No se pudo leer el archivo");
+      return;
+    }
+    if (data.existentes > 0) {
+      setVerificacion({ total: data.total, existentes: data.existentes });
+      return;
+    }
+    await subir(true);
+  }
+
   // Se sube en lotes (en vez de un solo POST con todo el archivo) para poder
   // mostrar un contador real de avance -- cada lote es su propio CSV
   // (encabezado + un pedazo de filas) que pasa por la misma ruta de siempre,
   // y los resultados se van acumulando.
-  async function subir() {
+  async function subir(actualizarExistentesFlag: boolean) {
     if (!archivo) return;
+    setVerificacion(null);
     setSubiendo(true);
     setError(null);
 
@@ -646,6 +679,7 @@ function CargarContactosModal({
       const formData = new FormData();
       formData.append("archivo", archivoLote);
       formData.append("pais", pais);
+      formData.append("actualizar_existentes", actualizarExistentesFlag ? "1" : "0");
       if (asignadoA) formData.append("asignado_a", asignadoA);
 
       const res = await fetch(`/api/campanas/${campana.id}/cargar-contactos`, { method: "POST", body: formData });
@@ -766,7 +800,41 @@ function CargarContactosModal({
 
             {error && <p className="text-sm text-red-500">{error}</p>}
 
-            {progreso ? (
+            {verificacion ? (
+              <div className="space-y-3 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-3">
+                <p className="text-sm text-[var(--color-texto)]">
+                  De los {verificacion.total} contactos en este archivo, <strong>{verificacion.existentes} ya existen</strong> en el
+                  sistema (ej. alguien que ya había salido en una campaña anterior).
+                </p>
+                <label className="flex items-start gap-2 text-sm text-[var(--color-texto)]">
+                  <input
+                    type="checkbox"
+                    checked={actualizarExistentes}
+                    onChange={(e) => setActualizarExistentes(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Actualizar sus datos con la información de este archivo (nombre completo, correo, etiquetas, variables). El Nombre
+                    (WhatsApp) nunca se toca -- ese se autocaptura solo.
+                  </span>
+                </label>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => subir(actualizarExistentes)}
+                    style={{ boxShadow: "var(--halo-accion)" }}
+                    className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90"
+                  >
+                    Continuar
+                  </button>
+                  <button
+                    onClick={() => setVerificacion(null)}
+                    className="rounded-lg px-4 py-2 text-sm font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            ) : progreso ? (
               <div className="space-y-1.5">
                 <p className="text-sm text-[var(--color-texto)]">
                   Subiendo {progreso.hechas} de {progreso.total} contactos…
@@ -781,12 +849,12 @@ function CargarContactosModal({
             ) : (
               <div className="flex gap-3">
                 <button
-                  onClick={subir}
-                  disabled={!archivo || subiendo}
+                  onClick={iniciarSubida}
+                  disabled={!archivo || verificando || subiendo}
                   style={{ boxShadow: "var(--halo-accion)" }}
                   className="rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] transition-opacity hover:opacity-90 disabled:opacity-60"
                 >
-                  {subiendo ? "Subiendo…" : "Subir archivo"}
+                  {verificando ? "Revisando…" : subiendo ? "Subiendo…" : "Subir archivo"}
                 </button>
                 <button onClick={onCancelar} className="rounded-lg px-4 py-2 text-sm font-medium text-[var(--color-texto-mute)] hover:text-[var(--color-texto)]">
                   Cancelar

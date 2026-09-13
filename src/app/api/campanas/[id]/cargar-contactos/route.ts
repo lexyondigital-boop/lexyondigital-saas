@@ -28,6 +28,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const archivo = formData.get("archivo");
   const pais = (formData.get("pais") as string | null) as PaisImportacion | null;
   const asignadoA = (formData.get("asignado_a") as string | null) || null;
+  // El usuario ya vio (vía /verificar) cuántos de estos teléfonos ya existen
+  // y decidió si quiere pisar sus datos con lo que traiga este archivo --
+  // "Nombre (WhatsApp)" nunca se toca de aquí para abajo, se autocaptura solo.
+  const actualizarExistentes = formData.get("actualizar_existentes") !== "0";
 
   if (!(archivo instanceof File)) {
     return NextResponse.json({ error: "Falta el archivo CSV" }, { status: 400 });
@@ -89,18 +93,30 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   // subconjunto de campos, y un upsert masivo con columnas distintas por
   // fila terminaría poniendo NULL a lo que una fila no traía -- se prefiere
   // más queries a arriesgar borrar datos de un contacto que ya existía.
-  for (const [telefono, f] of actualizaciones) {
-    const cambios: Record<string, unknown> = {};
-    if (f.camposReales?.nombre_completo) cambios.nombre_completo = f.camposReales.nombre_completo;
-    if (f.camposReales?.correo_electronico) cambios.correo_electronico = f.camposReales.correo_electronico;
-    if (f.camposReales?.etiquetas?.length) cambios.etiquetas = f.camposReales.etiquetas;
-    if (Object.keys(cambios).length === 0) continue;
-    await admin.from("contactos").update(cambios).eq("id", idsPorTelefono.get(telefono)!);
+  // "Nombre (WhatsApp)" (columna `nombre`) nunca aparece aquí -- ni con
+  // actualizarExistentes activado se toca, se autocaptura solo del perfil de
+  // WhatsApp cuando el contacto escribe.
+  if (actualizarExistentes) {
+    for (const [telefono, f] of actualizaciones) {
+      const cambios: Record<string, unknown> = {};
+      if (f.camposReales?.nombre_completo) cambios.nombre_completo = f.camposReales.nombre_completo;
+      if (f.camposReales?.correo_electronico) cambios.correo_electronico = f.camposReales.correo_electronico;
+      if (f.camposReales?.etiquetas?.length) cambios.etiquetas = f.camposReales.etiquetas;
+      if (Object.keys(cambios).length === 0) continue;
+      await admin.from("contactos").update(cambios).eq("id", idsPorTelefono.get(telefono)!);
+    }
   }
 
-  const valoresPersonalizados = [...filaPorTelefono.entries()].flatMap(([telefono, f]) =>
-    (f.valoresPersonalizados ?? []).map((v) => ({ contacto_id: idsPorTelefono.get(telefono)!, campo_id: v.campo_id, valor: v.valor })),
-  );
+  // Los valores de variables personalizadas (ej. fecha_visita, turno_visita)
+  // de un contacto NUEVO siempre se guardan -- no hay nada que decidir
+  // pisar. Para uno que YA existía, solo se actualizan si el usuario
+  // confirmó que quería actualizar sus datos.
+  const telefonosNuevos = new Set(nuevos.map(([telefono]) => telefono));
+  const valoresPersonalizados = [...filaPorTelefono.entries()]
+    .filter(([telefono]) => actualizarExistentes || telefonosNuevos.has(telefono))
+    .flatMap(([telefono, f]) =>
+      (f.valoresPersonalizados ?? []).map((v) => ({ contacto_id: idsPorTelefono.get(telefono)!, campo_id: v.campo_id, valor: v.valor })),
+    );
   if (valoresPersonalizados.length > 0) {
     await admin.from("valores_campos_personalizados").upsert(valoresPersonalizados, { onConflict: "contacto_id,campo_id" });
   }
@@ -130,7 +146,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     accion: "load_campaign_contacts",
     recursoTipo: "campana",
     recursoId: campanaId,
-    detalles: { importados: nuevos.length, actualizados: actualizaciones.length, omitidos: omitidos.length },
+    detalles: { importados: nuevos.length, actualizados: actualizaciones.length, omitidos: omitidos.length, actualizarExistentes },
     request,
   });
 
