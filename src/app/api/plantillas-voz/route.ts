@@ -9,6 +9,7 @@ import {
   resolverCamposACapturar,
   type FuncionRetell,
 } from "@/lib/retell";
+import { detectarClavesEnPrompt } from "@/lib/agente-prompt-variables";
 import { origenPublico } from "@/lib/origen-publico";
 import { validarConfiguracionLlamada, validarFuncionTransferCall } from "@/lib/plantillas-voz";
 
@@ -68,7 +69,6 @@ export async function POST(request: NextRequest) {
     retell_duracion_anillo_ms,
     retell_habla_primero,
     retell_mensaje_bienvenida,
-    retell_variables_a_capturar,
   } = body as {
     nombre?: string;
     copyscript?: string;
@@ -92,7 +92,6 @@ export async function POST(request: NextRequest) {
     retell_duracion_anillo_ms?: number;
     retell_habla_primero?: boolean;
     retell_mensaje_bienvenida?: string | null;
-    retell_variables_a_capturar?: string[];
   };
 
   if (!nombre?.trim()) return NextResponse.json({ error: "Falta el nombre" }, { status: 400 });
@@ -133,11 +132,15 @@ export async function POST(request: NextRequest) {
 
   const admin = createAdminClient();
 
-  const clavesACapturar = retell_variables_a_capturar ?? [];
-  const { campos: camposACapturar, invalidas } = await resolverCamposACapturar(admin, auth.perfil.cuenta_id, clavesACapturar);
-  if (invalidas.length > 0) {
-    return NextResponse.json({ error: `Variables inválidas: ${invalidas.join(", ")}` }, { status: 400 });
-  }
+  // Qué variables se capturan durante la llamada ya NO se marca aparte -- se
+  // detecta directo de las {{clave}} que el admin escribió en el Copyscript
+  // (u Objetivo), cruzadas contra el catálogo de Variables de la cuenta.
+  // Así el Copyscript es la única fuente de verdad: lo que ahí se pide es
+  // justo lo que Retell recibe la instrucción nativa de capturar -- nunca
+  // hay que marcar nada por separado, ni se puede desincronizar.
+  const clavesDetectadas = detectarClavesEnPrompt([objetivo, copyscript].filter(Boolean).join("\n\n"));
+  const { campos: camposACapturar } = await resolverCamposACapturar(admin, auth.perfil.cuenta_id, clavesDetectadas);
+  const clavesACapturar = camposACapturar.map((c) => c.clave_variable as string);
 
   // Máximo un agente de voz por sub-cuenta por ahora -- editar o eliminar el
   // existente antes de crear otro.

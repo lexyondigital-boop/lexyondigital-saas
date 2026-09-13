@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
 
   const { data: plantilla } = await admin
     .from("plantillas_voz")
-    .select("id, publicada, retell_agent_id, retell_numero_saliente, copyscript, objetivo, retell_variables_a_capturar")
+    .select("id, publicada, retell_agent_id, retell_numero_saliente, copyscript, objetivo")
     .eq("id", plantilla_voz_id)
     .eq("cuenta_id", conversacion.cuenta_id)
     .maybeSingle();
@@ -150,13 +150,10 @@ export async function POST(request: NextRequest) {
 
   // {{clave}} del Copyscript que ya tengan un valor real para este contacto
   // -- Retell las sustituye en el prompt antes de que la llamada empiece.
-  // Se excluyen las marcadas como "a capturar": esas las llena la llamada
-  // misma, y sustituirlas de entrada arriesgaría meter un valor viejo de una
-  // llamada anterior en vez de dejar que el agente pregunte de nuevo.
-  const variablesACapturar = new Set(plantilla.retell_variables_a_capturar ?? []);
-  const claves = detectarClavesEnPrompt([plantilla.objetivo, plantilla.copyscript].filter(Boolean).join("\n\n")).filter(
-    (c) => !variablesACapturar.has(c),
-  );
+  // Las mismas claves también son las que se capturan nativamente (ver
+  // sincronizarPlantillaVozConRetell) -- un {{clave}} en el Copyscript
+  // significa "léela si ya la tienes, y guarda lo que confirme el cliente".
+  const claves = detectarClavesEnPrompt([plantilla.objetivo, plantilla.copyscript].filter(Boolean).join("\n\n"));
   const dynamicVariables =
     claves.length > 0 && conversacion.contacto_id
       ? await obtenerValoresContactoPorClave(admin, conversacion.cuenta_id, conversacion.contacto_id, claves)

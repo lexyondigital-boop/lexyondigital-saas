@@ -9,6 +9,7 @@ import {
   resolverCamposACapturar,
   type FuncionRetell,
 } from "@/lib/retell";
+import { detectarClavesEnPrompt } from "@/lib/agente-prompt-variables";
 import { origenPublico } from "@/lib/origen-publico";
 import { validarConfiguracionLlamada, validarFuncionTransferCall } from "@/lib/plantillas-voz";
 
@@ -45,7 +46,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     retell_duracion_anillo_ms,
     retell_habla_primero,
     retell_mensaje_bienvenida,
-    retell_variables_a_capturar,
   } = body as {
     nombre?: string;
     copyscript?: string;
@@ -70,7 +70,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     retell_duracion_anillo_ms?: number;
     retell_habla_primero?: boolean;
     retell_mensaje_bienvenida?: string | null;
-    retell_variables_a_capturar?: string[];
   };
 
   if (agente_tipo && !AGENTES_TIPO.includes(agente_tipo as (typeof AGENTES_TIPO)[number])) {
@@ -93,40 +92,41 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const admin = createAdminClient();
 
-  if (retell_variables_a_capturar !== undefined) {
-    const { invalidas } = await resolverCamposACapturar(admin, auth.perfil.cuenta_id, retell_variables_a_capturar);
-    if (invalidas.length > 0) {
-      return NextResponse.json({ error: `Variables inválidas: ${invalidas.join(", ")}` }, { status: 400 });
+  // Se necesita el copyscript/objetivo FINAL (lo que venga en este PATCH, o
+  // si no vino, lo que ya estaba guardado) tanto para las validaciones de
+  // abajo como para detectar qué variables se capturan -- se pide una sola
+  // vez.
+  const { data: actual } = await admin
+    .from("plantillas_voz")
+    .select("copyscript, objetivo, retell_mensaje_bienvenida")
+    .eq("id", id)
+    .eq("cuenta_id", auth.perfil.cuenta_id)
+    .maybeSingle();
+
+  const copyscriptFinal = copyscript ?? actual?.copyscript ?? "";
+  const objetivoFinal = objetivo ?? actual?.objetivo ?? "";
+
+  if (publicada === true && !copyscriptFinal.trim()) {
+    return NextResponse.json({ error: "No se puede publicar una plantilla sin copyscript" }, { status: 400 });
+  }
+  if (retell_pantalla_llamadas === true && !objetivoFinal.trim()) {
+    return NextResponse.json({ error: "Falta el objetivo para activar la gestión de pantalla de llamadas" }, { status: 400 });
+  }
+  if (retell_habla_primero === true) {
+    const mensajeFinal = retell_mensaje_bienvenida ?? actual?.retell_mensaje_bienvenida ?? "";
+    if (!mensajeFinal.trim()) {
+      return NextResponse.json({ error: "Falta el mensaje de bienvenida para que la IA hable primero" }, { status: 400 });
     }
   }
 
-  if (publicada === true || retell_pantalla_llamadas === true || retell_habla_primero === true) {
-    const { data: actual } = await admin
-      .from("plantillas_voz")
-      .select("copyscript, objetivo, retell_mensaje_bienvenida")
-      .eq("id", id)
-      .eq("cuenta_id", auth.perfil.cuenta_id)
-      .maybeSingle();
-
-    if (publicada === true) {
-      const copyscriptFinal = copyscript ?? actual?.copyscript ?? "";
-      if (!copyscriptFinal.trim()) {
-        return NextResponse.json({ error: "No se puede publicar una plantilla sin copyscript" }, { status: 400 });
-      }
-    }
-    if (retell_pantalla_llamadas === true) {
-      const objetivoFinal = objetivo ?? actual?.objetivo ?? "";
-      if (!objetivoFinal.trim()) {
-        return NextResponse.json({ error: "Falta el objetivo para activar la gestión de pantalla de llamadas" }, { status: 400 });
-      }
-    }
-    if (retell_habla_primero === true) {
-      const mensajeFinal = retell_mensaje_bienvenida ?? actual?.retell_mensaje_bienvenida ?? "";
-      if (!mensajeFinal.trim()) {
-        return NextResponse.json({ error: "Falta el mensaje de bienvenida para que la IA hable primero" }, { status: 400 });
-      }
-    }
-  }
+  // Qué variables se capturan durante la llamada ya NO se marca aparte -- se
+  // detecta directo de las {{clave}} del Copyscript/Objetivo finales,
+  // cruzadas contra el catálogo de Variables de la cuenta. El Copyscript es
+  // la única fuente de verdad: nunca puede quedar desincronizado de lo que
+  // Retell recibe la instrucción nativa de capturar.
+  const clavesDetectadas = detectarClavesEnPrompt([objetivoFinal, copyscriptFinal].filter(Boolean).join("\n\n"));
+  const { campos: camposACapturarDetectados } = await resolverCamposACapturar(admin, auth.perfil.cuenta_id, clavesDetectadas);
+  const clavesACapturar = camposACapturarDetectados.map((c) => c.clave_variable as string);
 
   const cambios: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (nombre !== undefined) cambios.nombre = nombre.trim();
@@ -152,7 +152,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (retell_duracion_anillo_ms !== undefined) cambios.retell_duracion_anillo_ms = retell_duracion_anillo_ms;
   if (retell_habla_primero !== undefined) cambios.retell_habla_primero = retell_habla_primero;
   if (retell_mensaje_bienvenida !== undefined) cambios.retell_mensaje_bienvenida = retell_mensaje_bienvenida?.trim() || null;
-  if (retell_variables_a_capturar !== undefined) cambios.retell_variables_a_capturar = retell_variables_a_capturar;
+  cambios.retell_variables_a_capturar = clavesACapturar;
 
   const { data, error } = await admin
     .from("plantillas_voz")
@@ -180,17 +180,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   let plantillaFinal = data;
 
   if (data.modo_agente === "generado") {
-    const { campos: camposACapturar } = await resolverCamposACapturar(
-      admin,
-      auth.perfil.cuenta_id,
-      data.retell_variables_a_capturar ?? [],
-    );
     const sync = await sincronizarPlantillaVozConRetell(
       admin,
       auth.perfil.cuenta_id,
       data,
       `${origenPublico(request)}/api/webhooks/retell`,
-      camposACapturar,
+      camposACapturarDetectados,
     );
     if (sync.ok) {
       const { data: actualizada } = await admin

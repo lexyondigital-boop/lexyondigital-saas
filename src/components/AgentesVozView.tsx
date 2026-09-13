@@ -392,7 +392,6 @@ function FormularioAgenteVoz({
   const [retellDuracionAnilloMs, setRetellDuracionAnilloMs] = useState(plantilla?.retell_duracion_anillo_ms ?? 30000);
   const [retellHablaPrimero, setRetellHablaPrimero] = useState(plantilla?.retell_habla_primero ?? false);
   const [retellMensajeBienvenida, setRetellMensajeBienvenida] = useState(plantilla?.retell_mensaje_bienvenida ?? "");
-  const [variablesACapturar, setVariablesACapturar] = useState<string[]>(plantilla?.retell_variables_a_capturar ?? []);
   const [camposDisponibles, setCamposDisponibles] = useState<CampoPersonalizadoLite[]>([]);
   const [mostrarConfigLlamadas, setMostrarConfigLlamadas] = useState(false);
   const [mostrarInsertarVariable, setMostrarInsertarVariable] = useState(false);
@@ -439,10 +438,23 @@ function FormularioAgenteVoz({
       .then(({ data }) => setCamposDisponibles((data ?? []) as CampoPersonalizadoLite[]));
   }, [cuentaId]);
 
-  // {{clave}} que ya aparecen escritas en el Copyscript -- para avisar si
-  // alguna coincide con una marcada en "Variables a capturar" (esa es de
-  // lectura, no debería pedirse/guardarse también durante la llamada).
-  const clavesEnCopyscript = useMemo(() => detectarClavesEnPrompt(copyscript), [copyscript]);
+  // Qué variables se leen/capturan ya NO se marca aparte -- se detecta solo
+  // de las {{clave}} que aparezcan en el Copyscript u Objetivo, cruzadas
+  // contra el catálogo de Variables de la cuenta. Mismo cálculo que hace el
+  // servidor al guardar (ver /api/plantillas-voz), para que lo que se ve
+  // aquí sea justo lo que se sincroniza con Retell.
+  const clavesEnCopyscript = useMemo(
+    () => detectarClavesEnPrompt([objetivo, copyscript].filter(Boolean).join("\n\n")),
+    [objetivo, copyscript],
+  );
+  const variablesDetectadas = useMemo(
+    () => camposDisponibles.filter((c) => c.clave_variable && clavesEnCopyscript.includes(c.clave_variable)),
+    [camposDisponibles, clavesEnCopyscript],
+  );
+  const clavesNoDefinidas = useMemo(() => {
+    const definidas = new Set(camposDisponibles.map((c) => c.clave_variable).filter(Boolean));
+    return clavesEnCopyscript.filter((c) => !definidas.has(c));
+  }, [camposDisponibles, clavesEnCopyscript]);
 
   function insertarVariable(clave: string) {
     const textoInsertar = `{{${clave}}}`;
@@ -539,7 +551,9 @@ function FormularioAgenteVoz({
       retell_duracion_anillo_ms: modoAgente === "generado" ? retellDuracionAnilloMs : undefined,
       retell_habla_primero: modoAgente === "generado" ? retellHablaPrimero : undefined,
       retell_mensaje_bienvenida: modoAgente === "generado" ? retellMensajeBienvenida : undefined,
-      retell_variables_a_capturar: modoAgente === "generado" ? variablesACapturar : undefined,
+      // Qué variables se capturan lo calcula el servidor solo, a partir de
+      // las {{clave}} que haya en copyscript/objetivo -- no se manda desde
+      // aquí para que nunca puedan desincronizarse.
     };
     const res = plantilla
       ? await fetch(`/api/plantillas-voz/${plantilla.id}`, {
@@ -622,34 +636,18 @@ function FormularioAgenteVoz({
                         Todavía no hay Variables con clave configuradas en esta cuenta.
                       </p>
                     ) : (
-                      <>
-                        {camposDisponibles
-                          .filter((c) => c.clave_variable && !variablesACapturar.includes(c.clave_variable))
-                          .map((c) => (
-                            <button
-                              key={c.id}
-                              type="button"
-                              onClick={() => insertarVariable(c.clave_variable as string)}
-                              className="block w-full rounded px-2 py-1.5 text-left text-xs text-[var(--color-texto)] hover:bg-[var(--color-bg-elevada)]"
-                            >
-                              {c.nombre} <span className="text-[var(--color-texto-mute)]">{`{{${c.clave_variable}}}`}</span>
-                            </button>
-                          ))}
-                        {camposDisponibles.some((c) => c.clave_variable && variablesACapturar.includes(c.clave_variable)) && (
-                          <div className="mt-1 border-t border-[var(--color-borde)] px-2 pt-1.5">
-                            <p className="mb-1 text-[10px] uppercase tracking-wide text-[var(--color-texto-mute)]">
-                              Se llenan durante la llamada
-                            </p>
-                            {camposDisponibles
-                              .filter((c) => c.clave_variable && variablesACapturar.includes(c.clave_variable))
-                              .map((c) => (
-                                <p key={c.id} title="Ya está marcada en 'Variables a capturar' -- no hace falta insertarla aquí" className="cursor-not-allowed px-2 py-1 text-left text-xs text-[var(--color-texto-mute)]">
-                                  {c.nombre}
-                                </p>
-                              ))}
-                          </div>
-                        )}
-                      </>
+                      camposDisponibles
+                        .filter((c) => c.clave_variable)
+                        .map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => insertarVariable(c.clave_variable as string)}
+                            className="block w-full rounded px-2 py-1.5 text-left text-xs text-[var(--color-texto)] hover:bg-[var(--color-bg-elevada)]"
+                          >
+                            {c.nombre} <span className="text-[var(--color-texto-mute)]">{`{{${c.clave_variable}}}`}</span>
+                          </button>
+                        ))
                     )}
                   </div>
                 )}
@@ -661,8 +659,9 @@ function FormularioAgenteVoz({
           </div>
           <textarea ref={copyscriptRef} value={copyscript} onChange={(e) => setCopyscript(e.target.value)} rows={8} className={INPUT_LOCAL} />
           <p className="mt-1 text-xs text-[var(--color-texto-mute)]">
-            Usa "Insertar variable" (o escribe {"{{clave}}"} directo) para que el agente LEA un dato que el contacto ya tenga -- ej. el
-            turno cargado por la campaña. Se sustituye por el valor real antes de que empiece la llamada.
+            Usa "Insertar variable" (o escribe {"{{clave}}"} directo) para cada dato que el agente deba manejar -- si el contacto ya lo
+            tiene (ej. el turno cargado por la campaña) se lee en voz antes de la llamada, y lo que el cliente confirme o corrija durante
+            la llamada se guarda solo, sin marcar nada aparte.
           </p>
         </label>
 
@@ -761,22 +760,14 @@ function FormularioAgenteVoz({
                     </button>
                   </span>
                 ))}
-                {variablesACapturar.length > 0 && (
+                {variablesDetectadas.length > 0 && (
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2.5 py-1 text-xs text-[var(--color-texto)]">
                     <button
                       type="button"
                       onClick={() => variablesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
                       className="hover:underline"
                     >
-                      Extraer variable dinámica ({variablesACapturar.length})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setVariablesACapturar([])}
-                      title="Quitar todas las variables a capturar"
-                      className="text-[var(--color-texto-mute)] hover:text-red-500"
-                    >
-                      ×
+                      Extraer variable dinámica ({variablesDetectadas.length})
                     </button>
                   </span>
                 )}
@@ -796,11 +787,7 @@ function FormularioAgenteVoz({
                       <button
                         key={op.type}
                         type="button"
-                        disabled={
-                          !op.disponible ||
-                          funciones.some((f) => f.type === op.type) ||
-                          (op.type === "extract_dynamic_variable" && variablesACapturar.length > 0)
-                        }
+                        disabled={!op.disponible || (op.type !== "extract_dynamic_variable" && funciones.some((f) => f.type === op.type))}
                         onClick={() => elegirOpcionFuncion(op.type)}
                         className="block w-full rounded px-2 py-1.5 text-left text-xs text-[var(--color-texto)] hover:bg-[var(--color-bg-elevada)] disabled:opacity-40"
                       >
@@ -814,51 +801,31 @@ function FormularioAgenteVoz({
             </div>
 
             <div ref={variablesSectionRef}>
-              <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Variables a capturar en esta llamada</span>
+              <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Variables que el agente lee y captura</span>
               <p className="mb-2 text-xs text-[var(--color-texto-mute)]">
-                Marca los datos que el agente debe preguntar y guardar durante la llamada (ej. si el cliente confirmó una visita). Para
-                que el agente LEA un dato que el contacto ya tenga (ej. el turno cargado por la campaña), usa "Insertar variable" (o
-                escribe {"{{clave}}"} directo) en el Copyscript -- no hace falta marcarlo aquí.
+                Se detectan solas: cualquier {"{{clave}}"} que escribas en el Copyscript u Objetivo (usa "Insertar variable" arriba) se
+                sustituye por el dato real si el contacto ya lo tiene, y además queda cableada de forma nativa en Retell para guardar lo
+                que el cliente confirme durante la llamada -- no hay nada que marcar aparte.
               </p>
-              {camposDisponibles.filter((c) => c.clave_variable && c.tipo !== "checkbox").length === 0 ? (
+              {variablesDetectadas.length === 0 ? (
                 <p className="text-xs text-[var(--color-texto-mute)]">
-                  Todavía no hay Variables con clave configuradas en esta cuenta.
+                  Todavía no hay ninguna {"{{clave}}"} en el Copyscript/Objetivo que coincida con una Variable de la cuenta.
                 </p>
               ) : (
-                <div className="space-y-1.5">
-                  {camposDisponibles
-                    .filter((c) => c.clave_variable && c.tipo !== "checkbox")
-                    .map((c) => {
-                      const marcada = variablesACapturar.includes(c.clave_variable as string);
-                      const tambienEsLectura = marcada && clavesEnCopyscript.includes(c.clave_variable as string);
-                      return (
-                        <div key={c.id}>
-                          <label className="flex items-center gap-2 text-sm text-[var(--color-texto)]">
-                            <input
-                              type="checkbox"
-                              checked={marcada}
-                              onChange={(e) =>
-                                setVariablesACapturar((actuales) =>
-                                  e.target.checked
-                                    ? [...actuales, c.clave_variable as string]
-                                    : actuales.filter((v) => v !== c.clave_variable),
-                                )
-                              }
-                            />
-                            {c.nombre} <span className="text-xs text-[var(--color-texto-mute)]">({c.clave_variable})</span>
-                          </label>
-                          {tambienEsLectura && (
-                            <p className="ml-6 mt-0.5 text-xs text-[var(--color-texto-mute)]">
-                              💡 No hace falta escribir {`{{${c.clave_variable}}}`} en el Copyscript para esta variable -- el sistema ya
-                              sabe guardar aquí lo que responda el cliente. Basta con redactar la pregunta en español (ej. "pregunta si
-                              confirma la visita"). Si esta variable normalmente viene ya con un dato del CSV (de lectura), en cambio sí
-                              desmárcala arriba.
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })}
+                <div className="space-y-1">
+                  {variablesDetectadas.map((c) => (
+                    <p key={c.id} className="text-sm text-[var(--color-texto)]">
+                      {c.nombre} <span className="text-xs text-[var(--color-texto-mute)]">({c.clave_variable})</span>
+                    </p>
+                  ))}
                 </div>
+              )}
+              {clavesNoDefinidas.length > 0 && (
+                <p className="mt-2 text-xs text-amber-500">
+                  ⚠️ {clavesNoDefinidas.length === 1 ? "Esta clave no coincide" : "Estas claves no coinciden"} con ninguna Variable de la
+                  cuenta, así que no se va a sustituir ni a capturar: {clavesNoDefinidas.map((c) => `{{${c}}}`).join(", ")}. Revisa que
+                  esté bien escrita o créala en Variables.
+                </p>
               )}
             </div>
 
