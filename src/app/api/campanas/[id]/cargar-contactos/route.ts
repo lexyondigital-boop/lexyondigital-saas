@@ -140,6 +140,25 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     .select("*")
     .in("id", [...idsPorTelefono.values()]);
 
+  // Se incluyen los valores de variables personalizadas (ej. fecha_visita,
+  // turno_visita) para que la pantalla de revisión pueda mostrar TODAS las
+  // columnas del layout cargado, no solo las fijas -- si no, el admin ve una
+  // tabla incompleta aunque el dato sí se haya guardado bien.
+  const { data: valoresFinales } = await admin
+    .from("valores_campos_personalizados")
+    .select("contacto_id, campo_id, valor")
+    .in("contacto_id", [...idsPorTelefono.values()]);
+
+  const valoresPorContacto: Record<string, Record<string, string>> = {};
+  for (const v of valoresFinales ?? []) {
+    if (!valoresPorContacto[v.contacto_id]) valoresPorContacto[v.contacto_id] = {};
+    valoresPorContacto[v.contacto_id][v.campo_id] = v.valor;
+  }
+  const contactosConValores = (contactosFinales ?? []).map((c) => ({
+    ...c,
+    valores_personalizados: valoresPorContacto[c.id] ?? {},
+  }));
+
   await registrarActividad({
     cuentaId,
     perfilId: auth.user.id,
@@ -155,7 +174,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     actualizados: actualizaciones.length,
     omitidos,
     columnas_ignoradas: ignorados,
-    contactos: contactosFinales ?? [],
+    contactos: contactosConValores,
     // Contactos que este lote creó de cero (no existían antes) -- son los
     // únicos que "Cancelar" en la revisión puede borrar. Uno que ya existía
     // y solo se actualizó nunca debe desaparecer por cancelar una carga.

@@ -25,7 +25,15 @@ type Campana = {
 
 type EstadisticasCampana = { enviado: number; entregado: number; leido: number; fallido: number };
 type PerfilLite = { id: string; nombre: string | null };
-type ContactoImportado = { id: string; telefono: string; nombre_completo: string | null; correo_electronico: string | null; etiquetas: string[]; canal_origen: string | null };
+type ContactoImportado = {
+  id: string;
+  telefono: string;
+  nombre_completo: string | null;
+  correo_electronico: string | null;
+  etiquetas: string[];
+  canal_origen: string | null;
+  valores_personalizados?: Record<string, string>;
+};
 type PlantillaEmail = { id: string; nombre: string; tipo: "confirmacion_cita" | "campana"; activa: boolean };
 
 const TONO_STATUS = { borrador: "mute", enviando: "en-vivo", pausada: "aviso", enviada: "marca" } as const;
@@ -863,7 +871,12 @@ function CargarContactosModal({
             )}
           </div>
         ) : (
-          <RevisionContactosImportados resultado={resultado} campanaId={campana.id} onListo={onListo} />
+          <RevisionContactosImportados
+            resultado={resultado}
+            campanaId={campana.id}
+            camposPersonalizados={camposOpcionales.filter((c) => c.clave.startsWith("campo:"))}
+            onListo={onListo}
+          />
         )}
       </div>
     </div>
@@ -881,6 +894,7 @@ const COLUMNAS_REVISION = [
 function RevisionContactosImportados({
   resultado,
   campanaId,
+  camposPersonalizados,
   onListo,
 }: {
   resultado: {
@@ -892,9 +906,18 @@ function RevisionContactosImportados({
     ids_nuevos: string[];
   };
   campanaId: string;
+  camposPersonalizados: CampoCsvOpcional[];
   onListo: () => void;
 }) {
-  const [columnasVisibles, setColumnasVisibles] = useState<Set<string>>(new Set(COLUMNAS_REVISION.map((c) => c.id)));
+  // Las columnas de la revisión incluyen las fijas de siempre MÁS cualquier
+  // variable personalizada del layout cargado (ej. fecha_visita,
+  // turno_visita) -- si no, la tabla de confirmación se ve incompleta aunque
+  // el dato sí se haya guardado bien en el contacto.
+  const columnasCompletas = useMemo(
+    () => [...COLUMNAS_REVISION, ...camposPersonalizados.map((c) => ({ id: c.clave, etiqueta: c.etiqueta }))],
+    [camposPersonalizados],
+  );
+  const [columnasVisibles, setColumnasVisibles] = useState<Set<string>>(new Set(columnasCompletas.map((c) => c.id)));
   const [confirmandoCancelacion, setConfirmandoCancelacion] = useState(false);
   const [cancelando, setCancelando] = useState(false);
   const [errorCancelar, setErrorCancelar] = useState<string | null>(null);
@@ -950,7 +973,7 @@ function RevisionContactosImportados({
       )}
 
       <div className="flex flex-wrap gap-3 text-xs">
-        {COLUMNAS_REVISION.map((c) => (
+        {columnasCompletas.map((c) => (
           <label key={c.id} className="flex items-center gap-1.5 text-[var(--color-texto-mute)]">
             <input type="checkbox" checked={columnasVisibles.has(c.id)} onChange={() => alternar(c.id)} />
             {c.etiqueta}
@@ -962,7 +985,7 @@ function RevisionContactosImportados({
         <table className="w-full text-left text-xs">
           <thead>
             <tr className="border-b border-[var(--color-borde)] text-[var(--color-texto-mute)]">
-              {COLUMNAS_REVISION.filter((c) => columnasVisibles.has(c.id)).map((c) => (
+              {columnasCompletas.filter((c) => columnasVisibles.has(c.id)).map((c) => (
                 <th key={c.id} className="px-3 py-2 font-medium">
                   {c.etiqueta}
                 </th>
@@ -977,6 +1000,16 @@ function RevisionContactosImportados({
                 {columnasVisibles.has("correo_electronico") && <td className="px-3 py-2">{c.correo_electronico ?? "—"}</td>}
                 {columnasVisibles.has("etiquetas") && <td className="px-3 py-2">{c.etiquetas.join(", ") || "—"}</td>}
                 {columnasVisibles.has("canal_origen") && <td className="px-3 py-2">{c.canal_origen ?? "—"}</td>}
+                {camposPersonalizados
+                  .filter((cp) => columnasVisibles.has(cp.clave))
+                  .map((cp) => {
+                    const campoId = cp.clave.slice("campo:".length);
+                    return (
+                      <td key={cp.clave} className="px-3 py-2">
+                        {c.valores_personalizados?.[campoId] ?? "—"}
+                      </td>
+                    );
+                  })}
               </tr>
             ))}
           </tbody>
