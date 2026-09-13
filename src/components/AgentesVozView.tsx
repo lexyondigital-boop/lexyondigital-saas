@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/Badge";
 import { GeneradorCopyscriptModal } from "@/components/GeneradorCopyscriptModal";
 import { ReporteLlamadasRetell } from "@/components/ReporteLlamadasRetell";
+import { detectarClavesEnPrompt } from "@/lib/agente-prompt-variables";
 import {
   AGENTES_TIPO_VOZ,
   CATEGORIAS_VOZ,
@@ -102,7 +103,11 @@ const OPCIONES_FUNCION: { type: string; etiqueta: string; disponible: boolean }[
   { type: "transfer_call", etiqueta: "Transferencia de llamadas", disponible: true },
   { type: "press_digit", etiqueta: "Pulsar el dígito (IVR)", disponible: false },
   { type: "send_sms", etiqueta: "SMS durante la llamada", disponible: false },
-  { type: "extract_dynamic_variable", etiqueta: "Extraer variable dinámica", disponible: false },
+  // Ya está sincronizada con Retell (ver sincronizarPlantillaVozConRetell),
+  // solo que no se agrega aquí como una función más -- se arma sola a partir
+  // de "Variables a capturar en esta llamada" para no tener dos catálogos de
+  // variables desincronizados. Clic acá solo lleva a esa sección.
+  { type: "extract_dynamic_variable", etiqueta: "Extraer variable dinámica", disponible: true },
   { type: "custom", etiqueta: "Función personalizada", disponible: false },
 ];
 
@@ -390,6 +395,9 @@ function FormularioAgenteVoz({
   const [variablesACapturar, setVariablesACapturar] = useState<string[]>(plantilla?.retell_variables_a_capturar ?? []);
   const [camposDisponibles, setCamposDisponibles] = useState<CampoPersonalizadoLite[]>([]);
   const [mostrarConfigLlamadas, setMostrarConfigLlamadas] = useState(false);
+  const [mostrarInsertarVariable, setMostrarInsertarVariable] = useState(false);
+  const copyscriptRef = useRef<HTMLTextAreaElement>(null);
+  const variablesSectionRef = useRef<HTMLDivElement>(null);
   const [funciones, setFunciones] = useState<FuncionRetell[]>(
     plantilla?.retell_funciones ?? [{ type: "end_call", name: "fin_de_llamada", description: "Fin de la llamada" }],
   );
@@ -431,10 +439,43 @@ function FormularioAgenteVoz({
       .then(({ data }) => setCamposDisponibles((data ?? []) as CampoPersonalizadoLite[]));
   }, [cuentaId]);
 
+  // {{clave}} que ya aparecen escritas en el Copyscript -- para avisar si
+  // alguna coincide con una marcada en "Variables a capturar" (esa es de
+  // lectura, no debería pedirse/guardarse también durante la llamada).
+  const clavesEnCopyscript = useMemo(() => detectarClavesEnPrompt(copyscript), [copyscript]);
+
+  function insertarVariable(clave: string) {
+    const textoInsertar = `{{${clave}}}`;
+    const textarea = copyscriptRef.current;
+    if (!textarea) {
+      setCopyscript((c) => c + textoInsertar);
+      setMostrarInsertarVariable(false);
+      return;
+    }
+    const inicio = textarea.selectionStart ?? copyscript.length;
+    const fin = textarea.selectionEnd ?? copyscript.length;
+    const nuevoCopyscript = copyscript.slice(0, inicio) + textoInsertar + copyscript.slice(fin);
+    setCopyscript(nuevoCopyscript);
+    setMostrarInsertarVariable(false);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const cursor = inicio + textoInsertar.length;
+      textarea.setSelectionRange(cursor, cursor);
+    });
+  }
+
   function elegirOpcionFuncion(type: string) {
     if (type === "transfer_call") {
       setTransferModal("nueva");
       setMostrarAgregarFuncion(false);
+      return;
+    }
+    if (type === "extract_dynamic_variable") {
+      // No se agrega como función genérica -- se arma sola desde "Variables
+      // a capturar en esta llamada" para no tener dos catálogos de variables
+      // desincronizados entre sí. Nada más se lleva ahí.
+      setMostrarAgregarFuncion(false);
+      variablesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
     setFunciones((f) => [...f, { type, name: "fin_de_llamada", description: "Fin de la llamada" }]);
@@ -565,11 +606,48 @@ function FormularioAgenteVoz({
         <label className="block">
           <div className="mb-1 flex items-center justify-between">
             <span className="text-xs font-medium text-[var(--color-texto-mute)]">Copyscript</span>
-            <button type="button" onClick={() => setMostrarGeneradorCopyscript(true)} className="text-xs font-medium text-[var(--color-marca)] hover:underline">
-              ✨ Generar con IA
-            </button>
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setMostrarInsertarVariable((v) => !v)}
+                  className="text-xs font-medium text-[var(--color-marca)] hover:underline"
+                >
+                  {"{ }"} Insertar variable
+                </button>
+                {mostrarInsertarVariable && (
+                  <div className="absolute right-0 z-10 mt-1 w-64 rounded-lg border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-1 shadow-lg">
+                    {camposDisponibles.filter((c) => c.clave_variable).length === 0 ? (
+                      <p className="px-2 py-1.5 text-xs text-[var(--color-texto-mute)]">
+                        Todavía no hay Variables con clave configuradas en esta cuenta.
+                      </p>
+                    ) : (
+                      camposDisponibles
+                        .filter((c) => c.clave_variable)
+                        .map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => insertarVariable(c.clave_variable as string)}
+                            className="block w-full rounded px-2 py-1.5 text-left text-xs text-[var(--color-texto)] hover:bg-[var(--color-bg-elevada)]"
+                          >
+                            {c.nombre} <span className="text-[var(--color-texto-mute)]">{`{{${c.clave_variable}}}`}</span>
+                          </button>
+                        ))
+                    )}
+                  </div>
+                )}
+              </div>
+              <button type="button" onClick={() => setMostrarGeneradorCopyscript(true)} className="text-xs font-medium text-[var(--color-marca)] hover:underline">
+                ✨ Generar con IA
+              </button>
+            </div>
           </div>
-          <textarea value={copyscript} onChange={(e) => setCopyscript(e.target.value)} rows={8} className={INPUT_LOCAL} />
+          <textarea ref={copyscriptRef} value={copyscript} onChange={(e) => setCopyscript(e.target.value)} rows={8} className={INPUT_LOCAL} />
+          <p className="mt-1 text-xs text-[var(--color-texto-mute)]">
+            Usa "Insertar variable" (o escribe {"{{clave}}"} directo) para que el agente LEA un dato que el contacto ya tenga -- ej. el
+            turno cargado por la campaña. Se sustituye por el valor real antes de que empiece la llamada.
+          </p>
         </label>
 
         <label className="block">
@@ -667,6 +745,25 @@ function FormularioAgenteVoz({
                     </button>
                   </span>
                 ))}
+                {variablesACapturar.length > 0 && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-2.5 py-1 text-xs text-[var(--color-texto)]">
+                    <button
+                      type="button"
+                      onClick={() => variablesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                      className="hover:underline"
+                    >
+                      Extraer variable dinámica ({variablesACapturar.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVariablesACapturar([])}
+                      title="Quitar todas las variables a capturar"
+                      className="text-[var(--color-texto-mute)] hover:text-red-500"
+                    >
+                      ×
+                    </button>
+                  </span>
+                )}
               </div>
 
               <div className="relative mt-2 inline-block">
@@ -683,7 +780,11 @@ function FormularioAgenteVoz({
                       <button
                         key={op.type}
                         type="button"
-                        disabled={!op.disponible || funciones.some((f) => f.type === op.type)}
+                        disabled={
+                          !op.disponible ||
+                          funciones.some((f) => f.type === op.type) ||
+                          (op.type === "extract_dynamic_variable" && variablesACapturar.length > 0)
+                        }
                         onClick={() => elegirOpcionFuncion(op.type)}
                         className="block w-full rounded px-2 py-1.5 text-left text-xs text-[var(--color-texto)] hover:bg-[var(--color-bg-elevada)] disabled:opacity-40"
                       >
@@ -696,12 +797,12 @@ function FormularioAgenteVoz({
               </div>
             </div>
 
-            <div>
+            <div ref={variablesSectionRef}>
               <span className="mb-1 block text-xs font-medium text-[var(--color-texto-mute)]">Variables a capturar en esta llamada</span>
               <p className="mb-2 text-xs text-[var(--color-texto-mute)]">
                 Marca los datos que el agente debe preguntar y guardar durante la llamada (ej. si el cliente confirmó una visita). Para
-                que el agente LEA un dato que el contacto ya tenga (ej. el turno cargado por la campaña), escribe {"{{clave}}"}{" "}
-                directamente en el Copyscript -- no hace falta marcarlo aquí.
+                que el agente LEA un dato que el contacto ya tenga (ej. el turno cargado por la campaña), usa "Insertar variable" (o
+                escribe {"{{clave}}"} directo) en el Copyscript -- no hace falta marcarlo aquí.
               </p>
               {camposDisponibles.filter((c) => c.clave_variable && c.tipo !== "checkbox").length === 0 ? (
                 <p className="text-xs text-[var(--color-texto-mute)]">
@@ -711,22 +812,34 @@ function FormularioAgenteVoz({
                 <div className="space-y-1.5">
                   {camposDisponibles
                     .filter((c) => c.clave_variable && c.tipo !== "checkbox")
-                    .map((c) => (
-                      <label key={c.id} className="flex items-center gap-2 text-sm text-[var(--color-texto)]">
-                        <input
-                          type="checkbox"
-                          checked={variablesACapturar.includes(c.clave_variable as string)}
-                          onChange={(e) =>
-                            setVariablesACapturar((actuales) =>
-                              e.target.checked
-                                ? [...actuales, c.clave_variable as string]
-                                : actuales.filter((v) => v !== c.clave_variable),
-                            )
-                          }
-                        />
-                        {c.nombre} <span className="text-xs text-[var(--color-texto-mute)]">({c.clave_variable})</span>
-                      </label>
-                    ))}
+                    .map((c) => {
+                      const marcada = variablesACapturar.includes(c.clave_variable as string);
+                      const tambienEsLectura = marcada && clavesEnCopyscript.includes(c.clave_variable as string);
+                      return (
+                        <div key={c.id}>
+                          <label className="flex items-center gap-2 text-sm text-[var(--color-texto)]">
+                            <input
+                              type="checkbox"
+                              checked={marcada}
+                              onChange={(e) =>
+                                setVariablesACapturar((actuales) =>
+                                  e.target.checked
+                                    ? [...actuales, c.clave_variable as string]
+                                    : actuales.filter((v) => v !== c.clave_variable),
+                                )
+                              }
+                            />
+                            {c.nombre} <span className="text-xs text-[var(--color-texto-mute)]">({c.clave_variable})</span>
+                          </label>
+                          {tambienEsLectura && (
+                            <p className="ml-6 mt-0.5 text-xs text-amber-500">
+                              ⚠️ También aparece como {`{{${c.clave_variable}}}`} en el Copyscript -- si es un dato que ya traes por CSV
+                              (de lectura), desmárcala aquí para que no se pida/pise durante la llamada.
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
                 </div>
               )}
             </div>
