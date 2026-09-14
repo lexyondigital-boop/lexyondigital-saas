@@ -157,29 +157,3 @@ body {
 ::selection {
   background: color-mix(in srgb, var(--color-marca) 35%, transparent);
 }
-
-/* En macOS y Windows la barra horizontal queda oculta hasta que se hace
-   scroll, así que una tabla más ancha que su contenedor parece completa y no
-   se descubren las columnas de la derecha. Esta clase la deja siempre a la
-   vista. */
-.scroll-visible {
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-borde-alto) transparent;
-}
-
-.scroll-visible::-webkit-scrollbar {
-  height: 10px;
-}
-
-.scroll-visible::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.scroll-visible::-webkit-scrollbar-thumb {
-  background: var(--color-borde-alto);
-  border-radius: 999px;
-}
-
-.scroll-visible::-webkit-scrollbar-thumb:hover {
-  background: var(--color-marca);
-}
