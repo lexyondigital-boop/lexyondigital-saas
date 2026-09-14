@@ -25,6 +25,7 @@ type Contacto = {
 };
 
 type ColumnaConfig = { id: string; visible: boolean };
+type OrdenConfig = { columnaId: string; dir: "asc" | "desc" } | null;
 
 type EtapaLite = { id: string; nombre: string; color: string; orden: number };
 type DealLite = { id: string; contacto_id: string; etapa_id: string | null; estado: string; created_at: string };
@@ -65,6 +66,20 @@ export const TONO_CAMPANA_STATUS: Record<string, "aviso" | "en-vivo" | "marca" |
 
 function claveColumnas(cuentaId: string) {
   return `lexyon-columnas-contactos-${cuentaId}`;
+}
+
+function claveOrden(cuentaId: string) {
+  return `lexyon-orden-contactos-${cuentaId}`;
+}
+
+function leerOrdenGuardado(cuentaId: string): OrdenConfig {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(claveOrden(cuentaId));
+    return raw ? (JSON.parse(raw) as OrdenConfig) : null;
+  } catch {
+    return null;
+  }
 }
 
 function fusionarConfigColumnas(guardada: ColumnaConfig[], disponibles: { id: string }[]): ColumnaConfig[] {
@@ -113,6 +128,7 @@ export function ContactosView({
   const [conversacionPorContacto, setConversacionPorContacto] = useState<Record<string, string>>({});
   const [abriendoConversacion, setAbriendoConversacion] = useState<string | null>(null);
   const [configColumnas, setConfigColumnas] = useState<ColumnaConfig[]>([]);
+  const [orden, setOrden] = useState<OrdenConfig>(() => leerOrdenGuardado(cuentaId));
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState("");
   const [filtroEtapa, setFiltroEtapa] = useState("");
@@ -224,6 +240,19 @@ export function ContactosView({
     localStorage.setItem(claveColumnas(cuentaId), JSON.stringify(configColumnas));
   }, [configColumnas, cuentaId]);
 
+  useEffect(() => {
+    if (orden) localStorage.setItem(claveOrden(cuentaId), JSON.stringify(orden));
+    else localStorage.removeItem(claveOrden(cuentaId));
+  }, [orden, cuentaId]);
+
+  function alternarOrden(columnaId: string) {
+    setOrden((prev) => {
+      if (!prev || prev.columnaId !== columnaId) return { columnaId, dir: "asc" };
+      if (prev.dir === "asc") return { columnaId, dir: "desc" };
+      return null;
+    });
+  }
+
   function alternarVisible(id: string) {
     setConfigColumnas((prev) => prev.map((c) => (c.id === id ? { ...c, visible: !c.visible } : c)));
   }
@@ -279,15 +308,38 @@ export function ContactosView({
     });
   }, [contactos, busqueda, filtroEtapa, filtroEtiqueta, filtroOrigen, filtroCampanaStatus, filtroAsignado, dealsPorContacto]);
 
-  // Cualquier cambio en la búsqueda/filtros vuelve a la primera página --
+  // El orden se aplica sobre el total filtrado y no sobre la página visible:
+  // ordenar después de paginar solo acomodaría los 10 de la pantalla.
+  const ordenados = useMemo(() => {
+    if (!orden) return filtrados;
+    const direccion = orden.dir === "asc" ? 1 : -1;
+    return [...filtrados].sort((a, b) => {
+      const va = valorOrdenColumna(
+        orden.columnaId, a, etapaDeContacto(a.id), perfiles, camposPersonalizados, valoresPorContacto[a.id] ?? {}, etapasPorId,
+      );
+      const vb = valorOrdenColumna(
+        orden.columnaId, b, etapaDeContacto(b.id), perfiles, camposPersonalizados, valoresPorContacto[b.id] ?? {}, etapasPorId,
+      );
+      // Los vacíos quedan al final en ambas direcciones: invertirlos solo
+      // llenaría la primera página de filas sin dato.
+      if (va === null && vb === null) return 0;
+      if (va === null) return 1;
+      if (vb === null) return -1;
+      if (typeof va === "number" && typeof vb === "number") return (va - vb) * direccion;
+      return String(va).localeCompare(String(vb), "es") * direccion;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtrados, orden, perfiles, camposPersonalizados, valoresPorContacto, etapasPorId, dealsPorContacto]);
+
+  // Cualquier cambio en la búsqueda/filtros/orden vuelve a la primera página --
   // si no, se podría quedar viendo una página vacía de un filtro anterior.
   useEffect(() => {
     setPagina(1);
-  }, [busqueda, filtroEtapa, filtroEtiqueta, filtroOrigen, filtroCampanaStatus, filtroAsignado]);
+  }, [busqueda, filtroEtapa, filtroEtiqueta, filtroOrigen, filtroCampanaStatus, filtroAsignado, orden]);
 
-  const totalPaginas = Math.max(1, Math.ceil(filtrados.length / CONTACTOS_POR_PAGINA));
+  const totalPaginas = Math.max(1, Math.ceil(ordenados.length / CONTACTOS_POR_PAGINA));
   const paginaActual = Math.min(pagina, totalPaginas);
-  const contactosPagina = filtrados.slice((paginaActual - 1) * CONTACTOS_POR_PAGINA, paginaActual * CONTACTOS_POR_PAGINA);
+  const contactosPagina = ordenados.slice((paginaActual - 1) * CONTACTOS_POR_PAGINA, paginaActual * CONTACTOS_POR_PAGINA);
 
   async function eliminar(id: string) {
     if (!confirm("¿Eliminar este contacto? También se borran sus conversaciones y mensajes.")) return;
@@ -342,7 +394,7 @@ export function ContactosView({
     fetch("/api/contactos/exportar", { method: "POST" }).catch(() => {});
 
     const encabezados = columnasVisibles.map((c) => etiquetaColumna(c.id));
-    const filas = filtrados.map((c) =>
+    const filas = ordenados.map((c) =>
       columnasVisibles.map((col) =>
         valorTextoColumna(col.id, c, etapaDeContacto(c.id), perfiles, camposPersonalizados, valoresPorContacto[c.id] ?? {}),
       ),
@@ -534,7 +586,7 @@ export function ContactosView({
         />
       )}
 
-      <div className="mt-6 overflow-x-auto rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)]">
+      <div className="scroll-visible mt-6 overflow-x-auto rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)]">
         {cargando ? (
           <p className="p-6 text-sm text-[var(--color-texto-mute)]">Cargando…</p>
         ) : filtrados.length === 0 ? (
@@ -543,11 +595,28 @@ export function ContactosView({
           <table className="w-full min-w-[980px] text-left text-sm">
             <thead>
               <tr className="border-b border-[var(--color-borde)] text-xs uppercase tracking-wide text-[var(--color-texto-mute)]">
-                {columnasVisibles.map((col) => (
-                  <th key={col.id} className="px-5 py-3 font-medium">
-                    {etiquetaColumna(col.id)}
-                  </th>
-                ))}
+                {columnasVisibles.map((col) => {
+                  const activo = orden && orden.columnaId === col.id ? orden : null;
+                  return (
+                    <th
+                      key={col.id}
+                      className="px-5 py-3 font-medium"
+                      aria-sort={activo ? (activo.dir === "asc" ? "ascending" : "descending") : "none"}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => alternarOrden(col.id)}
+                        title={`Ordenar por ${etiquetaColumna(col.id)}`}
+                        className="inline-flex items-center gap-1.5 uppercase tracking-wide hover:text-[var(--color-texto)]"
+                      >
+                        {etiquetaColumna(col.id)}
+                        <span aria-hidden className={activo ? "text-[var(--color-marca)]" : "opacity-40"}>
+                          {activo ? (activo.dir === "asc" ? "▲" : "▼") : "⇅"}
+                        </span>
+                      </button>
+                    </th>
+                  );
+                })}
                 <th className="px-5 py-3" />
               </tr>
             </thead>
@@ -857,6 +926,49 @@ function valorTextoColumna(
     default:
       return "";
   }
+}
+
+// La mayoría de las columnas se ordenan por el mismo texto que se ve, pero tres
+// casos necesitan un valor propio: las fechas (como texto, "2 sep" iría antes
+// que "20 ago"), los números (como texto, "10" iría antes que "9") y la etapa,
+// que importa en el orden del embudo y no alfabético. Devuelve null cuando no
+// hay valor, para poder mandar los vacíos al final en ambas direcciones.
+function valorOrdenColumna(
+  columnaId: string,
+  contacto: Contacto,
+  etapa: EtapaDeContacto,
+  perfiles: PerfilLite[],
+  camposPersonalizados: CampoPersonalizado[],
+  valoresPersonalizados: Record<string, string>,
+  etapasPorId: Map<string, EtapaLite>,
+): string | number | null {
+  if (columnaId.startsWith("campo:")) {
+    const campoId = columnaId.slice("campo:".length);
+    const campo = camposPersonalizados.find((c) => c.id === campoId);
+    const valor = valoresPersonalizados[campoId];
+    if (!campo || !valor) return null;
+    if (campo.tipo === "number") {
+      const numero = parseFloat(valor);
+      return Number.isNaN(numero) ? valor.toLowerCase() : numero;
+    }
+    if (campo.tipo === "date") {
+      const tiempo = new Date(valor).getTime();
+      return Number.isNaN(tiempo) ? valor.toLowerCase() : tiempo;
+    }
+    return valor.toLowerCase();
+  }
+
+  if (columnaId === "created_at") return new Date(contacto.created_at).getTime();
+
+  if (columnaId === "etapa_pipeline") {
+    if (!etapa) return null;
+    // Un deal sin etapa asignada va después de todas las etapas reales.
+    if (!etapa.etapa_id) return Number.MAX_SAFE_INTEGER;
+    return etapasPorId.get(etapa.etapa_id)?.orden ?? Number.MAX_SAFE_INTEGER;
+  }
+
+  const texto = valorTextoColumna(columnaId, contacto, etapa, perfiles, camposPersonalizados, valoresPersonalizados);
+  return texto ? texto.toLowerCase() : null;
 }
 
 function CeldaContacto({
