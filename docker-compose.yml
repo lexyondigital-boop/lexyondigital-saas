@@ -5,16 +5,32 @@ services:
       args:
         - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
         - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        - NEXT_PUBLIC_UNLAYER_PROJECT_ID=${NEXT_PUBLIC_UNLAYER_PROJECT_ID}
     restart: always
     networks:
       - n8n_default
     labels:
       - traefik.enable=true
       - traefik.docker.network=n8n_default
+      # Dominio canónico. Tiene que coincidir con el Site URL de Supabase Auth:
+      # los correos de recuperación e invitación se validan contra esa lista, y
+      # si el host no coincide Supabase reescribe el enlace al suyo.
       - traefik.http.routers.lexyondigital-saas.rule=Host(`${SUBDOMAIN}.${DOMAIN_NAME}`)
       - traefik.http.routers.lexyondigital-saas.tls=true
       - traefik.http.routers.lexyondigital-saas.entrypoints=web,websecure
       - traefik.http.routers.lexyondigital-saas.tls.certresolver=mytlschallenge
+      # El hostname del VPS quedó de cuando se desplegaba a mano a dos dominios
+      # a la vez. Se conserva solo para redirigir: sin este router devuelve el
+      # 404 de Traefik, que es mudo -- así estuvo dos días el cron de campañas,
+      # llamando a esta dirección sin que nadie se enterara.
+      - traefik.http.routers.lexyondigital-saas-legado.rule=Host(`saas.srv976413.hstgr.cloud`)
+      - traefik.http.routers.lexyondigital-saas-legado.tls=true
+      - traefik.http.routers.lexyondigital-saas-legado.entrypoints=web,websecure
+      - traefik.http.routers.lexyondigital-saas-legado.tls.certresolver=mytlschallenge
+      - traefik.http.routers.lexyondigital-saas-legado.middlewares=lexyondigital-saas-canonico
+      - traefik.http.middlewares.lexyondigital-saas-canonico.redirectregex.regex=^https?://[^/]+/(.*)
+      - traefik.http.middlewares.lexyondigital-saas-canonico.redirectregex.replacement=https://${SUBDOMAIN}.${DOMAIN_NAME}/$${1}
+      - traefik.http.middlewares.lexyondigital-saas-canonico.redirectregex.permanent=true
       - traefik.http.services.lexyondigital-saas.loadbalancer.server.port=3000
     environment:
       - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
