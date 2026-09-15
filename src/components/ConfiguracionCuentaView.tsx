@@ -101,6 +101,9 @@ function SeccionIntegraciones() {
     <div className="max-w-md flex-1 rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6">
       <h2 className="mb-3 text-sm font-semibold text-[var(--color-texto)]">Integraciones</h2>
       <SeccionRetell />
+      <div className="mt-6 border-t border-[var(--color-borde)] pt-6">
+        <SeccionGoogleDrive />
+      </div>
     </div>
   );
 }
@@ -363,6 +366,162 @@ function SelectorIntervaloLlamadas({ intervaloActual, onGuardado }: { intervaloA
         </select>
       </div>
       {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
+    </div>
+  );
+}
+
+type ProfesionalDrive = { id: string; nombre: string; email: string | null; google_oauth_email: string | null };
+type ConexionDrive = { id: string; google_email: string; profesional_id: string | null; created_at: string };
+
+function SeccionGoogleDrive() {
+  const [profesionales, setProfesionales] = useState<ProfesionalDrive[]>([]);
+  const [conexiones, setConexiones] = useState<ConexionDrive[]>([]);
+  const [configurado, setConfigurado] = useState(true);
+  const [cargando, setCargando] = useState(true);
+  const [conectando, setConectando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [mensaje, setMensaje] = useState<string | null>(null);
+
+  // `cargando` ya arranca en true, así que no hace falta volver a activarlo
+  // acá -- hacerlo sería un setState síncrono dentro del efecto. Al recargar
+  // tras desconectar, la lista se actualiza sin parpadear a "Cargando…".
+  async function cargar() {
+    const res = await fetch("/api/integraciones/google-drive");
+    const data = await res.json().catch(() => ({}));
+    setProfesionales(data.profesionales ?? []);
+    setConexiones(data.conexiones ?? []);
+    setConfigurado(data.configurado ?? false);
+    setCargando(false);
+
+    // El resultado del consentimiento de Google vuelve como query param. Se
+    // lee acá y no en el efecto porque ahí sería un setState síncrono.
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("sheets")) return;
+    if (params.get("sheets") === "conectado") setMensaje("Google Drive conectado correctamente.");
+    if (params.get("sheets") === "error") setError(params.get("mensaje") ?? "No se pudo conectar Google Drive");
+    window.history.replaceState({}, "", window.location.pathname);
+  }
+
+  useEffect(() => {
+    cargar();
+  }, []);
+
+  async function conectar(profesionalId: string | null) {
+    setConectando(true);
+    setError(null);
+    const res = await fetch("/api/auth/google-sheets/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profesional_id: profesionalId, volver_a: "/configuracion" }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setConectando(false);
+    if (!res.ok) {
+      setError(data.error ?? "No se pudo iniciar la conexión con Google");
+      return;
+    }
+    window.location.assign(data.url);
+  }
+
+  async function desconectar(id: string, correo: string) {
+    if (!confirm(`¿Desconectar ${correo}? Las hojas ya creadas se quedan en su Drive, pero la plataforma pierde el acceso.`)) return;
+    setError(null);
+    const res = await fetch("/api/auth/google-sheets/disconnect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "No se pudo desconectar");
+      return;
+    }
+    cargar();
+  }
+
+  const conectadosPorProfesional = new Set(conexiones.map((c) => c.profesional_id).filter(Boolean));
+  const sinConectar = profesionales.filter((p) => !conectadosPorProfesional.has(p.id));
+
+  function nombreDeProfesional(id: string | null) {
+    if (!id) return null;
+    return profesionales.find((p) => p.id === id)?.nombre ?? null;
+  }
+
+  return (
+    <div>
+      <h3 className="mb-1 text-sm font-medium text-[var(--color-texto)]">Google Sheets</h3>
+      <p className="mb-3 text-xs text-[var(--color-texto-mute)]">
+        Para importar y exportar contactos y destinatarios de campaña como hojas de cálculo. Las hojas se crean en el Drive de
+        la cuenta conectada.
+      </p>
+
+      {mensaje && <p className="mb-3 text-sm text-[var(--color-en-vivo)]">{mensaje}</p>}
+      {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
+
+      {!configurado ? (
+        <p className="text-sm text-[var(--color-texto-mute)]">
+          Google todavía no está configurado en la plataforma. Pide a Lexyondigital que lo habilite.
+        </p>
+      ) : cargando ? (
+        <p className="text-sm text-[var(--color-texto-mute)]">Cargando…</p>
+      ) : (
+        <div className="space-y-4">
+          {conexiones.length > 0 && (
+            <ul className="space-y-2">
+              {conexiones.map((c) => (
+                <li key={c.id} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="min-w-0">
+                    <span className="block truncate text-[var(--color-texto)]">{c.google_email}</span>
+                    {nombreDeProfesional(c.profesional_id) && (
+                      <span className="block text-xs text-[var(--color-texto-mute)]">{nombreDeProfesional(c.profesional_id)}</span>
+                    )}
+                  </span>
+                  <span className="flex shrink-0 items-center gap-3">
+                    <Badge tono="en-vivo">Conectado</Badge>
+                    <button
+                      onClick={() => desconectar(c.id, c.google_email)}
+                      className="text-sm font-medium text-red-500 hover:underline"
+                    >
+                      Desconectar
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {sinConectar.length > 0 && (
+            <div>
+              <p className="mb-2 text-xs text-[var(--color-texto-mute)]">
+                Profesionales de esta cuenta sin Drive conectado. Cada uno tiene que autorizar el acceso una vez, aunque ya
+                tenga Google Calendar: ese permiso es solo de agenda y no alcanza para Drive.
+              </p>
+              <ul className="space-y-1.5">
+                {sinConectar.map((p) => (
+                  <li key={p.id} className="flex items-center justify-between gap-3 text-sm">
+                    <span className="min-w-0 truncate text-[var(--color-texto)]">{p.nombre}</span>
+                    <button
+                      onClick={() => conectar(p.id)}
+                      disabled={conectando}
+                      className="shrink-0 text-sm font-medium text-[var(--color-marca)] hover:underline disabled:opacity-50"
+                    >
+                      Conectar
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <button
+            onClick={() => conectar(null)}
+            disabled={conectando}
+            className="text-sm font-medium text-[var(--color-marca)] hover:underline disabled:opacity-50"
+          >
+            {conectando ? "Abriendo Google…" : "Conectar otra cuenta de Google"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
