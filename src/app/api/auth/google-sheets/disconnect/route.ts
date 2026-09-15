@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermiso } from "@/lib/require-permiso";
 import { desconectarGoogleDrive } from "@/lib/google-sheets-oauth";
+import { registrarActividad } from "@/lib/auditoria";
 
 export async function POST(request: NextRequest) {
   const auth = await requirePermiso("manage_integraciones");
@@ -13,8 +14,16 @@ export async function POST(request: NextRequest) {
 
   // El filtro por cuenta va dentro de desconectarGoogleDrive: sin él, un id
   // de otra sub-cuenta desconectaría su Drive.
-  const borrada = await desconectarGoogleDrive({ cuentaId: auth.perfil.cuenta_id, id });
-  if (!borrada) return NextResponse.json({ error: "Esa conexión no existe" }, { status: 404 });
+  const correo = await desconectarGoogleDrive({ cuentaId: auth.perfil.cuenta_id, id });
+  if (!correo) return NextResponse.json({ error: "Esa conexión no existe" }, { status: 404 });
+
+  await registrarActividad({
+    cuentaId: auth.perfil.cuenta_id,
+    perfilId: auth.user.id,
+    accion: "disconnect_google_drive",
+    detalles: { correo },
+    request,
+  });
 
   return NextResponse.json({ ok: true });
 }

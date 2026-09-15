@@ -110,10 +110,12 @@ function valorPersonalizadoMostrable(campo: CampoPersonalizado, valor: string | 
 export function ContactosView({
   cuentaId,
   puedeExportar = false,
+  puedeExportarSheets = false,
   puedeVerConversaciones = false,
 }: {
   cuentaId: string;
   puedeExportar?: boolean;
+  puedeExportarSheets?: boolean;
   puedeVerConversaciones?: boolean;
 }) {
   const supabase = createClient();
@@ -202,8 +204,8 @@ export function ContactosView({
     setCargando(false);
 
     // Solo hace falta para ofrecer "Exportar a Sheets"; si el usuario no
-    // puede exportar, no se pregunta.
-    if (puedeExportar) {
+    // tiene ese permiso, no se pregunta.
+    if (puedeExportarSheets) {
       const resDrive = await fetch("/api/sheets/conexiones");
       const dataDrive = await resDrive.json().catch(() => ({}));
       setConexionesDrive(dataDrive.conexiones ?? []);
@@ -528,7 +530,7 @@ export function ContactosView({
               Descargar CSV
             </button>
           )}
-          {puedeExportar && conexionesDrive.length > 0 && (
+          {puedeExportarSheets && conexionesDrive.length > 0 && (
             <button
               onClick={() => setExportandoSheets(true)}
               className="shrink-0 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-4 py-2 text-sm font-medium text-[var(--color-texto)] transition-opacity hover:opacity-80"

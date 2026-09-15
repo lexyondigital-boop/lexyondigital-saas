@@ -12,7 +12,7 @@ const MAX_FILAS = 5000;
 // hoja sale con las mismas columnas visibles y en el mismo orden que el
 // usuario tiene en pantalla.
 export async function POST(request: NextRequest) {
-  const auth = await requirePermiso("export_contacts");
+  const auth = await requirePermiso("export_sheets");
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const { conexion_id, encabezados, filas } = await request.json().catch(() => ({}));

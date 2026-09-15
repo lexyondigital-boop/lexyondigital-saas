@@ -12,7 +12,7 @@ import type { CampoPersonalizado } from "@/lib/campos-personalizados";
 // alguien que ya había salido en una campaña anterior) antes de que la
 // carga real lo haga.
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requirePermiso("edit_campaigns");
+  const auth = await requirePermiso(["edit_campaigns", "import_contacts"]);
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const { id: campanaId } = await params;

@@ -14,7 +14,7 @@ import type { CampoPersonalizado } from "@/lib/campos-personalizados";
 // existía nunca se pisa en esos dos campos, solo se actualizan los datos que
 // sí vinieron en esa fila del CSV.
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requirePermiso("edit_campaigns");
+  const auth = await requirePermiso(["edit_campaigns", "import_contacts"]);
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const { id: campanaId } = await params;
@@ -188,7 +188,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 // acaba de subir. El cascade de campana_contactos / valores_campos_personalizados
 // se encarga de limpiar lo demás.
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requirePermiso("edit_campaigns");
+  const auth = await requirePermiso(["edit_campaigns", "import_contacts"]);
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const { id: campanaId } = await params;
