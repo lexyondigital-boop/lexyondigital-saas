@@ -145,16 +145,18 @@ export async function conectarGoogleDrive({
   return email;
 }
 
-export async function desconectarGoogleDrive({ cuentaId, id }: { cuentaId: string; id: string }) {
+// Devuelve el correo desconectado, o null si esa conexión no existe en la
+// cuenta -- quien llama lo usa para dejarlo en auditoría.
+export async function desconectarGoogleDrive({ cuentaId, id }: { cuentaId: string; id: string }): Promise<string | null> {
   const admin = createAdminClient();
   const { data } = await admin
     .from("cuentas_google_drive")
-    .select("refresh_token_cifrado")
+    .select("google_email, refresh_token_cifrado")
     .eq("id", id)
     .eq("cuenta_id", cuentaId)
     .maybeSingle();
 
-  if (!data) return false;
+  if (!data) return null;
 
   // Se revoca en Google antes de borrar. Si falla (token ya revocado desde
   // myaccount.google.com, red caída), igual se borra la fila: dejarla sería
@@ -170,7 +172,7 @@ export async function desconectarGoogleDrive({ cuentaId, id }: { cuentaId: strin
   }
 
   await admin.from("cuentas_google_drive").delete().eq("id", id).eq("cuenta_id", cuentaId);
-  return true;
+  return data.google_email;
 }
 
 // Devuelve un access token vigente, refrescándolo cada vez (no se persiste

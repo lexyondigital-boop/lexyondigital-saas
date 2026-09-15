@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { leerEstadoOAuthSheets, conectarGoogleDrive } from "@/lib/google-sheets-oauth";
 import { origenPublico } from "@/lib/origen-publico";
+import { registrarActividad } from "@/lib/auditoria";
 
 export async function GET(request: NextRequest) {
   const origen = origenPublico(request);
@@ -29,12 +30,19 @@ export async function GET(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   try {
-    await conectarGoogleDrive({
+    const correo = await conectarGoogleDrive({
       cuentaId: estado.cuentaId,
       profesionalId: estado.profesionalId,
       code,
       redirectUri,
       connectedBy: user?.id ?? null,
+    });
+    await registrarActividad({
+      cuentaId: estado.cuentaId,
+      perfilId: user?.id ?? null,
+      accion: "connect_google_drive",
+      detalles: { correo },
+      request,
     });
   } catch (e) {
     const mensaje = e instanceof Error ? e.message : "No se pudo conectar Google Drive";
