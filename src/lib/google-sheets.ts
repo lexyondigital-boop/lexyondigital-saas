@@ -56,6 +56,10 @@ export async function crearHojaConDatos({
 
   const spreadsheetId = creada.spreadsheetId as string;
   const url = creada.spreadsheetUrl as string;
+  // El id de la pestaña lo asigna Google y no es 0: el 0 solo le toca a la
+  // hoja que se crea sola cuando no se declara ninguna. Como acá sí se
+  // declara ("Contactos"), hay que leer el id que devolvió.
+  const sheetId = creada.sheets?.[0]?.properties?.sheetId as number | undefined;
 
   // RAW y no USER_ENTERED: con USER_ENTERED, Google interpreta los valores
   // como si alguien los tecleara, y un teléfono como "5219991234567" acaba
@@ -66,21 +70,35 @@ export async function crearHojaConDatos({
     { method: "PUT", body: JSON.stringify({ values: [encabezados, ...filas] }) },
   );
 
-  await googleFetch(`${SHEETS_API}/${spreadsheetId}:batchUpdate`, accessToken, {
-    method: "POST",
-    body: JSON.stringify({
-      requests: [
-        {
-          repeatCell: {
-            range: { sheetId: 0, startRowIndex: 0, endRowIndex: 1 },
-            cell: { userEnteredFormat: { textFormat: { bold: true } } },
-            fields: "userEnteredFormat.textFormat.bold",
-          },
-        },
-        { autoResizeDimensions: { dimensions: { sheetId: 0, dimension: "COLUMNS", startIndex: 0, endIndex: encabezados.length } } },
-      ],
-    }),
-  });
+  // El formato es cosmético y va después de escribir los datos. Si fallara,
+  // tirar la petición entera dejaría una hoja ya creada y llena en el Drive
+  // del usuario, invisible para la plataforma y sin forma de recuperarla
+  // desde la UI. Vale más entregar la hoja sin negritas que perderla.
+  if (sheetId !== undefined) {
+    try {
+      await googleFetch(`${SHEETS_API}/${spreadsheetId}:batchUpdate`, accessToken, {
+        method: "POST",
+        body: JSON.stringify({
+          requests: [
+            {
+              repeatCell: {
+                range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
+                cell: { userEnteredFormat: { textFormat: { bold: true } } },
+                fields: "userEnteredFormat.textFormat.bold",
+              },
+            },
+            {
+              autoResizeDimensions: {
+                dimensions: { sheetId, dimension: "COLUMNS", startIndex: 0, endIndex: encabezados.length },
+              },
+            },
+          ],
+        }),
+      });
+    } catch {
+      // La hoja queda usable; solo sin negritas ni columnas ajustadas.
+    }
+  }
 
   return { spreadsheetId, url };
 }
