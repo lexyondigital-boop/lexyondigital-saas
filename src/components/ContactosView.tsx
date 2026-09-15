@@ -26,6 +26,7 @@ type Contacto = {
 
 type ColumnaConfig = { id: string; visible: boolean };
 type OrdenConfig = { columnaId: string; dir: "asc" | "desc" } | null;
+type ConexionDrive = { id: string; google_email: string };
 
 type EtapaLite = { id: string; nombre: string; color: string; orden: number };
 type DealLite = { id: string; contacto_id: string; etapa_id: string | null; estado: string; created_at: string };
@@ -142,6 +143,8 @@ export function ContactosView({
   const [enviandoPlantillaA, setEnviandoPlantillaA] = useState<Contacto | null>(null);
   const [llamandoA, setLlamandoA] = useState<Contacto | null>(null);
   const [pagina, setPagina] = useState(1);
+  const [conexionesDrive, setConexionesDrive] = useState<ConexionDrive[]>([]);
+  const [exportandoSheets, setExportandoSheets] = useState(false);
   const CONTACTOS_POR_PAGINA = 10;
 
   async function cargar() {
@@ -197,6 +200,14 @@ export function ContactosView({
     setConversacionPorContacto(Object.fromEntries(Object.entries(conversacionesPorContacto).map(([k, v]) => [k, v.id])));
 
     setCargando(false);
+
+    // Solo hace falta para ofrecer "Exportar a Sheets"; si el usuario no
+    // puede exportar, no se pregunta.
+    if (puedeExportar) {
+      const resDrive = await fetch("/api/sheets/conexiones");
+      const dataDrive = await resDrive.json().catch(() => ({}));
+      setConexionesDrive(dataDrive.conexiones ?? []);
+    }
   }
 
   useEffect(() => {
@@ -390,15 +401,23 @@ export function ContactosView({
     router.push(`/conversaciones?conversacion_id=${nueva.id}`);
   }
 
+  // Las columnas visibles y el orden que el usuario tiene en pantalla, que es
+  // lo que se exporta tanto al CSV como a Google Sheets: "exporta lo que ves".
+  function construirExport() {
+    return {
+      encabezados: columnasVisibles.map((c) => etiquetaColumna(c.id)),
+      filas: ordenados.map((c) =>
+        columnasVisibles.map((col) =>
+          valorTextoColumna(col.id, c, etapaDeContacto(c.id), perfiles, camposPersonalizados, valoresPorContacto[c.id] ?? {}),
+        ),
+      ),
+    };
+  }
+
   function descargarCsv() {
     fetch("/api/contactos/exportar", { method: "POST" }).catch(() => {});
 
-    const encabezados = columnasVisibles.map((c) => etiquetaColumna(c.id));
-    const filas = ordenados.map((c) =>
-      columnasVisibles.map((col) =>
-        valorTextoColumna(col.id, c, etapaDeContacto(c.id), perfiles, camposPersonalizados, valoresPorContacto[c.id] ?? {}),
-      ),
-    );
+    const { encabezados, filas } = construirExport();
     const csv = Papa.unparse({ fields: encabezados, data: filas });
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -507,6 +526,14 @@ export function ContactosView({
               className="shrink-0 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-4 py-2 text-sm font-medium text-[var(--color-texto)] transition-opacity hover:opacity-80"
             >
               Descargar CSV
+            </button>
+          )}
+          {puedeExportar && conexionesDrive.length > 0 && (
+            <button
+              onClick={() => setExportandoSheets(true)}
+              className="shrink-0 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-4 py-2 text-sm font-medium text-[var(--color-texto)] transition-opacity hover:opacity-80"
+            >
+              Exportar a Sheets
             </button>
           )}
           <button
@@ -718,6 +745,16 @@ export function ContactosView({
       )}
 
       {llamandoA && <ModalEnviarPlantillaVoz contacto={llamandoA} onCerrar={() => setLlamandoA(null)} />}
+
+      {exportandoSheets && (
+        <ModalExportarSheets
+          conexiones={conexionesDrive}
+          totalContactos={ordenados.length}
+          totalColumnas={columnasVisibles.length}
+          construirExport={construirExport}
+          onCerrar={() => setExportandoSheets(false)}
+        />
+      )}
     </div>
   );
 }
@@ -885,6 +922,111 @@ function ModalEnviarPlantillaVoz({ contacto, onCerrar }: { contacto: Contacto; o
 // Espeja el switch de CeldaContacto pero en texto plano -- para las
 // columnas con Badge/select ahí, aquí se resuelve a la etiqueta legible
 // en vez de JSX, para que el CSV exportado no traiga componentes.
+function ModalExportarSheets({
+  conexiones,
+  totalContactos,
+  totalColumnas,
+  construirExport,
+  onCerrar,
+}: {
+  conexiones: ConexionDrive[];
+  totalContactos: number;
+  totalColumnas: number;
+  construirExport: () => { encabezados: string[]; filas: string[][] };
+  onCerrar: () => void;
+}) {
+  const [conexionId, setConexionId] = useState(conexiones[0]?.id ?? "");
+  const [exportando, setExportando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [resultado, setResultado] = useState<{ url: string; nombre: string; correo: string } | null>(null);
+
+  async function exportar() {
+    setExportando(true);
+    setError(null);
+    const { encabezados, filas } = construirExport();
+    const res = await fetch("/api/sheets/exportar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conexion_id: conexionId, encabezados, filas }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setExportando(false);
+    if (!res.ok) {
+      setError(data.error ?? "No se pudo crear la hoja");
+      return;
+    }
+    setResultado({ url: data.url, nombre: data.nombre, correo: data.correo });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-sm rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6">
+        <h2 className="mb-1 text-base font-semibold text-[var(--color-texto)]">Exportar a Google Sheets</h2>
+
+        {resultado ? (
+          <>
+            <p className="mb-4 text-sm text-[var(--color-texto-mute)]">
+              Se creó <strong className="text-[var(--color-texto)]">{resultado.nombre}</strong> en el Drive de {resultado.correo}.
+            </p>
+            <a
+              href={resultado.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mb-2 block rounded-lg bg-[var(--color-accion)] px-4 py-2 text-center text-sm font-semibold text-[var(--color-accion-fg)]"
+            >
+              Abrir la hoja
+            </a>
+            <button onClick={onCerrar} className="w-full py-2 text-sm font-medium text-[var(--color-texto-mute)] hover:underline">
+              Cerrar
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="mb-4 text-sm text-[var(--color-texto-mute)]">
+              Se crea una hoja nueva con los {totalContactos} contactos de la lista actual y sus {totalColumnas} columnas
+              visibles, en el mismo orden que ves en pantalla.
+            </p>
+
+            {error && <p className="mb-3 text-sm text-red-500">{error}</p>}
+
+            <label className="mb-4 block">
+              <span className="mb-1 block text-xs font-medium text-[var(--color-texto)]">Cuenta de Google</span>
+              <select
+                value={conexionId}
+                onChange={(e) => setConexionId(e.target.value)}
+                className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)]"
+              >
+                {conexiones.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.google_email}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="flex gap-2">
+              <button
+                onClick={onCerrar}
+                className="flex-1 rounded-lg border border-[var(--color-borde)] px-4 py-2 text-sm font-medium text-[var(--color-texto)]"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={exportar}
+                disabled={exportando || !conexionId || totalContactos === 0}
+                style={{ boxShadow: "var(--halo-accion)" }}
+                className="flex-1 rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] disabled:opacity-50"
+              >
+                {exportando ? "Creando…" : "Exportar"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function valorTextoColumna(
   columnaId: string,
   contacto: Contacto,
