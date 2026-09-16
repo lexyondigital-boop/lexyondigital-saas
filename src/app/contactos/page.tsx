@@ -14,6 +14,7 @@ export default async function ContactosPage() {
         cuentaId={perfil.cuenta_id}
         puedeExportar={!!permisos.export_contacts}
         puedeExportarSheets={!!permisos.export_sheets}
+        puedeImportarSheets={!!permisos.import_sheets}
         puedeVerConversaciones={!!permisos.view_conversations}
       />
     </AppShell>
