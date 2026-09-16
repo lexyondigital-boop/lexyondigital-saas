@@ -9,6 +9,7 @@ import { CampoTelefono } from "@/components/CampoTelefono";
 import { SelectorEtiquetasPopover, type EtiquetaCatalogo } from "@/components/SelectorEtiquetasPopover";
 import type { CampoPersonalizado } from "@/lib/campos-personalizados";
 import { actualizarEtiquetasContacto, etiquetasCambiaron } from "@/lib/etiquetas-contacto";
+import { abrirSelectorDeHojas } from "@/lib/google-picker";
 
 type Contacto = {
   id: string;
@@ -111,11 +112,13 @@ export function ContactosView({
   cuentaId,
   puedeExportar = false,
   puedeExportarSheets = false,
+  puedeImportarSheets = false,
   puedeVerConversaciones = false,
 }: {
   cuentaId: string;
   puedeExportar?: boolean;
   puedeExportarSheets?: boolean;
+  puedeImportarSheets?: boolean;
   puedeVerConversaciones?: boolean;
 }) {
   const supabase = createClient();
@@ -147,6 +150,7 @@ export function ContactosView({
   const [pagina, setPagina] = useState(1);
   const [conexionesDrive, setConexionesDrive] = useState<ConexionDrive[]>([]);
   const [exportandoSheets, setExportandoSheets] = useState(false);
+  const [importandoSheets, setImportandoSheets] = useState(false);
   const CONTACTOS_POR_PAGINA = 10;
 
   async function cargar() {
@@ -203,9 +207,9 @@ export function ContactosView({
 
     setCargando(false);
 
-    // Solo hace falta para ofrecer "Exportar a Sheets"; si el usuario no
-    // tiene ese permiso, no se pregunta.
-    if (puedeExportarSheets) {
+    // Solo hace falta para ofrecer las acciones de Sheets; si el usuario no
+    // tiene ninguno de los dos permisos, no se pregunta.
+    if (puedeExportarSheets || puedeImportarSheets) {
       const resDrive = await fetch("/api/sheets/conexiones");
       const dataDrive = await resDrive.json().catch(() => ({}));
       setConexionesDrive(dataDrive.conexiones ?? []);
@@ -538,6 +542,14 @@ export function ContactosView({
               Exportar a Sheets
             </button>
           )}
+          {puedeImportarSheets && conexionesDrive.length > 0 && (
+            <button
+              onClick={() => setImportandoSheets(true)}
+              className="shrink-0 rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-4 py-2 text-sm font-medium text-[var(--color-texto)] transition-opacity hover:opacity-80"
+            >
+              Importar desde Sheets
+            </button>
+          )}
           <button
             onClick={() => {
               setEditando(null);
@@ -755,6 +767,19 @@ export function ContactosView({
           totalColumnas={columnasVisibles.length}
           construirExport={construirExport}
           onCerrar={() => setExportandoSheets(false)}
+        />
+      )}
+
+      {importandoSheets && (
+        <ModalImportarSheets
+          conexiones={conexionesDrive}
+          camposPersonalizados={camposPersonalizados}
+          perfiles={perfiles}
+          onCerrar={() => setImportandoSheets(false)}
+          onImportado={() => {
+            setImportandoSheets(false);
+            cargar();
+          }}
         />
       )}
     </div>
@@ -1525,5 +1550,316 @@ function CampoPersonalizadoInput({
       {etiqueta}
       <input type={tipoInput} value={valor} onChange={(e) => onCambio(e.target.value)} className={inputClase} />
     </label>
+  );
+}
+
+// Importación desde Google Sheets. Son dos caminos que terminan igual: crear
+// aquí la hoja con el layout que la importación sabe leer (el equivalente a
+// "Descargar plantilla CSV"), o elegir con el selector de Google una hoja que
+// el usuario ya tenía. En ambos casos la lectura la hace el servidor.
+function ModalImportarSheets({
+  conexiones,
+  camposPersonalizados,
+  perfiles,
+  onCerrar,
+  onImportado,
+}: {
+  conexiones: ConexionDrive[];
+  camposPersonalizados: CampoPersonalizado[];
+  perfiles: PerfilLite[];
+  onCerrar: () => void;
+  onImportado: () => void;
+}) {
+  const columnasOpcionales = useMemo(
+    () => [
+      { clave: "nombre_completo", etiqueta: "Nombre completo" },
+      { clave: "correo_electronico", etiqueta: "Correo electrónico" },
+      { clave: "etiquetas", etiqueta: "Etiquetas" },
+      ...camposPersonalizados.filter((c) => !c.es_fijo).map((c) => ({ clave: `campo:${c.id}`, etiqueta: c.nombre })),
+    ],
+    [camposPersonalizados],
+  );
+
+  const [conexionId, setConexionId] = useState(conexiones[0]?.id ?? "");
+  const [columnasElegidas, setColumnasElegidas] = useState<Set<string>>(() => new Set(columnasOpcionales.map((c) => c.clave)));
+  const [creandoPlantilla, setCreandoPlantilla] = useState(false);
+  const [plantilla, setPlantilla] = useState<{ url: string; nombre: string } | null>(null);
+  const [hoja, setHoja] = useState<{ id: string; nombre: string } | null>(null);
+  const [abriendoSelector, setAbriendoSelector] = useState(false);
+  const [asignadoA, setAsignadoA] = useState("");
+  const [actualizarExistentes, setActualizarExistentes] = useState(true);
+  const [importando, setImportando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [resultado, setResultado] = useState<{
+    importados: number;
+    actualizados: number;
+    omitidos: { fila: number; motivo: string }[];
+    columnas_ignoradas: string[];
+  } | null>(null);
+
+  function alternarColumna(clave: string) {
+    setColumnasElegidas((actuales) => {
+      const copia = new Set(actuales);
+      if (copia.has(clave)) copia.delete(clave);
+      else copia.add(clave);
+      return copia;
+    });
+  }
+
+  async function crearPlantilla() {
+    setCreandoPlantilla(true);
+    setError(null);
+    const res = await fetch("/api/sheets/plantilla", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conexion_id: conexionId, columnas: [...columnasElegidas] }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setCreandoPlantilla(false);
+    if (!res.ok) {
+      setError(data.error ?? "No se pudo crear la hoja");
+      return;
+    }
+    setPlantilla({ url: data.url, nombre: data.nombre });
+    // La hoja que se acaba de crear queda seleccionada: el usuario la llena
+    // en Google, vuelve a esta pantalla y le da importar sin buscarla.
+    setHoja({ id: data.spreadsheet_id, nombre: data.nombre });
+  }
+
+  async function elegirHoja() {
+    setAbriendoSelector(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/sheets/token-picker", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conexion_id: conexionId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "No se pudo abrir el selector de Google");
+        return;
+      }
+
+      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
+      if (!apiKey) {
+        setError("Falta configurar NEXT_PUBLIC_GOOGLE_API_KEY para poder abrir el selector de Google.");
+        return;
+      }
+
+      const elegida = await abrirSelectorDeHojas({ accessToken: data.access_token, apiKey });
+      if (elegida) {
+        setPlantilla(null);
+        setHoja(elegida);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo abrir el selector de Google");
+    } finally {
+      setAbriendoSelector(false);
+    }
+  }
+
+  async function importar() {
+    if (!hoja) return;
+    setImportando(true);
+    setError(null);
+    const res = await fetch("/api/sheets/importar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conexion_id: conexionId,
+        spreadsheet_id: hoja.id,
+        actualizar_existentes: actualizarExistentes,
+        asignado_a: asignadoA || null,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setImportando(false);
+    if (!res.ok) {
+      setError(data.error ?? "No se pudieron importar los contactos");
+      return;
+    }
+    setResultado({
+      importados: data.importados ?? 0,
+      actualizados: data.actualizados ?? 0,
+      omitidos: data.omitidos ?? [],
+      columnas_ignoradas: data.columnas_ignoradas ?? [],
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-[var(--color-borde)] bg-[var(--color-tarjeta)] p-6">
+        <h2 className="mb-4 text-base font-semibold text-[var(--color-texto)]">Importar desde Google Sheets</h2>
+
+        {resultado ? (
+          <div className="space-y-3">
+            <p className="text-sm text-[var(--color-texto)]">
+              Se importaron <strong>{resultado.importados}</strong> contactos nuevos y se actualizaron{" "}
+              <strong>{resultado.actualizados}</strong>.
+            </p>
+            {resultado.columnas_ignoradas.length > 0 && (
+              <p className="text-sm text-[var(--color-texto-mute)]">
+                Columnas que no corresponden a ningún campo y se ignoraron: {resultado.columnas_ignoradas.join(", ")}.
+              </p>
+            )}
+            {resultado.omitidos.length > 0 && (
+              <div className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-3">
+                <p className="mb-1.5 text-sm font-medium text-[var(--color-texto)]">
+                  {resultado.omitidos.length} fila{resultado.omitidos.length === 1 ? "" : "s"} sin importar
+                </p>
+                <ul className="max-h-40 space-y-0.5 overflow-y-auto text-xs text-[var(--color-texto-mute)]">
+                  {resultado.omitidos.map((o) => (
+                    <li key={o.fila}>
+                      Fila {o.fila}: {o.motivo}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <button
+              onClick={onImportado}
+              style={{ boxShadow: "var(--halo-accion)" }}
+              className="w-full rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)]"
+            >
+              Listo
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-[var(--color-texto)]">Cuenta de Google</span>
+              <select
+                value={conexionId}
+                onChange={(e) => {
+                  setConexionId(e.target.value);
+                  setHoja(null);
+                  setPlantilla(null);
+                }}
+                className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)]"
+              >
+                {conexiones.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.google_email}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div>
+              <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Columnas de la hoja nueva</span>
+              <div className="space-y-1">
+                <label className="flex items-center gap-2 text-sm text-[var(--color-texto-mute)]">
+                  <input type="checkbox" checked disabled />
+                  Teléfono (siempre incluido)
+                </label>
+                {columnasOpcionales.map((c) => (
+                  <label key={c.clave} className="flex items-center gap-2 text-sm text-[var(--color-texto)]">
+                    <input type="checkbox" checked={columnasElegidas.has(c.clave)} onChange={() => alternarColumna(c.clave)} />
+                    {c.etiqueta}
+                  </label>
+                ))}
+              </div>
+              <button
+                onClick={crearPlantilla}
+                disabled={creandoPlantilla || !conexionId}
+                className="mt-2 text-sm font-medium text-[var(--color-marca)] hover:underline disabled:opacity-60"
+              >
+                {creandoPlantilla ? "Creando la hoja…" : "Crear la hoja en Drive"}
+              </button>
+            </div>
+
+            {plantilla && (
+              <div className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] p-3 text-sm">
+                <p className="mb-2 text-[var(--color-texto)]">
+                  Se creó <strong>{plantilla.nombre}</strong>. Llénala en Google, vuelve aquí e impórtala.
+                </p>
+                <a
+                  href={plantilla.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-[var(--color-marca)] hover:underline"
+                >
+                  Abrir la hoja
+                </a>
+              </div>
+            )}
+
+            <div>
+              <span className="mb-1.5 block text-sm font-medium text-[var(--color-texto)]">Hoja a importar</span>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={elegirHoja}
+                  disabled={abriendoSelector || !conexionId}
+                  className="rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm font-medium text-[var(--color-texto)] transition-colors hover:bg-[var(--color-tarjeta)] disabled:opacity-60"
+                >
+                  {abriendoSelector ? "Abriendo…" : "Elegir una hoja de mi Drive"}
+                </button>
+                <span className={`truncate text-sm ${hoja ? "font-medium text-[var(--color-en-vivo)]" : "text-[var(--color-texto-mute)]"}`}>
+                  {hoja ? `✓ ${hoja.nombre}` : "Ninguna hoja seleccionada"}
+                </span>
+              </div>
+              <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
+                Se lee la primera pestaña: la primera fila son los encabezados y el resto, los contactos. Los teléfonos se
+                normalizan a 521 + 10 dígitos.
+              </span>
+            </div>
+
+            {perfiles.length > 0 && (
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-[var(--color-texto)]">Asignar a (opcional)</span>
+                <select
+                  value={asignadoA}
+                  onChange={(e) => setAsignadoA(e.target.value)}
+                  className="w-full rounded-lg border border-[var(--color-borde)] bg-[var(--color-bg-elevada)] px-3 py-2 text-sm text-[var(--color-texto)]"
+                >
+                  <option value="">Sin asignar</option>
+                  {perfiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nombre ?? "Sin nombre"}
+                    </option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-xs text-[var(--color-texto-mute)]">
+                  Solo aplica a los contactos que se creen nuevos con esta hoja.
+                </span>
+              </label>
+            )}
+
+            <label className="flex items-start gap-2 text-sm text-[var(--color-texto)]">
+              <input
+                type="checkbox"
+                checked={actualizarExistentes}
+                onChange={(e) => setActualizarExistentes(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                Si un teléfono ya existe, actualizar sus datos con lo que traiga la hoja (nombre completo, correo, etiquetas,
+                variables). El Nombre (WhatsApp) nunca se toca -- ese se autocaptura solo.
+              </span>
+            </label>
+
+            {error && <p className="text-sm text-red-500">{error}</p>}
+
+            <div className="flex gap-2">
+              <button
+                onClick={onCerrar}
+                className="flex-1 rounded-lg border border-[var(--color-borde)] px-4 py-2 text-sm font-medium text-[var(--color-texto)]"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={importar}
+                disabled={importando || !hoja || !conexionId}
+                style={{ boxShadow: "var(--halo-accion)" }}
+                className="flex-1 rounded-lg bg-[var(--color-accion)] px-4 py-2 text-sm font-semibold text-[var(--color-accion-fg)] disabled:opacity-50"
+              >
+                {importando ? "Importando…" : "Importar"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

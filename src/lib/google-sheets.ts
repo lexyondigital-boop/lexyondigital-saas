@@ -102,3 +102,50 @@ export async function crearHojaConDatos({
 
   return { spreadsheetId, url };
 }
+
+// Hoja vacía con solo los encabezados, para que el usuario la llene a mano
+// en Google y después la importe. Es el equivalente de "Descargar plantilla
+// CSV" del flujo de campañas.
+export async function crearHojaPlantilla({
+  accessToken,
+  nombre,
+  encabezados,
+}: {
+  accessToken: string;
+  nombre: string;
+  encabezados: string[];
+}): Promise<{ spreadsheetId: string; url: string }> {
+  return crearHojaConDatos({ accessToken, nombre, encabezados, filas: [] });
+}
+
+// Lee la primera pestaña completa. Devuelve las filas tal cual, con la
+// primera como encabezados, que es justo la forma que espera el resto de la
+// tubería de importación (ver matchearEncabezados en contactos-csv.ts).
+export async function leerFilasDeHoja({
+  accessToken,
+  spreadsheetId,
+}: {
+  accessToken: string;
+  spreadsheetId: string;
+}): Promise<string[][]> {
+  // Se pide el nombre de la primera pestaña en vez de asumir "Contactos": el
+  // usuario pudo renombrarla, o estar importando una hoja que no creamos
+  // nosotros -- que es justamente para lo que sirve el Picker.
+  const meta = await googleFetch(`${SHEETS_API}/${spreadsheetId}?fields=sheets.properties.title`, accessToken);
+  const pestana = meta?.sheets?.[0]?.properties?.title as string | undefined;
+  if (!pestana) throw new Error("La hoja no tiene ninguna pestaña");
+
+  // UNFORMATTED_VALUE devuelve el dato como lo tiene la celda y no como se
+  // ve: un teléfono que Google decidió mostrar en notación científica se lee
+  // completo. FORMATTED_VALUE traería "5.21999E+12" y el contacto entraría mal.
+  const datos = await googleFetch(
+    `${SHEETS_API}/${spreadsheetId}/values/${encodeURIComponent(pestana)}?valueRenderOption=UNFORMATTED_VALUE`,
+    accessToken,
+  );
+
+  const filas = (datos?.values ?? []) as unknown[][];
+  // Se normaliza a texto porque procesarFilaCsv espera strings: los números
+  // que Google devuelve como tales (un teléfono sin el + inicial, por
+  // ejemplo) llegarían como number y romperían el .trim() de más abajo.
+  return filas.map((fila) => fila.map((celda) => (celda == null ? "" : String(celda))));
+}

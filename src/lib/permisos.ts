@@ -58,6 +58,7 @@ export const LABEL_ACCION: Record<string, string> = {
   load_campaign_contacts: "Cargó contactos a una campaña",
   export_contacts: "Exportó contactos a CSV",
   export_contacts_sheets: "Exportó contactos a Google Sheets",
+  import_contacts_sheets: "Importó contactos desde Google Sheets",
   connect_google_drive: "Conectó una cuenta de Google Drive",
   disconnect_google_drive: "Desconectó una cuenta de Google Drive",
   disconnect_email: "Desconectó el correo de la cuenta",
